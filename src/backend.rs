@@ -330,7 +330,7 @@ fn friendly_error(raw: &str) -> String {
         || tail.contains("confirm you’re not a bot")
         || tail.contains("confirm you're not a bot")
     {
-        "YouTube requires sign-in or a verification check. Open YouTube session and import a fresh cookies.txt export from your own signed-in YouTube session, then retry. YouTube may still restrict this connection or video.".into()
+        "YouTube requires sign-in or a verification check. Open YouTube session to import from Firefox automatically, or choose a fresh cookies.txt export, then retry. YouTube may still restrict this connection or video.".into()
     } else {
         tail.trim_start_matches("ERROR: ").to_owned()
     }

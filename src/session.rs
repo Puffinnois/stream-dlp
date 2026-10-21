@@ -27,7 +27,7 @@ impl SessionCookies {
         Self::parse(&text)
     }
 
-    fn parse(text: &str) -> Result<Self, String> {
+    pub(crate) fn parse(text: &str) -> Result<Self, String> {
         let text = text.trim_start_matches('\u{feff}');
         let mut lines = text.lines();
         if !matches!(
