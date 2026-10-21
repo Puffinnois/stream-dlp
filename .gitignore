@@ -1,0 +1,5 @@
+/target/
+/dist/
+/tools/
+/test-output/
+*.part

@@ -1,0 +1,1000 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod backend;
+mod export_help;
+mod session;
+
+use backend::{Event, Video};
+use eframe::egui::{self, Color32, RichText, Vec2};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::Duration,
+};
+
+const BLUE: Color32 = Color32::from_rgb(34, 105, 232);
+const INK: Color32 = Color32::from_rgb(29, 42, 62);
+const MUTED: Color32 = Color32::from_rgb(112, 126, 146);
+const BORDER: Color32 = Color32::from_rgb(227, 233, 241);
+
+#[derive(PartialEq)]
+enum Phase {
+    Idle,
+    Inspecting,
+    Choosing,
+    Picking,
+    Downloading,
+    Done,
+}
+
+struct App {
+    link: String,
+    loaded_link: String,
+    video: Option<Video>,
+    selected: usize,
+    filter: usize,
+    phase: Phase,
+    tx: mpsc::Sender<Event>,
+    rx: mpsc::Receiver<Event>,
+    folder_tx: mpsc::Sender<Option<PathBuf>>,
+    folder_rx: mpsc::Receiver<Option<PathBuf>>,
+    cancel: Arc<AtomicBool>,
+    error: Option<String>,
+    status: String,
+    progress: f32,
+    destination: Option<PathBuf>,
+    saved: Option<PathBuf>,
+    about: bool,
+    closing: bool,
+    session: Option<session::SessionCookies>,
+    session_window: bool,
+    session_loading: bool,
+    session_error: Option<String>,
+    session_tx: mpsc::Sender<Option<SessionImport>>,
+    session_rx: mpsc::Receiver<Option<SessionImport>>,
+    session_folder: PathBuf,
+    session_file: Option<PathBuf>,
+    export_guide: bool,
+    export_browser: usize,
+    export_step: usize,
+    log: std::collections::VecDeque<String>,
+}
+
+struct SessionImport {
+    path: PathBuf,
+    cookies: Result<session::SessionCookies, String>,
+}
+
+impl App {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let ctx = &cc.egui_ctx;
+        // Use the Windows UI typeface when present, with egui's bundled fallback.
+        let mut fonts = egui::FontDefinitions::default();
+        if let Ok(data) = std::fs::read("C:\\Windows\\Fonts\\segoeui.ttf") {
+            fonts
+                .font_data
+                .insert("Segoe UI".into(), egui::FontData::from_owned(data).into());
+            fonts
+                .families
+                .get_mut(&egui::FontFamily::Proportional)
+                .unwrap()
+                .insert(0, "Segoe UI".into());
+        }
+        ctx.set_fonts(fonts);
+        let mut style = (*ctx.style()).clone();
+        style.visuals = egui::Visuals::light();
+        style.visuals.override_text_color = Some(INK);
+        style.visuals.panel_fill = Color32::from_rgb(247, 249, 252);
+        style.visuals.window_fill = Color32::WHITE;
+        style.visuals.selection.bg_fill = BLUE;
+        style.visuals.selection.stroke.color = Color32::WHITE;
+        style.visuals.widgets.inactive.bg_fill = Color32::WHITE;
+        style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1., BORDER);
+        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(237, 244, 255);
+        style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1., BLUE);
+        style.visuals.widgets.active.bg_fill = Color32::from_rgb(223, 235, 255);
+        style.spacing.item_spacing = Vec2::new(12., 12.);
+        style.spacing.button_padding = Vec2::new(18., 10.);
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, egui::FontId::proportional(15.));
+        ctx.set_style(style);
+        let (tx, rx) = mpsc::channel();
+        let (folder_tx, folder_rx) = mpsc::channel();
+        let (session_tx, session_rx) = mpsc::channel();
+        Self {
+            link: String::new(),
+            loaded_link: String::new(),
+            video: None,
+            selected: 0,
+            filter: 0,
+            phase: Phase::Idle,
+            tx,
+            rx,
+            folder_tx,
+            folder_rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            error: None,
+            status: String::new(),
+            progress: 0.,
+            destination: None,
+            saved: None,
+            about: false,
+            closing: false,
+            session: None,
+            session_window: false,
+            session_loading: false,
+            session_error: None,
+            session_tx,
+            session_rx,
+            session_folder: export_help::export_folder(),
+            session_file: None,
+            export_guide: false,
+            export_browser: 0,
+            export_step: 0,
+            log: Default::default(),
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.session_loading
+            || matches!(
+                self.phase,
+                Phase::Inspecting | Phase::Picking | Phase::Downloading
+            )
+    }
+    fn inspect(&mut self) {
+        match backend::normalize_url(&self.link) {
+            Err(error) => self.error = Some(error),
+            Ok(link) => {
+                self.loaded_link = link.clone();
+                self.error = None;
+                self.video = None;
+                self.saved = None;
+                self.log.clear();
+                self.phase = Phase::Inspecting;
+                self.cancel = Arc::new(AtomicBool::new(false));
+                let (tx, cancel) = (self.tx.clone(), self.cancel.clone());
+                let session = self.session.clone();
+                std::thread::spawn(move || backend::inspect(link, session, tx, cancel));
+            }
+        }
+    }
+    fn poll(&mut self) {
+        if let Ok(result) = self.session_rx.try_recv() {
+            self.session_loading = false;
+            if let Some(import) = result {
+                if let Some(folder) = import.path.parent() {
+                    self.session_folder = folder.to_path_buf();
+                }
+                match import.cookies {
+                    Ok(session) => {
+                        self.session = Some(session);
+                        self.session_file = Some(import.path);
+                        self.session_error = None;
+                        self.error = None;
+                        self.video = None;
+                        self.saved = None;
+                        self.phase = Phase::Idle;
+                        self.session_window = false;
+                        if backend::normalize_url(&self.link).is_ok() && backend::tools_ready() {
+                            self.inspect();
+                        }
+                    }
+                    Err(error) => self.session_error = Some(error),
+                }
+            }
+        }
+        while let Ok(event) = self.rx.try_recv() {
+            match event {
+                Event::Loaded(video) => {
+                    self.video = Some(video);
+                    self.selected = 0;
+                    self.filter = 0;
+                    self.phase = Phase::Choosing;
+                }
+                Event::Line(line) => {
+                    if let Some((fraction, status)) = backend::progress(&line) {
+                        self.progress = fraction;
+                        self.status = status;
+                    } else if line.contains("[Merger]") || line.contains("[Fixup") {
+                        self.status = "Finishing your file · combining video and audio…".into();
+                    }
+                    if self.log.len() >= 40 {
+                        self.log.pop_front();
+                    }
+                    self.log.push_back(line);
+                }
+                Event::Complete(path) => {
+                    self.saved = Some(path);
+                    self.progress = 1.;
+                    self.phase = Phase::Done;
+                    self.status = "Your download is ready.".into();
+                }
+                Event::Failed(error) => {
+                    self.error = Some(error);
+                    self.phase = if self.video.is_some() {
+                        Phase::Choosing
+                    } else {
+                        Phase::Idle
+                    };
+                }
+                Event::Cancelled => {
+                    self.phase = if self.video.is_some() {
+                        Phase::Choosing
+                    } else {
+                        Phase::Idle
+                    };
+                    self.status =
+                        "Cancelled. Partial downloads can be resumed by choosing the same folder."
+                            .into();
+                }
+            }
+        }
+        if let Ok(folder) = self.folder_rx.try_recv() {
+            if let Some(folder) = folder {
+                self.destination = Some(folder.clone());
+                self.error = None;
+                self.progress = 0.;
+                self.status = "Connecting to YouTube…".into();
+                self.log.clear();
+                self.phase = Phase::Downloading;
+                self.cancel = Arc::new(AtomicBool::new(false));
+                let (link, format, tx, cancel) = (
+                    self.loaded_link.clone(),
+                    self.video.as_ref().unwrap().formats[self.selected].clone(),
+                    self.tx.clone(),
+                    self.cancel.clone(),
+                );
+                let session = self.session.clone();
+                std::thread::spawn(move || {
+                    backend::download(link, format, folder, session, tx, cancel)
+                });
+            } else {
+                self.phase = Phase::Choosing;
+            }
+        }
+    }
+    fn choose_folder(&mut self) {
+        self.phase = Phase::Picking;
+        let tx = self.folder_tx.clone();
+        let folder = self.destination.clone();
+        std::thread::spawn(move || {
+            let mut dialog =
+                rfd::FileDialog::new().set_title("Where should we save your download?");
+            if let Some(folder) = folder {
+                dialog = dialog.set_directory(folder);
+            }
+            let _ = tx.send(dialog.pick_folder());
+        });
+    }
+    fn import_session(&mut self, folder: PathBuf) {
+        self.session_loading = true;
+        self.session_error = None;
+        let tx = self.session_tx.clone();
+        std::thread::spawn(move || {
+            let result = rfd::FileDialog::new()
+                .set_title("Choose your YouTube cookies.txt export")
+                .add_filter("Netscape cookie export", &["txt"])
+                .set_directory(export_help::picker_folder(&folder))
+                .pick_file()
+                .map(|path| SessionImport {
+                    cookies: session::SessionCookies::load(&path),
+                    path,
+                });
+            let _ = tx.send(result);
+        });
+    }
+    fn session_dialog(&mut self, ctx: &egui::Context) {
+        let mut open = self.session_window;
+        egui::Window::new("YouTube session").open(&mut open).resizable(false).default_width(520.).default_height(650.).show(ctx, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.;
+            ui.spacing_mut().button_padding = Vec2::new(12., 7.);
+            egui::ScrollArea::vertical().max_height(620.).show(ui, |ui| {
+                ui.label(RichText::new("Connect your YouTube session").size(21.).strong());
+                ui.label("Use your own signed-in session for videos and Shorts.");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.export_guide, false, "I have a cookies file");
+                    ui.selectable_value(&mut self.export_guide, true, "Help me export cookies");
+                });
+                ui.separator();
+                if self.export_guide { self.export_instructions(ui); }
+                else {
+                    ui.label("Choose the .txt file exported from YouTube. The app checks its format and YouTube cookies before using it.");
+                    self.session_file_controls(ui, false);
+                }
+                ui.add_space(8.);
+                ui.label(RichText::new("Your link retries after a valid import. Session access lasts until you remove it or close the app. Your original export is kept unchanged.").size(12.).color(MUTED));
+                ui.label(RichText::new("Cookies act like a sign-in. Use your own export and keep it private.").size(12.).color(MUTED));
+                if self.session_loading { ui.horizontal(|ui| { ui.spinner(); ui.label("Choose your session export…"); }); }
+                if self.session.is_some() {
+                    ui.colored_label(Color32::from_rgb(31, 139, 99), "YouTube session loaded");
+                    if let Some(path) = &self.session_file { ui.label(RichText::new(path.display().to_string()).size(12.).color(MUTED)); }
+                    if ui.add_enabled(!self.busy(), egui::Button::new("Remove session")).clicked() {
+                        self.session = None;
+                        self.session_file = None;
+                        self.session_error = None;
+                        self.video = None;
+                        self.saved = None;
+                        self.error = None;
+                        self.status.clear();
+                        self.log.clear();
+                        self.phase = Phase::Idle;
+                    }
+                }
+                if let Some(error) = &self.session_error { ui.colored_label(Color32::from_rgb(175, 46, 57), error); }
+            });
+        });
+        self.session_window = open;
+    }
+
+    fn session_file_controls(&mut self, ui: &mut egui::Ui, guided: bool) {
+        let folder = if guided {
+            export_help::export_folder()
+        } else {
+            self.session_folder.clone()
+        };
+        ui.label(
+            RichText::new(format!(
+                "Look in: {}",
+                export_help::picker_folder(&folder).display()
+            ))
+            .size(12.)
+            .color(MUTED),
+        );
+        ui.add_enabled_ui(!self.busy(), |ui| {
+            if primary(ui, "Choose exported .txt file", true).clicked() {
+                self.import_session(folder);
+            }
+            if ui.button("Look in Downloads instead").clicked() {
+                self.import_session(export_help::downloads_folder());
+            }
+        });
+        ui.label(RichText::new("If the browser saved it automatically, open its Downloads list (Ctrl+J) and use Show in folder. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports.").size(12.).color(MUTED));
+    }
+
+    fn export_instructions(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            for (step, label) in ["1  Browser", "2  Export", "3  Select file"]
+                .iter()
+                .enumerate()
+            {
+                ui.selectable_value(&mut self.export_step, step, *label);
+            }
+        });
+        match self.export_step {
+            0 => {
+                ui.label(RichText::new("Choose the browser you use for YouTube").strong());
+                egui::ComboBox::from_id_salt("export_browser")
+                    .selected_text(if self.export_browser == 0 {
+                        "Chrome / Edge"
+                    } else {
+                        "Firefox"
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.export_browser, 0, "Chrome / Edge");
+                        ui.selectable_value(&mut self.export_browser, 1, "Firefox");
+                    });
+                ui.label("Open this official store page in the selected browser. If needed, install the exporter yourself:");
+                if self.export_browser == 0 {
+                    ui.hyperlink_to(
+                        "Get cookies.txt LOCALLY · Chrome Web Store",
+                        export_help::CHROME_EXPORTER,
+                    );
+                    ui.label("Edge users: if the Chrome extension cannot be installed, use Firefox and its exporter instead.");
+                } else {
+                    ui.hyperlink_to(
+                        "cookies.txt by Lennon Hill · Firefox Add-ons",
+                        export_help::FIREFOX_EXPORTER,
+                    );
+                }
+                ui.label("For the private-window export below, allow the exporter in private / incognito windows from your browser’s extension settings.");
+            }
+            1 => {
+                ui.label(RichText::new("Export only your YouTube session").strong());
+                ui.label("1. Open a new private / incognito window, sign in to YouTube, and complete any verification yourself.");
+                ui.hyperlink_to("YouTube sign-in page", "https://www.youtube.com/");
+                ui.label(
+                    "2. In that same tab, open the page below. Keep it as the only private tab.",
+                );
+                ui.hyperlink_to(
+                    "youtube.com/robots.txt",
+                    "https://www.youtube.com/robots.txt",
+                );
+                ui.label(if self.export_browser == 0 { "3. Open Get cookies.txt LOCALLY and export cookies for youtube.com / this site in Netscape format." } else { "3. Open cookies.txt from the browser toolbar and export the current YouTube site in Netscape format." });
+                ui.label("4. Save the file below, then close the private window. Use Open export folder to create and open the suggested folder first.");
+                let folder = export_help::export_folder();
+                ui.label(
+                    RichText::new(format!(
+                        "Save as: {}",
+                        folder.join(export_help::EXPORT_NAME).display()
+                    ))
+                    .strong(),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Open export folder").clicked() {
+                        let result = std::fs::create_dir_all(&folder).and_then(|_| backend::hidden(std::process::Command::new("explorer.exe").arg(&folder)).spawn().map(|_| ()));
+                        if result.is_err() { self.session_error = Some("Could not open the export folder. Save the file to Downloads and choose it in the next step.".into()); }
+                    }
+                    if ui.button("Copy folder path").clicked() { ui.ctx().copy_text(folder.display().to_string()); }
+                });
+                ui.label(RichText::new("If no Save As window appears, the file probably went into Downloads. Use Ctrl+J in the browser to find its location.").size(12.).color(MUTED));
+            }
+            _ => {
+                ui.label(RichText::new("Select the file you just exported").strong());
+                ui.label("Look for youtube-cookies.txt, cookies.txt, or a YouTube-named .txt export. Use the latest export if several files have similar names.");
+                self.session_file_controls(ui, true);
+            }
+        }
+        ui.add_space(6.);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(self.export_step > 0, egui::Button::new("Back"))
+                .clicked()
+            {
+                self.export_step -= 1;
+            }
+            if self.export_step < 2 && primary(ui, "Next", true).clicked() {
+                self.export_step += 1;
+            }
+        });
+        ui.hyperlink_to(
+            "Full instructions from yt-dlp",
+            "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies",
+        );
+    }
+    fn sidebar(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("sidebar")
+            .exact_width(190.)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::WHITE)
+                    .inner_margin(24)
+                    .stroke(egui::Stroke::new(1., BORDER)),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(14.);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("↓").size(32.).color(BLUE).strong());
+                    ui.label(RichText::new("stream-dlp").size(21.).strong());
+                });
+                ui.add_space(6.);
+                ui.label(
+                    RichText::new("A little less friction.")
+                        .size(12.)
+                        .color(MUTED),
+                );
+                ui.add_space(46.);
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(234, 241, 255))
+                    .corner_radius(8)
+                    .inner_margin(12)
+                    .show(ui, |ui| {
+                        ui.set_width(116.);
+                        ui.label(RichText::new("↓   Download").color(BLUE).strong());
+                    });
+                ui.add_space(24.);
+                let step = match self.phase {
+                    Phase::Idle | Phase::Inspecting => 0,
+                    Phase::Choosing | Phase::Picking => 1,
+                    _ => 2,
+                };
+                for (i, text) in ["Paste a link", "Choose quality", "Save your video"]
+                    .iter()
+                    .enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{:02}", i + 1))
+                                .color(if i <= step { BLUE } else { MUTED })
+                                .strong(),
+                        );
+                        ui.label(RichText::new(*text).size(13.).color(if i == step {
+                            INK
+                        } else {
+                            MUTED
+                        }));
+                    });
+                    ui.add_space(6.);
+                }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.label(
+                        RichText::new(concat!("Made with Rust · v", env!("CARGO_PKG_VERSION")))
+                            .size(11.)
+                            .color(MUTED),
+                    );
+                    if ui.small_button("About & tools").clicked() {
+                        self.about = true;
+                    }
+                });
+            });
+    }
+    fn content(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(6.);
+        ui.label(RichText::new("Your next video, saved.").size(30.).strong());
+        ui.label(
+            RichText::new("The quality you want. The folder you choose.")
+                .size(15.)
+                .color(MUTED),
+        );
+        ui.add_space(18.);
+        card(ui, |ui| {
+            ui.label(
+                RichText::new("01   VIDEO LINK")
+                    .size(11.)
+                    .color(MUTED)
+                    .strong(),
+            );
+            ui.add_space(2.);
+            ui.horizontal(|ui| {
+                let busy = self.busy();
+                let width = (ui.available_width() - 140.).max(100.);
+                let response = ui.add_enabled(
+                    !busy,
+                    egui::TextEdit::singleline(&mut self.link)
+                        .hint_text("Paste a YouTube link here")
+                        .desired_width(width)
+                        .margin(Vec2::new(12., 12.)),
+                );
+                let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if primary(
+                    ui,
+                    "Find video",
+                    !busy && !self.link.trim().is_empty() && backend::tools_ready(),
+                )
+                .clicked()
+                    || (enter && !busy && backend::tools_ready())
+                {
+                    self.inspect();
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("Videos, Shorts, and shared links supported.")
+                        .size(12.)
+                        .color(MUTED),
+                );
+                if ui
+                    .add_enabled(
+                        !self.busy(),
+                        egui::Button::new(if self.session.is_some() {
+                            "YouTube session · loaded"
+                        } else {
+                            "YouTube session"
+                        }),
+                    )
+                    .clicked()
+                {
+                    self.session_window = true;
+                }
+            });
+        });
+        if !backend::tools_ready() {
+            ui.add_space(12.);
+            ui.colored_label(Color32::from_rgb(174, 100, 20), "Download tools are missing. Run Setup tools.ps1 from the app folder, then restart.");
+        }
+        if let Some(error) = self.error.clone() {
+            ui.add_space(12.);
+            egui::Frame::new()
+                .fill(Color32::from_rgb(255, 240, 240))
+                .corner_radius(8)
+                .inner_margin(14)
+                .show(ui, |ui| {
+                    ui.colored_label(Color32::from_rgb(175, 46, 57), error);
+                    if ui
+                        .add_enabled(
+                            !self.busy(),
+                            egui::Button::new("YouTube session / retry help"),
+                        )
+                        .clicked()
+                    {
+                        self.session_window = true;
+                    }
+                });
+        }
+        ui.add_space(18.);
+        if self.phase == Phase::Inspecting {
+            card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Finding your video and available formats…");
+                    if ui.small_button("Cancel").clicked() {
+                        self.cancel.store(true, Ordering::Relaxed);
+                    }
+                });
+            });
+        } else if self.video.is_some() {
+            self.video_card(ui);
+        } else {
+            ui.add_space(36.);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("↓")
+                        .size(62.)
+                        .color(Color32::from_rgb(184, 203, 235)),
+                );
+                ui.add_space(12.);
+                ui.label(RichText::new("Start with a link").size(21.).strong());
+                ui.label(
+                    RichText::new("We’ll find the video and show its available qualities.")
+                        .color(MUTED),
+                );
+                ui.add_space(32.);
+                ui.label(
+                    RichText::new("Your video. Your quality. Your folder.")
+                        .size(12.)
+                        .color(MUTED),
+                );
+            });
+        }
+    }
+    fn video_card(&mut self, ui: &mut egui::Ui) {
+        let video = self.video.as_ref().unwrap().clone();
+        card(ui, |ui| {
+            ui.horizontal(|ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(234, 241, 255))
+                    .corner_radius(12)
+                    .inner_margin(18)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("▶").size(27.).color(BLUE));
+                    });
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(&video.title).size(18.).strong());
+                    let seconds = video.duration.unwrap_or(0.) as u64;
+                    ui.label(
+                        RichText::new(format!(
+                            "{}   ·   {}:{:02}   ·   YouTube",
+                            video.uploader.as_deref().unwrap_or("Unknown creator"),
+                            seconds / 60,
+                            seconds % 60
+                        ))
+                        .size(12.)
+                        .color(MUTED),
+                    );
+                });
+            });
+            ui.add_space(14.);
+            ui.separator();
+            ui.add_space(10.);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("02   CHOOSE QUALITY")
+                        .size(11.)
+                        .color(MUTED)
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(!self.busy(), |ui| {
+                        for (index, name) in [(2, "Audio"), (1, "Video"), (0, "All")] {
+                            if ui.selectable_label(self.filter == index, name).clicked() {
+                                self.filter = index;
+                            }
+                        }
+                    });
+                });
+            });
+            ui.label(
+                RichText::new(
+                    "Available streams · video-only choices are combined with matching audio.",
+                )
+                .size(11.)
+                .color(MUTED),
+            );
+            ui.add_space(4.);
+            egui::ScrollArea::vertical()
+                .id_salt("formats")
+                .max_height(244.)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.add_enabled_ui(!self.busy(), |ui| {
+                        for (index, format) in video.formats.iter().enumerate() {
+                            if (self.filter == 1 && !format.video())
+                                || (self.filter == 2 && format.video())
+                            {
+                                continue;
+                            }
+                            let selected = self.selected == index;
+                            let mut picked = false;
+                            let row = egui::Frame::new()
+                                .fill(if selected {
+                                    Color32::from_rgb(237, 244, 255)
+                                } else {
+                                    Color32::WHITE
+                                })
+                                .stroke(egui::Stroke::new(1., if selected { BLUE } else { BORDER }))
+                                .corner_radius(8)
+                                .inner_margin(10)
+                                .show(ui, |ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        picked |= ui.radio(selected, "").clicked();
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{}   {}",
+                                                    format.quality(),
+                                                    format.ext.to_uppercase()
+                                                ))
+                                                .strong(),
+                                            );
+                                            ui.label(
+                                                RichText::new(format.details())
+                                                    .size(11.)
+                                                    .color(MUTED),
+                                            );
+                                        });
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(format.size())
+                                                        .size(12.)
+                                                        .color(MUTED),
+                                                );
+                                            },
+                                        );
+                                    });
+                                });
+                            if picked
+                                || ui
+                                    .interact(
+                                        row.response.rect,
+                                        ui.id().with(index),
+                                        egui::Sense::click(),
+                                    )
+                                    .clicked()
+                            {
+                                self.selected = index;
+                            }
+                            ui.add_space(2.);
+                        }
+                    });
+                });
+            ui.add_space(8.);
+            let selected = &video.formats[self.selected];
+            ui.label(
+                RichText::new(format!(
+                    "Selected: {} · {}{}",
+                    selected.quality(),
+                    selected.ext.to_uppercase(),
+                    if selected.video() && !selected.audio() {
+                        " + audio (MKV if needed)"
+                    } else {
+                        ""
+                    }
+                ))
+                .size(12.)
+                .color(MUTED),
+            );
+            ui.add_space(8.);
+            match self.phase {
+                Phase::Downloading => {
+                    ui.label(
+                        RichText::new("03   SAVING YOUR VIDEO")
+                            .size(15.)
+                            .color(INK)
+                            .strong(),
+                    );
+                    ui.add(
+                        egui::ProgressBar::new(self.progress)
+                            .desired_width(ui.available_width())
+                            .desired_height(32.)
+                            .corner_radius(8)
+                            .fill(Color32::from_rgb(88, 146, 247))
+                            .text(
+                                RichText::new(format!("{:.0}%", self.progress * 100.))
+                                    .size(18.)
+                                    .strong()
+                                    .color(INK),
+                            )
+                            .animate(true),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label(&self.status);
+                        if ui.small_button("Cancel").clicked() {
+                            self.cancel.store(true, Ordering::Relaxed);
+                            self.status = "Cancelling…".into();
+                        }
+                    });
+                    ui.label(
+                        RichText::new(
+                            "Progress is for the current stream; audio and merging follow.",
+                        )
+                        .size(11.)
+                        .color(MUTED),
+                    );
+                }
+                Phase::Done => {
+                    ui.colored_label(
+                        Color32::from_rgb(31, 139, 99),
+                        RichText::new("✓   Download complete").strong(),
+                    );
+                    if let Some(path) = &self.saved {
+                        ui.label(
+                            RichText::new(path.display().to_string())
+                                .size(12.)
+                                .color(MUTED),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if primary(ui, "Open folder", true).clicked()
+                            && let Some(folder) = &self.destination
+                        {
+                            let _ = backend::hidden(
+                                std::process::Command::new("explorer.exe").arg(folder),
+                            )
+                            .spawn();
+                        }
+                        if ui.button("Download again").clicked() {
+                            self.choose_folder();
+                        }
+                    });
+                }
+                Phase::Picking => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Choose your destination folder…");
+                    });
+                }
+                _ => {
+                    ui.horizontal(|ui| {
+                        if primary(ui, "Choose folder & download   ↓", true).clicked() {
+                            self.choose_folder();
+                        }
+                        ui.label(
+                            RichText::new("You choose where it goes.")
+                                .size(12.)
+                                .color(MUTED),
+                        );
+                    });
+                    if !self.status.is_empty() {
+                        ui.label(RichText::new(&self.status).size(12.).color(MUTED));
+                    }
+                }
+            }
+            if let Some(folder) = &self.destination
+                && self.phase != Phase::Done
+            {
+                ui.label(
+                    RichText::new(format!("Save to: {}", folder.display()))
+                        .size(11.)
+                        .color(MUTED),
+                );
+            }
+        });
+        if !self.log.is_empty() {
+            egui::CollapsingHeader::new("Download details").show(ui, |ui| {
+                for line in &self.log {
+                    ui.label(RichText::new(line).monospace().size(11.).color(MUTED));
+                }
+            });
+        }
+    }
+}
+
+fn primary(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(RichText::new(text).color(Color32::WHITE).strong())
+            .fill(BLUE)
+            .corner_radius(7)
+            .min_size(Vec2::new(0., 42.)),
+    )
+}
+fn card<R>(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Frame::new()
+        .fill(Color32::WHITE)
+        .stroke(egui::Stroke::new(1., BORDER))
+        .corner_radius(12)
+        .inner_margin(20)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            contents(ui)
+        })
+        .inner
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll();
+        if self.busy() {
+            ctx.request_repaint_after(Duration::from_millis(80));
+        }
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.cancel.store(true, Ordering::Relaxed);
+            if self.busy() {
+                self.closing = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+        }
+        if self.closing {
+            self.cancel.store(true, Ordering::Relaxed);
+            if !self.busy() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        self.sidebar(ctx);
+        self.session_dialog(ctx);
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(247, 249, 252))
+                    .inner_margin(30),
+            )
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().id_salt("page").show(ui, |ui| {
+                    self.content(ui);
+                });
+            });
+        egui::Window::new("About stream-dlp")
+            .open(&mut self.about)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("A small native Windows app, written in Rust.");
+                ui.label("yt-dlp finds and downloads streams. FFmpeg combines video and audio.");
+                ui.label("Deno runs YouTube’s JavaScript challenges for yt-dlp.");
+                ui.add_space(8.);
+                ui.label(format!("Tools: {}", backend::tools_dir().display()));
+                ui.label(if backend::tools_ready() {
+                    "All download tools are ready."
+                } else {
+                    "Run Setup tools.ps1 from the app folder to install the tools."
+                });
+                ui.label("To update tools, close stream-dlp and run Setup tools.ps1 again.");
+                ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
+            });
+    }
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+fn main() -> eframe::Result {
+    eframe::run_native(
+        "stream-dlp",
+        eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1040., 840.])
+                .with_min_inner_size([880., 700.])
+                .with_icon(app_icon()),
+            ..Default::default()
+        },
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+    )
+}
+
+fn app_icon() -> egui::IconData {
+    let mut rgba = Vec::with_capacity(64 * 64 * 4);
+    for y in 0i32..64 {
+        for x in 0i32..64 {
+            let dx = (12 - x).max(x - 51).max(0);
+            let dy = (12 - y).max(y - 51).max(0);
+            let inside = dx * dx + dy * dy <= 144;
+            let arrow = ((29..=35).contains(&x) && (14..=35).contains(&y))
+                || ((30..=46).contains(&y) && (x - 32).abs() <= 46 - y);
+            let tray = ((17..=47).contains(&x) && (50..=53).contains(&y))
+                || ((17..=20).contains(&x) && (44..=52).contains(&y))
+                || ((44..=47).contains(&x) && (44..=52).contains(&y));
+            rgba.extend_from_slice(if !inside {
+                &[0, 0, 0, 0]
+            } else if arrow || tray {
+                &[255, 255, 255, 255]
+            } else {
+                &[34, 105, 232, 255]
+            });
+        }
+    }
+    egui::IconData {
+        rgba,
+        width: 64,
+        height: 64,
+    }
+}
