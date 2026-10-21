@@ -1,0 +1,22 @@
+[package]
+name = "stream-dlp"
+version = "0.3.3"
+edition = "2024"
+rust-version = "1.93"
+description = "A simple native Windows YouTube downloader"
+license = "MIT"
+repository = "https://github.com/Puffinnois/stream-dlp"
+
+[dependencies]
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+tempfile = "3"
+dirs = "6"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true
