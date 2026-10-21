@@ -2,7 +2,7 @@
 
 Prepared October 21, 2026, against stream-dlp 0.3.3.
 
-This is a proposed implementation backlog. No application features have been changed. Task checkboxes track implementation; research findings below are based on source inspection and upstream documentation, not live browser-cookie or platform-upload tests.
+Task checkboxes track implementation. Firefox automatic session import is now implemented experimentally; see R-01 and A-01/A-02 for its validation limits. Remaining research findings are based on source inspection and upstream documentation unless a live test is explicitly recorded.
 
 ## Direction and priorities
 
@@ -54,9 +54,15 @@ Ship a browser-assisted workflow if this remains unchanged: choose a downloaded 
 
 ### R-01 — Browser session feasibility spike
 
+Progress October 21, 2026: [offline probe and decision record](docs/browser-session-spike.md).
+The installed helper passed nine synthetic-profile cases. A native, scoped Firefox
+importer was subsequently implemented and tested against the user's explicitly
+authorized profile while Firefox was open. Full authenticated-download acceptance,
+candidate comparison, and the real-browser/Windows matrix remain open.
+
 - [ ] Test the bundled yt-dlp and a candidate updated version on Windows 10/11 with Firefox, Chrome, and Edge.
 - [ ] Cover default and secondary profiles, browser open/closed, missing profile, signed-out profile, locked database, decryption failure, and expired sessions.
-- [ ] Determine whether any supported mechanism can capture a private session; otherwise explicitly retain manual private-window export.
+- [x] Determine whether any supported mechanism can capture a private session; otherwise explicitly retain manual private-window export. No supported extraction established; retain manual export per upstream guidance.
 - [ ] Compare direct browser loading with a helper that imports, filters, and returns only permitted domains before network use. Verify the actual command/output behavior rather than assuming yt-dlp offers a domain-scoped export.
 - [ ] Record browser/version results without session values. Use dedicated test profiles and never inspect a developer's regular browser profile implicitly.
 
@@ -64,10 +70,18 @@ Ship a browser-assisted workflow if this remains unchanged: choose a downloaded 
 
 ### R-02 — Streamable feasibility spike
 
-- [ ] Recheck official API documentation and integration options before implementation.
+Decision October 21, 2026: [Streamable feasibility record](docs/streamable-feasibility.md).
+Select browser-assisted sharing. With explicit user approval, guest website
+uploads of a synthetic H.264 clip and an existing AV1/AAC download both processed
+and played from their share links. The signed-in account case remains untested.
+The live guest UI says links expire after 2 days, conflicting with the help
+article's 24-hour statement; do not promise a fixed guest retention period.
+Direct upload remains blocked by the documented read-only API.
+
+- [x] Recheck official API documentation and integration options before implementation.
 - [ ] Verify the website's signed-in and signed-out upload flows, file requirements, limits, retention, and resulting link behavior using a small owned sample clip.
-- [ ] Determine whether Streamable offers an approved upload integration, and what account authorization it requires. Any contact with Streamable is a separate user-authorized action.
-- [ ] Record separate outcomes for account-based upload, anonymous upload, and browser-assisted sharing.
+- [x] Determine whether Streamable offers an approved upload integration, and what account authorization it requires. The public API excludes uploads; no supported upload authorization was identified. Any contact with Streamable is a separate user-authorized action.
+- [x] Record separate outcomes for account-based upload, anonymous upload, and browser-assisted sharing.
 
 **Done when:** a short decision record selects a supported direct integration or the assisted workflow. Do not build against undocumented private endpoints as the default integration.
 
@@ -116,12 +130,22 @@ Depends on R-01 and F-03.
 
 ### A-01 — Browser connection interface
 
+Implemented experimentally for Firefox: profile discovery/default selection,
+background import with cancellation and query deadline, import-and-retry, refresh,
+and manual fallback. Chrome/Edge show guided export. Full clean-machine acceptance
+and the remaining live matrix are not yet complete.
+
 - [ ] Add **Import from browser** alongside manual import, listing only supported installed browsers and available profiles.
 - [ ] Explain the requested browser access before the first import. Store only the user's chosen source preference by default.
 - [ ] Import on a background worker with progress, cancellation, timeout, and actionable failure messages.
 - [ ] On success, retry the pending inspection/download once; prevent repeated automatic authentication loops.
 
 ### A-02 — Scoped import and lifecycle
+
+Implemented for Firefox: native read-only SQLite selection of YouTube cookies,
+expiration filtering and container isolation, memory-only sessions, disposable
+scoped working files, refresh/removal, and optional bounded refresh from the
+connected profile after an authentication error. No all-site database copy is made.
 
 - [ ] Use the proven R-01 mechanism and filter to the approved YouTube domains before storing the session or using it for network operations.
 - [ ] Keep session values in memory and use restricted disposable files only where necessary. If a prototype temporarily materializes broader browser cookies, document that limitation and prove access restrictions and cleanup before accepting that design.
@@ -131,6 +155,11 @@ Depends on R-01 and F-03.
 - [ ] Fall back to manual export for unsupported encryption, private sessions, or cookie rotation problems.
 
 ### A-03 — Conditional extension investigation
+
+Deferred Chrome automatic-mode options and the recommended extension prototype
+are saved in [Chrome auto-mode options](docs/chrome-auto-mode-options.md), including
+dedicated-profile and assisted-export alternatives, constraints, and resume steps.
+No Chrome automatic integration has been implemented or selected yet.
 
 - [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff.
 - [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment.

@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod backend;
+mod browser_session;
 mod export_help;
 mod session;
+mod updater;
 
 use backend::{Event, Video};
 use eframe::egui::{self, Color32, RichText, Vec2};
@@ -31,6 +33,7 @@ enum Phase {
 }
 
 struct App {
+    updater: updater::Updater,
     link: String,
     loaded_link: String,
     video: Option<Video>,
@@ -57,14 +60,23 @@ struct App {
     session_rx: mpsc::Receiver<Option<SessionImport>>,
     session_folder: PathBuf,
     session_file: Option<PathBuf>,
-    export_guide: bool,
+    session_mode: usize,
+    browser_choice: usize,
+    browser_profiles: Vec<browser_session::Profile>,
+    browser_profile: usize,
+    browser_source: Option<browser_session::Profile>,
+    browser_importing: bool,
+    retry_download: bool,
+    auto_refresh: bool,
+    refresh_used: bool,
     export_browser: usize,
     export_step: usize,
     log: std::collections::VecDeque<String>,
 }
 
 struct SessionImport {
-    path: PathBuf,
+    path: Option<PathBuf>,
+    browser: Option<browser_session::Profile>,
     cookies: Result<session::SessionCookies, String>,
 }
 
@@ -105,10 +117,17 @@ impl App {
             .text_styles
             .insert(egui::TextStyle::Button, egui::FontId::proportional(15.));
         ctx.set_style(style);
+        let mut app = Self::with_profiles(browser_session::profiles());
+        app.updater.check(ctx);
+        app
+    }
+
+    fn with_profiles(browser_profiles: Vec<browser_session::Profile>) -> Self {
         let (tx, rx) = mpsc::channel();
         let (folder_tx, folder_rx) = mpsc::channel();
         let (session_tx, session_rx) = mpsc::channel();
         Self {
+            updater: updater::Updater::default(),
             link: String::new(),
             loaded_link: String::new(),
             video: None,
@@ -135,7 +154,15 @@ impl App {
             session_rx,
             session_folder: export_help::export_folder(),
             session_file: None,
-            export_guide: false,
+            session_mode: 0,
+            browser_choice: 0,
+            browser_profiles,
+            browser_profile: 0,
+            browser_source: None,
+            browser_importing: false,
+            retry_download: false,
+            auto_refresh: true,
+            refresh_used: false,
             export_browser: 0,
             export_step: 0,
             log: Default::default(),
@@ -143,7 +170,8 @@ impl App {
     }
 
     fn busy(&self) -> bool {
-        self.session_loading
+        self.updater.downloading
+            || self.session_loading
             || matches!(
                 self.phase,
                 Phase::Inspecting | Phase::Picking | Phase::Downloading
@@ -153,6 +181,8 @@ impl App {
         match backend::normalize_url(&self.link) {
             Err(error) => self.error = Some(error),
             Ok(link) => {
+                self.refresh_used = false;
+                self.retry_download = false;
                 self.loaded_link = link.clone();
                 self.error = None;
                 self.video = None;
@@ -169,25 +199,45 @@ impl App {
     fn poll(&mut self) {
         if let Ok(result) = self.session_rx.try_recv() {
             self.session_loading = false;
+            self.browser_importing = false;
             if let Some(import) = result {
-                if let Some(folder) = import.path.parent() {
+                if let Some(folder) = import.path.as_ref().and_then(|p| p.parent()) {
                     self.session_folder = folder.to_path_buf();
                 }
                 match import.cookies {
                     Ok(session) => {
+                        if self.cancel.load(Ordering::Relaxed) || self.closing {
+                            self.session_error = Some("Browser import cancelled.".into());
+                            return;
+                        }
                         self.session = Some(session);
-                        self.session_file = Some(import.path);
+                        self.session_file = import.path;
+                        self.browser_source = import.browser;
                         self.session_error = None;
                         self.error = None;
-                        self.video = None;
                         self.saved = None;
                         self.phase = Phase::Idle;
                         self.session_window = false;
-                        if backend::normalize_url(&self.link).is_ok() && backend::tools_ready() {
+                        let refresh_used = self.refresh_used;
+                        if self.retry_download
+                            && self.video.is_some()
+                            && self.destination.is_some()
+                            && backend::normalize_url(&self.link).as_deref()
+                                == Ok(self.loaded_link.as_str())
+                        {
+                            self.retry_download = false;
+                            self.start_download(self.destination.clone().unwrap());
+                        } else if backend::normalize_url(&self.link).is_ok()
+                            && backend::tools_ready()
+                        {
                             self.inspect();
                         }
+                        self.refresh_used = refresh_used;
                     }
-                    Err(error) => self.session_error = Some(error),
+                    Err(error) => {
+                        self.session_error = Some(error);
+                        self.session_window = true;
+                    }
                 }
             }
         }
@@ -218,12 +268,24 @@ impl App {
                     self.status = "Your download is ready.".into();
                 }
                 Event::Failed(error) => {
+                    let needs_session =
+                        error.starts_with("YouTube requires sign-in or a verification check.");
+                    self.retry_download = self.phase == Phase::Downloading;
                     self.error = Some(error);
                     self.phase = if self.video.is_some() {
                         Phase::Choosing
                     } else {
                         Phase::Idle
                     };
+                    if needs_session
+                        && self.auto_refresh
+                        && !self.refresh_used
+                        && !self.closing
+                        && let Some(profile) = self.browser_source.clone()
+                    {
+                        self.import_browser(profile, true);
+                        self.error = None;
+                    }
                 }
                 Event::Cancelled => {
                     self.phase = if self.video.is_some() {
@@ -239,27 +301,29 @@ impl App {
         }
         if let Ok(folder) = self.folder_rx.try_recv() {
             if let Some(folder) = folder {
-                self.destination = Some(folder.clone());
-                self.error = None;
-                self.progress = 0.;
-                self.status = "Connecting to YouTube…".into();
-                self.log.clear();
-                self.phase = Phase::Downloading;
-                self.cancel = Arc::new(AtomicBool::new(false));
-                let (link, format, tx, cancel) = (
-                    self.loaded_link.clone(),
-                    self.video.as_ref().unwrap().formats[self.selected].clone(),
-                    self.tx.clone(),
-                    self.cancel.clone(),
-                );
-                let session = self.session.clone();
-                std::thread::spawn(move || {
-                    backend::download(link, format, folder, session, tx, cancel)
-                });
+                self.start_download(folder);
             } else {
                 self.phase = Phase::Choosing;
             }
         }
+    }
+    fn start_download(&mut self, folder: PathBuf) {
+        self.refresh_used = false;
+        self.destination = Some(folder.clone());
+        self.error = None;
+        self.progress = 0.;
+        self.status = "Connecting to YouTube…".into();
+        self.log.clear();
+        self.phase = Phase::Downloading;
+        self.cancel = Arc::new(AtomicBool::new(false));
+        let (link, format, tx, cancel) = (
+            self.loaded_link.clone(),
+            self.video.as_ref().unwrap().formats[self.selected].clone(),
+            self.tx.clone(),
+            self.cancel.clone(),
+        );
+        let session = self.session.clone();
+        std::thread::spawn(move || backend::download(link, format, folder, session, tx, cancel));
     }
     fn choose_folder(&mut self) {
         self.phase = Phase::Picking;
@@ -275,7 +339,9 @@ impl App {
         });
     }
     fn import_session(&mut self, folder: PathBuf) {
+        self.refresh_used = false;
         self.session_loading = true;
+        self.cancel = Arc::new(AtomicBool::new(false));
         self.session_error = None;
         let tx = self.session_tx.clone();
         std::thread::spawn(move || {
@@ -286,9 +352,88 @@ impl App {
                 .pick_file()
                 .map(|path| SessionImport {
                     cookies: session::SessionCookies::load(&path),
-                    path,
+                    path: Some(path),
+                    browser: None,
                 });
             let _ = tx.send(result);
+        });
+    }
+    fn import_browser(&mut self, profile: browser_session::Profile, automatic: bool) {
+        self.refresh_used = automatic;
+        self.session_loading = true;
+        self.browser_importing = true;
+        self.session_error = None;
+        self.cancel = Arc::new(AtomicBool::new(false));
+        let (tx, cancel) = (self.session_tx.clone(), self.cancel.clone());
+        std::thread::spawn(move || {
+            let cookies = browser_session::import(&profile, &cancel);
+            let _ = tx.send(Some(SessionImport {
+                path: None,
+                browser: Some(profile),
+                cookies,
+            }));
+        });
+    }
+
+    fn browser_controls(&mut self, ui: &mut egui::Ui) {
+        ui.label("Choose your browser. Firefox can import directly; Chrome and Edge currently need an exported file.");
+        ui.add_enabled_ui(!self.busy(), |ui| {
+            egui::ComboBox::from_id_salt("session_browser")
+                .selected_text(
+                    [
+                        "Firefox · automatic",
+                        "Chrome · guided export",
+                        "Edge · guided export",
+                    ][self.browser_choice],
+                )
+                .show_ui(ui, |ui| {
+                    for (index, name) in [
+                        "Firefox · automatic",
+                        "Chrome · guided export",
+                        "Edge · guided export",
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        ui.selectable_value(&mut self.browser_choice, index, *name);
+                    }
+                });
+        });
+        if self.browser_choice != 0 {
+            ui.label("Direct import for this browser is not available yet. The export guide will help you connect your session.");
+            if ui
+                .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
+                .clicked()
+            {
+                self.export_browser = 0;
+                self.export_step = 0;
+                self.session_mode = 2;
+            }
+            return;
+        }
+        ui.label("Import reads YouTube cookies from the Firefox profile you select. Cookies stay in memory; they are used only for YouTube and removed when you disconnect or close the app.");
+        ui.label(RichText::new("Automatic import is experimental. Private windows and Firefox containers need the manual export option.").size(12.).color(MUTED));
+        ui.add_enabled_ui(!self.busy(), |ui| {
+            ui.checkbox(&mut self.auto_refresh, "Auto mode: refresh this profile once if YouTube asks to sign in");
+            if self.browser_profiles.is_empty() {
+                ui.label("No Firefox cookie profiles found. Open Firefox, sign in to YouTube, then refresh this list.");
+            } else {
+                let label = |p: &browser_session::Profile| format!("{}{}", p.name, if p.default { " (default)" } else { "" });
+                egui::ComboBox::from_id_salt("firefox_profile")
+                    .selected_text(label(&self.browser_profiles[self.browser_profile]))
+                    .show_ui(ui, |ui| {
+                        for (index, profile) in self.browser_profiles.iter().enumerate() {
+                            ui.selectable_value(&mut self.browser_profile, index, label(profile));
+                        }
+                    });
+                if primary(ui, "Import from Firefox & retry", true).clicked() {
+                    self.import_browser(self.browser_profiles[self.browser_profile].clone(), false);
+                }
+            }
+            if ui.button("Refresh profile list").clicked() {
+                self.browser_profiles = browser_session::profiles();
+                self.browser_profile = 0;
+            }
         });
     }
     fn session_dialog(&mut self, ctx: &egui::Context) {
@@ -300,25 +445,37 @@ impl App {
                 ui.label(RichText::new("Connect your YouTube session").size(21.).strong());
                 ui.label("Use your own signed-in session for videos and Shorts.");
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.export_guide, false, "I have a cookies file");
-                    ui.selectable_value(&mut self.export_guide, true, "Help me export cookies");
+                    ui.selectable_value(&mut self.session_mode, 0, "Import from browser");
+                    ui.selectable_value(&mut self.session_mode, 1, "I have a cookies file");
+                    ui.selectable_value(&mut self.session_mode, 2, "Export guide");
                 });
                 ui.separator();
-                if self.export_guide { self.export_instructions(ui); }
+                if self.session_mode == 0 { self.browser_controls(ui); }
+                else if self.session_mode == 2 { self.export_instructions(ui); }
                 else {
                     ui.label("Choose the .txt file exported from YouTube. The app checks its format and YouTube cookies before using it.");
                     self.session_file_controls(ui, false);
                 }
                 ui.add_space(8.);
-                ui.label(RichText::new("Your link retries after a valid import. Session access lasts until you remove it or close the app. Your original export is kept unchanged.").size(12.).color(MUTED));
+                ui.label(RichText::new("After import, the app retries your link or failed download once. Importing cookies does not prove that YouTube will accept the session. Original browser cookies and exports are kept unchanged.").size(12.).color(MUTED));
                 ui.label(RichText::new("Cookies act like a sign-in. Use your own export and keep it private.").size(12.).color(MUTED));
-                if self.session_loading { ui.horizontal(|ui| { ui.spinner(); ui.label("Choose your session export…"); }); }
+                if self.session_loading { ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(if self.browser_importing { "Importing YouTube session from Firefox…" } else { "Choose your session export…" });
+                    if self.browser_importing && ui.button("Cancel import").clicked() { self.cancel.store(true, Ordering::Relaxed); }
+                }); }
                 if self.session.is_some() {
-                    ui.colored_label(Color32::from_rgb(31, 139, 99), "YouTube session loaded");
+                    ui.colored_label(Color32::from_rgb(31, 139, 99), "YouTube cookies imported · access checked when used");
                     if let Some(path) = &self.session_file { ui.label(RichText::new(path.display().to_string()).size(12.).color(MUTED)); }
+                    if let Some(profile) = self.browser_source.clone() {
+                        ui.label(format!("Firefox · {}", profile.name));
+                        if ui.add_enabled(!self.busy(), egui::Button::new("Refresh from Firefox & retry")).clicked() { self.import_browser(profile, false); }
+                    }
                     if ui.add_enabled(!self.busy(), egui::Button::new("Remove session")).clicked() {
                         self.session = None;
                         self.session_file = None;
+                        self.browser_source = None;
+                        self.retry_download = false;
                         self.session_error = None;
                         self.video = None;
                         self.saved = None;
@@ -567,7 +724,7 @@ impl App {
                         egui::Button::new(if self.session.is_some() {
                             "YouTube session · loaded"
                         } else {
-                            "YouTube session"
+                            "Connect browser / YouTube session"
                         }),
                     )
                     .clicked()
@@ -580,6 +737,17 @@ impl App {
             ui.add_space(12.);
             ui.colored_label(Color32::from_rgb(174, 100, 20), "Download tools are missing. Run Setup tools.ps1 from the app folder, then restart.");
         }
+        if self.browser_importing {
+            card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Importing your YouTube session from Firefox…");
+                    if ui.button("Cancel import").clicked() {
+                        self.cancel.store(true, Ordering::Relaxed);
+                    }
+                });
+            });
+        }
         if let Some(error) = self.error.clone() {
             ui.add_space(12.);
             egui::Frame::new()
@@ -591,7 +759,7 @@ impl App {
                     if ui
                         .add_enabled(
                             !self.busy(),
-                            egui::Button::new("YouTube session / retry help"),
+                            egui::Button::new("Connect browser / retry help"),
                         )
                         .clicked()
                     {
@@ -904,6 +1072,10 @@ fn card<R>(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.updater.poll() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
         self.poll();
         if self.busy() {
             ctx.request_repaint_after(Duration::from_millis(80));
@@ -923,6 +1095,34 @@ impl eframe::App for App {
         }
         self.sidebar(ctx);
         self.session_dialog(ctx);
+        let busy = self.busy();
+        let mut update_open = self.updater.prompt;
+        egui::Window::new("App update")
+            .open(&mut update_open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(420.)
+            .show(ctx, |ui| {
+                if let Some(update) = &self.updater.available {
+                    ui.heading(format!("stream-dlp {} is available", update.version));
+                    ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
+                }
+                ui.label("Update downloads and verifies the Windows installer, then closes the app and opens setup. You choose whether to complete installation. Portable users can choose their existing app folder in setup.");
+                if busy && !self.updater.downloading {
+                    ui.label("Finish or cancel the current operation before updating.");
+                }
+                ui.hyperlink_to("Release notes", updater::RELEASES);
+                ui.label(&self.updater.message);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
+                        self.updater.download(ctx);
+                    }
+                    if ui.add_enabled(!self.updater.downloading, egui::Button::new("Later")).clicked() {
+                        self.updater.prompt = false;
+                    }
+                });
+            });
+        self.updater.prompt &= update_open;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -939,6 +1139,21 @@ impl eframe::App for App {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.label("A small native Windows app, written in Rust.");
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                if ui
+                    .add_enabled(
+                        !self.updater.checking && !self.updater.downloading,
+                        egui::Button::new("Check for updates"),
+                    )
+                    .clicked()
+                {
+                    self.updater.check(ctx);
+                }
+                ui.label(&self.updater.message);
+                if self.updater.available.is_some() && ui.button("Show available update").clicked()
+                {
+                    self.updater.prompt = true;
+                }
                 ui.label("yt-dlp finds and downloads streams. FFmpeg combines video and audio.");
                 ui.label("Deno runs YouTube’s JavaScript challenges for yt-dlp.");
                 ui.add_space(8.);
@@ -972,29 +1187,75 @@ fn main() -> eframe::Result {
 }
 
 fn app_icon() -> egui::IconData {
-    let mut rgba = Vec::with_capacity(64 * 64 * 4);
-    for y in 0i32..64 {
-        for x in 0i32..64 {
-            let dx = (12 - x).max(x - 51).max(0);
-            let dy = (12 - y).max(y - 51).max(0);
-            let inside = dx * dx + dy * dy <= 144;
-            let arrow = ((29..=35).contains(&x) && (14..=35).contains(&y))
-                || ((30..=46).contains(&y) && (x - 32).abs() <= 46 - y);
-            let tray = ((17..=47).contains(&x) && (50..=53).contains(&y))
-                || ((17..=20).contains(&x) && (44..=52).contains(&y))
-                || ((44..=47).contains(&x) && (44..=52).contains(&y));
-            rgba.extend_from_slice(if !inside {
-                &[0, 0, 0, 0]
-            } else if arrow || tray {
-                &[255, 255, 255, 255]
-            } else {
-                &[34, 105, 232, 255]
+    eframe::icon_data::from_png_bytes(include_bytes!("../assets/app.png"))
+        .expect("the bundled app icon is valid PNG")
+}
+
+#[cfg(test)]
+mod app_tests {
+    use super::*;
+
+    fn auth_error() -> Event {
+        Event::Failed("YouTube requires sign-in or a verification check. Retry help.".into())
+    }
+
+    #[test]
+    fn automatic_refresh_is_bounded_and_disabled_mode_does_not_import() {
+        let dir = tempfile::tempdir().unwrap();
+        for enabled in [false, true] {
+            let mut app = App::with_profiles(Vec::new());
+            app.auto_refresh = enabled;
+            app.browser_source = Some(browser_session::Profile {
+                name: "Synthetic missing profile".into(),
+                path: dir.path().join("missing"),
+                default: false,
             });
+            app.tx.send(auth_error()).unwrap();
+            app.poll();
+            if enabled {
+                assert!(app.session_loading);
+                assert!(app.refresh_used);
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while app.session_loading && std::time::Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(5));
+                    app.poll();
+                }
+                assert!(!app.session_loading);
+                assert!(
+                    app.session_window,
+                    "Failed background import must show its fallback"
+                );
+                assert!(app.session_error.is_some());
+                // A second auth error must not launch another automatic refresh.
+                app.tx.send(auth_error()).unwrap();
+                app.poll();
+                assert!(!app.session_loading);
+            } else {
+                assert!(!app.session_loading);
+                assert!(!app.refresh_used);
+            }
         }
     }
-    egui::IconData {
-        rgba,
-        width: 64,
-        height: 64,
+
+    #[test]
+    fn import_result_preserves_refresh_budget_and_cancel_discards_new_session() {
+        for cancelled in [false, true] {
+            let mut app = App::with_profiles(Vec::new());
+            app.refresh_used = true;
+            app.session_loading = true;
+            app.browser_importing = true;
+            app.cancel.store(cancelled, Ordering::Relaxed);
+            app.session_tx
+                .send(Some(SessionImport {
+                    path: None,
+                    browser: None,
+                    cookies: Ok(session::fake_session()),
+                }))
+                .unwrap();
+            app.poll();
+            assert!(!app.session_loading);
+            assert_eq!(app.session.is_some(), !cancelled);
+            assert!(app.refresh_used);
+        }
     }
 }
