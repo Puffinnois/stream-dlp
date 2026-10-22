@@ -3,12 +3,15 @@ mod backend;
 mod browser_session;
 mod export_help;
 mod platform;
+mod release_channel;
 mod session;
+mod streamable_upload;
 #[cfg(windows)]
 mod updater;
 #[cfg(not(windows))]
 #[path = "updater_manual.rs"]
 mod updater;
+mod video_library;
 
 use backend::{Event, Video};
 use eframe::egui::{self, Color32, RichText, Vec2};
@@ -36,8 +39,15 @@ enum Phase {
     Downloading,
     Done,
 }
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    Download,
+    Videos,
+}
 
 struct App {
+    page: Page,
+    library: video_library::Library,
     updater: updater::Updater,
     link: String,
     loaded_link: String,
@@ -134,6 +144,8 @@ impl App {
         let (folder_tx, folder_rx) = mpsc::channel();
         let (session_tx, session_rx) = mpsc::channel();
         Self {
+            page: Page::Download,
+            library: video_library::Library::default(),
             updater: updater::Updater::default(),
             link: String::new(),
             loaded_link: String::new(),
@@ -177,7 +189,8 @@ impl App {
     }
 
     fn busy(&self) -> bool {
-        self.updater.downloading
+        self.library.uploader.status.active
+            || self.updater.downloading
             || self.session_loading
             || matches!(
                 self.phase,
@@ -647,43 +660,71 @@ impl App {
                         .color(MUTED),
                 );
                 ui.add_space(46.);
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(234, 241, 255))
-                    .corner_radius(8)
-                    .inner_margin(12)
-                    .show(ui, |ui| {
-                        ui.set_width(116.);
-                        ui.label(RichText::new("↓   Download").color(BLUE).strong());
-                    });
+                for (page, label) in [
+                    (Page::Download, "↓   Download"),
+                    (Page::Videos, "My videos"),
+                ] {
+                    let active = self.page == page;
+                    let button = egui::Button::new(
+                        RichText::new(label)
+                            .color(if active { BLUE } else { INK })
+                            .strong(),
+                    )
+                    .fill(if active {
+                        Color32::from_rgb(234, 241, 255)
+                    } else {
+                        Color32::WHITE
+                    })
+                    .stroke(egui::Stroke::NONE)
+                    .corner_radius(8.)
+                    .min_size(Vec2::new(ui.available_width(), 44.));
+                    if ui.add(button).clicked() {
+                        self.page = page;
+                    }
+                }
                 ui.add_space(24.);
-                let step = match self.phase {
-                    Phase::Idle | Phase::Inspecting => 0,
-                    Phase::Choosing | Phase::Picking => 1,
-                    _ => 2,
-                };
-                for (i, text) in ["Paste a link", "Choose quality", "Save your video"]
-                    .iter()
-                    .enumerate()
-                {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!("{:02}", i + 1))
-                                .color(if i <= step { BLUE } else { MUTED })
-                                .strong(),
-                        );
-                        ui.label(RichText::new(*text).size(13.).color(if i == step {
-                            INK
-                        } else {
-                            MUTED
-                        }));
-                    });
-                    ui.add_space(6.);
+                if self.page == Page::Download {
+                    let step = match self.phase {
+                        Phase::Idle | Phase::Inspecting => 0,
+                        Phase::Choosing | Phase::Picking => 1,
+                        _ => 2,
+                    };
+                    for (i, text) in ["Paste a link", "Choose quality", "Save your video"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{:02}", i + 1))
+                                    .color(if i <= step { BLUE } else { MUTED })
+                                    .strong(),
+                            );
+                            ui.label(RichText::new(*text).size(13.).color(if i == step {
+                                INK
+                            } else {
+                                MUTED
+                            }));
+                        });
+                        ui.add_space(6.);
+                    }
+                } else {
+                    ui.label(
+                        RichText::new(
+                            "Browse your folder.\nPlay a video.\nShare it on Streamable.",
+                        )
+                        .size(13.)
+                        .color(MUTED),
+                    );
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.label(
-                        RichText::new(concat!("Made with Rust · v", env!("CARGO_PKG_VERSION")))
-                            .size(11.)
-                            .color(MUTED),
+                        RichText::new(format!(
+                            "{} · v{}",
+                            release_channel::Channel::installed().label(),
+                            env!("CARGO_PKG_VERSION")
+                        ))
+                        .size(11.)
+                        .color(MUTED),
                     );
                     if ui.small_button("About & tools").clicked() {
                         self.about = true;
@@ -1022,6 +1063,17 @@ impl App {
                         if ui.button("Download again").clicked() {
                             self.choose_folder();
                         }
+                        if ui
+                            .add_enabled(
+                                self.saved.is_some(),
+                                egui::Button::new("Upload on Streamable"),
+                            )
+                            .clicked()
+                            && let Some(path) = self.saved.clone()
+                        {
+                            self.library.select_file(ui.ctx(), path);
+                            self.page = Page::Videos;
+                        }
                     });
                 }
                 Phase::Picking => {
@@ -1095,10 +1147,12 @@ impl eframe::App for App {
             return;
         }
         self.poll();
+        self.library.poll();
         if self.busy() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
         if ctx.input(|i| i.viewport().close_requested()) {
+            self.library.uploader.cancel();
             self.cancel.store(true, Ordering::Relaxed);
             if self.busy() {
                 self.closing = true;
@@ -1122,7 +1176,7 @@ impl eframe::App for App {
             .default_width(420.)
             .show(ctx, |ui| {
                 if let Some(update) = &self.updater.available {
-                    ui.heading(format!("stream-dlp {} is available", update.version));
+                    ui.heading(format!("{} build {} is available", self.updater.channel.label(), update.version));
                     ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
                 }
                 ui.label(if cfg!(windows) { "Update downloads and verifies the Windows installer, then closes the app and opens setup. You choose whether to complete installation. Portable users can choose their existing app folder in setup." } else { "Mac updates are manual. Download a fresh Mac package from Releases, close the app, and replace your existing copy." });
@@ -1132,7 +1186,7 @@ impl eframe::App for App {
                 ui.hyperlink_to("Release notes", updater::RELEASES);
                 ui.label(&self.updater.message);
                 ui.horizontal(|ui| {
-                    if cfg!(windows) && ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
+                    if cfg!(windows) && ui.add_enabled(!busy, egui::Button::new("Install selected build")).clicked() {
                         self.updater.download(ctx);
                     }
                     #[cfg(not(windows))]
@@ -1150,16 +1204,41 @@ impl eframe::App for App {
                     .inner_margin(30),
             )
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().id_salt("page").show(ui, |ui| {
-                    self.content(ui);
-                });
+                egui::ScrollArea::vertical()
+                    .id_salt("page")
+                    .show(ui, |ui| match self.page {
+                        Page::Download => self.content(ui),
+                        Page::Videos => {
+                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                                self.library.show(ui);
+                            });
+                        }
+                    });
             });
         egui::Window::new("About stream-dlp")
             .open(&mut self.about)
             .resizable(false)
             .show(ctx, |ui| {
+                ui.set_max_width(480.);
                 ui.label("A small native app, written in Rust.");
-                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label(format!("Version {} · {} build", env!("CARGO_PKG_VERSION"), release_channel::Channel::installed().label()));
+                let mut channel = self.updater.channel;
+                ui.add_enabled_ui(!busy, |ui| {
+                    egui::ComboBox::from_label("Update channel")
+                        .selected_text(channel.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut channel, release_channel::Channel::Public, "Public · stable releases");
+                            ui.selectable_value(&mut channel, release_channel::Channel::Dev, "Dev · experimental prereleases");
+                        });
+                });
+                if channel != self.updater.channel { self.updater.set_channel(channel, ctx); }
+                ui.label("Changing channels checks for a build. Installation starts only when you click Install selected build.");
+                if self.updater.channel == release_channel::Channel::Dev {
+                    ui.label("Dev builds may have unfinished features. Dev releases are publicly downloadable.");
+                }
+                if self.updater.channel != release_channel::Channel::installed() {
+                    ui.label("Switching channels replaces this app and can install an older version. Your videos stay in their folders.");
+                }
                 if ui
                     .add_enabled(
                         !self.updater.checking && !self.updater.downloading,
@@ -1194,6 +1273,7 @@ impl eframe::App for App {
             });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.library.uploader.cancel();
         self.cancel.store(true, Ordering::Relaxed);
     }
 }

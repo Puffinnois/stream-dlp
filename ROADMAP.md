@@ -221,22 +221,40 @@ Depends on Phase 1 and experience from at least the first named-platform release
 
 Depends on F-02; can proceed independently of the Streamable API decision.
 
-- [ ] Keep the completed file available for a **Share on Streamable** action.
-- [ ] Add **Choose existing video** for files downloaded before this feature existed or outside stream-dlp.
+- [x] Keep the completed file available for a **Share on Streamable** action.
+- [x] Add **Choose existing video** for files downloaded before this feature existed or outside stream-dlp.
 - [ ] Add a small local recent-download list if desired for convenience: final path, title, source platform, and completion time; no cookies or credentials.
 - [ ] If history is included, make it optional, removable, and tolerant of moved/deleted files. Browsing an existing file must work without history.
-- [ ] Probe selected files with FFprobe to check readability, container, streams, duration, and size.
+- [x] Probe selected files with FFprobe to check readability, container, streams, duration, and size.
+
+Implemented a session-only **My videos** folder browser with a bounded,
+nonrecursive list, refresh, file details, play/reveal actions, and existing-file
+selection. No history is persisted. Shared metadata work in F-02 remains separate.
 
 ### S-02 — Browser-assisted Streamable workflow
 
 Depends on R-02 and S-01; recommended initial sharing release under the current API restriction.
 
-- [ ] Open Streamable and reveal the selected video in Explorer so the user can select or drag it into the website.
-- [ ] Explain whether login is required according to the verified website behavior; use the user's browser session.
+- [x] Open Streamable and reveal the selected video in Explorer so the user can select or drag it into the website.
+- [x] Explain whether login is required according to the verified website behavior; use the user's browser session.
 - [ ] Let the user optionally paste the resulting share URL back into stream-dlp for opening/copying.
-- [ ] Keep the local file and download result intact when the handoff is cancelled or the website fails.
+- [x] Keep the local file and download result intact when the handoff is cancelled or the website fails.
 
 **Phase acceptance:** both a newly downloaded file and an older file can enter the workflow. The app reports only the handoff it performed; it does not claim to have detected upload completion.
+
+### S-02A — Experimental automatic website uploads
+
+Implemented at the user's request; [design and validation](docs/automatic-streamable-upload.md).
+This automates the website rather than using an upload API. The manual S-02
+handoff remains available. S-03/S-04's direct-API blockers are unchanged.
+
+- [x] Explicit automatic-upload action from the selected-video page, shared by completed downloads and existing files.
+- [x] Dedicated temporary private browser, background worker, website progress/status, cancellation, and bounded waiting.
+- [x] Exactly one submission per attempt; preserve a known but unverified link after ambiguous completion.
+- [x] Verify playback in a separate tab before reporting completion; show and copy the returned share link.
+- [x] Test unchanged file bytes, inactive inputs, pre-existing links, and playable output with a local fixture.
+- [x] Perform an explicitly authorized synthetic guest upload through the production runtime on Windows/Edge.
+- [ ] Validate account sign-in, challenges, large/rejected files, and other supported OS/browser combinations.
 
 ### S-03 — Conditional direct uploads with a user account
 
@@ -292,3 +310,11 @@ These are scope boundaries, not calendar promises. Estimate work after the three
 Recommended defaults are: one pasted URL with automatic platform detection; individual-video downloads; browser imports initiated by the user; sessions kept in memory; no credentials for Other sites; existing-file browsing available without history; and Streamable browser assistance until a supported upload path is proven.
 
 Future scope decisions include which browsers to advertise, whether to build an extension, whether to persist optional history, and whether multi-video posts later gain a download-all action. Additional feature ideas can be appended as separate tasks with dependencies and acceptance criteria.
+
+## Dev release channel (October 21, 2026)
+
+- [x] Add persistent Public/Dev selection in About & tools and show the installed build channel.
+- [x] Isolate stable releases from explicitly tagged Dev prereleases; install only on request.
+- [x] Allow explicit Dev-to-Public rollback and reject stale background check results.
+- [x] Package Dev artifacts separately with clear installer branding and the same app identity.
+- [ ] Include the selector in the next approved Public release; v0.3.4 requires the Dev installer to switch back.
