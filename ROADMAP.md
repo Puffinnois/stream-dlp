@@ -6,7 +6,11 @@ Task checkboxes track implementation. Firefox automatic session import is now im
 
 ## Direction and priorities
 
-Keep the native Windows app and reuse yt-dlp, FFmpeg, and Deno. Build shared platform and session support first, then deliver features in small releases:
+Keep one native Rust app for Windows and experimental macOS, reusing yt-dlp,
+FFmpeg, and Deno. The initial Mac scope is Apple Silicon, manual cookie import,
+manual updates, and automated Mac builds; real-device acceptance is tracked in
+[the Mac checklist](docs/macos.md). Build shared platform and session support
+first, then deliver features in small releases:
 
 1. Investigate automatic YouTube session import and Streamable upload feasibility.
 2. Generalize the existing download engine and session boundaries.

@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -184,24 +184,15 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
 
-pub fn root() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 pub fn tools_dir() -> PathBuf {
-    let beside = root().join("tools");
-    if beside.join("yt-dlp.exe").exists() {
-        beside
-    } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools")
-    }
+    crate::platform::tools_dir()
 }
 pub fn tools_ready() -> bool {
-    ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe"]
-        .iter()
-        .all(|name| tools_dir().join(name).is_file())
+    ["yt-dlp", "ffmpeg", "ffprobe", "deno"].iter().all(|name| {
+        tools_dir()
+            .join(crate::platform::executable(name))
+            .is_file()
+    })
 }
 pub fn hidden(cmd: &mut Command) -> &mut Command {
     #[cfg(windows)]
@@ -209,13 +200,19 @@ pub fn hidden(cmd: &mut Command) -> &mut Command {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Give each helper its own process group so cancellation also stops FFmpeg.
+        cmd.process_group(0);
+    }
     cmd
 }
 fn command(
     session: Option<&SessionCookies>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), String> {
     let tools = tools_dir();
-    let mut cmd = Command::new(tools.join("yt-dlp.exe"));
+    let mut cmd = Command::new(tools.join(crate::platform::executable("yt-dlp")));
     hidden(&mut cmd);
     cmd.args([
         "--ignore-config",
@@ -231,7 +228,10 @@ fn command(
     ])
     .arg(&tools)
     .arg("--js-runtimes")
-    .arg(format!("deno:{}", tools.join("deno.exe").display()));
+    .arg(format!(
+        "deno:{}",
+        tools.join(crate::platform::executable("deno")).display()
+    ));
     let session_file = session.map(SessionCookies::temporary_file).transpose()?;
     if let Some(file) = &session_file {
         cmd.arg("--cookies").arg(file.path());
@@ -248,6 +248,14 @@ pub enum Event {
 }
 
 fn stop(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: hidden() assigns the spawned helper a process group equal to
+        // its PID. This targets that group, never our application's group.
+        unsafe {
+            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+        }
+    }
     #[cfg(windows)]
     {
         let _ =
@@ -441,6 +449,35 @@ pub fn progress(line: &str) -> Option<(f32, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_stops_descendants_in_the_helper_process_group() {
+        let directory = tempfile::tempdir().unwrap();
+        let survived = directory.path().join("survived");
+        let ready = directory.path().join("ready");
+        let mut child = hidden(
+            Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "(sleep 1; printf survived > \"$1\") & printf ready > \"$2\"; wait",
+                    "test",
+                ])
+                .arg(&survived)
+                .arg(&ready),
+        )
+        .spawn()
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let started = ready.exists();
+        stop(&mut child);
+        assert!(started, "The synthetic helper did not start");
+        thread::sleep(Duration::from_millis(1200));
+        assert!(!survived.exists(), "A descendant survived cancellation");
+    }
+
     #[test]
     #[ignore = "requires installed FFmpeg and yt-dlp, plus localhost sockets"]
     fn local_download_pipeline_saves_playable_file() {
@@ -451,7 +488,7 @@ mod tests {
         std::fs::create_dir_all(&output).unwrap();
         let fixture = output.join("manifest.mpd");
         let generated = hidden(
-            Command::new(tools_dir().join("ffmpeg.exe"))
+            Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
                 .current_dir(&output)
                 .args([
                     "-y",
@@ -466,7 +503,7 @@ mod tests {
                     "-i",
                     "sine=frequency=440:duration=1",
                     "-c:v",
-                    "libx264",
+                    "mpeg4",
                     "-pix_fmt",
                     "yuv420p",
                     "-c:a",
@@ -603,7 +640,7 @@ mod tests {
         let saved = saved.expect("No completion event");
         assert!(had_progress, "No progress events were parsed");
         let probe = hidden(
-            Command::new(tools_dir().join("ffprobe.exe"))
+            Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
                 .args([
                     "-v",
                     "error",
@@ -674,7 +711,7 @@ mod tests {
             }
         };
         let probe = hidden(
-            Command::new(tools_dir().join("ffprobe.exe"))
+            Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
                 .args([
                     "-v",
                     "error",

@@ -1,0 +1,79 @@
+name: Windows and experimental Mac checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo +1.93.1 fmt --all -- --check
+      - name: Test
+        run: cargo +1.93.1 test --locked
+      - name: Lint
+        run: cargo +1.93.1 clippy --all-targets --locked -- -D warnings
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      RUSTUP_TOOLCHAIN: 1.93.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Rust
+        run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-arm64-rust193-${{ hashFiles('Cargo.lock') }}
+      - name: Build verified Mac helpers
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/setup-macos.py
+      - name: Test and package Mac app
+        run: python scripts/build-macos.py --skip-tools
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Local video download, merge, session isolation and cancellation
+        run: cargo test --locked local_download_pipeline -- --ignored --nocapture
+      - name: Check packaged helper paths outside the source directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/package-check"
+          ditto -x -k dist/stream-dlp-macOS-arm64-experimental.zip "$RUNNER_TEMP/package-check"
+          cd "$RUNNER_TEMP/package-check"
+          app="$PWD/stream-dlp.app"
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/stream-dlp" --check-tools
+      - name: Upload experimental package
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-dlp-macOS-arm64-experimental
+          path: |
+            dist/stream-dlp-macOS-arm64-experimental.zip
+            dist/stream-dlp-macOS-arm64-experimental.zip.sha256
+          if-no-files-found: error
+      - name: Upload local pipeline diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-pipeline-diagnostics
+          path: test-output/
+          if-no-files-found: ignore

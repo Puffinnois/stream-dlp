@@ -1,6 +1,20 @@
 # stream-dlp
 
-A small native Windows YouTube downloader written in Rust. A light, minimal interface with blue accents, inspired by RustDesk.
+A small native YouTube downloader written in Rust. Windows is the established release; experimental Apple Silicon Mac support is being added. A light, minimal interface with blue accents, inspired by RustDesk.
+
+## Experimental Mac version
+
+The first Mac target is Apple Silicon (M1 or newer), macOS 15 or newer. The Mac
+package includes the download tools, uses manual cookie-file import and manual
+app updates, and requires no paid Apple developer account. It is ad-hoc signed
+and not notarized, so a browser-downloaded copy may require **Open Anyway** in
+macOS Privacy & Security. Initial real-device acceptance is still pending.
+
+See [Mac build, installation, automated checks, and acceptance checklist](docs/macos.md).
+The GitHub Actions workflow is prepared in `ci/checks.yml`; activation is pending
+permission to add workflows. Once activated, it builds an experimental app ZIP
+without publishing a release. The instructions below describe Windows unless
+otherwise stated.
 
 ## Use
 

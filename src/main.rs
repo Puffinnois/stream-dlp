@@ -2,7 +2,12 @@
 mod backend;
 mod browser_session;
 mod export_help;
+mod platform;
 mod session;
+#[cfg(windows)]
+mod updater;
+#[cfg(not(windows))]
+#[path = "updater_manual.rs"]
 mod updater;
 
 use backend::{Event, Video};
@@ -118,7 +123,9 @@ impl App {
             .insert(egui::TextStyle::Button, egui::FontId::proportional(15.));
         ctx.set_style(style);
         let mut app = Self::with_profiles(browser_session::profiles());
-        app.updater.check(ctx);
+        if cfg!(windows) {
+            app.updater.check(ctx);
+        }
         app
     }
 
@@ -154,7 +161,7 @@ impl App {
             session_rx,
             session_folder: export_help::export_folder(),
             session_file: None,
-            session_mode: 0,
+            session_mode: if cfg!(windows) { 0 } else { 1 },
             browser_choice: 0,
             browser_profiles,
             browser_profile: 0,
@@ -376,6 +383,17 @@ impl App {
     }
 
     fn browser_controls(&mut self, ui: &mut egui::Ui) {
+        if !cfg!(windows) {
+            ui.label("On Mac, connect your YouTube session using an exported cookies.txt file. Automatic browser import is not available in this experimental release.");
+            if ui
+                .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
+                .clicked()
+            {
+                self.session_mode = 2;
+                self.export_step = 0;
+            }
+            return;
+        }
         ui.label("Choose your browser. Firefox can import directly; Chrome and Edge currently need an exported file.");
         ui.add_enabled_ui(!self.busy(), |ui| {
             egui::ComboBox::from_id_salt("session_browser")
@@ -513,7 +531,7 @@ impl App {
                 self.import_session(export_help::downloads_folder());
             }
         });
-        ui.label(RichText::new("If the browser saved it automatically, open its Downloads list (Ctrl+J) and use Show in folder. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports.").size(12.).color(MUTED));
+        ui.label(RichText::new("If the browser saved it automatically, open its Downloads list and reveal the file in your file manager. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports.").size(12.).color(MUTED));
     }
 
     fn export_instructions(&mut self, ui: &mut egui::Ui) {
@@ -576,12 +594,12 @@ impl App {
                 );
                 ui.horizontal(|ui| {
                     if ui.button("Open export folder").clicked() {
-                        let result = std::fs::create_dir_all(&folder).and_then(|_| backend::hidden(std::process::Command::new("explorer.exe").arg(&folder)).spawn().map(|_| ()));
+                        let result = std::fs::create_dir_all(&folder).and_then(|_| platform::open_folder(&folder));
                         if result.is_err() { self.session_error = Some("Could not open the export folder. Save the file to Downloads and choose it in the next step.".into()); }
                     }
                     if ui.button("Copy folder path").clicked() { ui.ctx().copy_text(folder.display().to_string()); }
                 });
-                ui.label(RichText::new("If no Save As window appears, the file probably went into Downloads. Use Ctrl+J in the browser to find its location.").size(12.).color(MUTED));
+                ui.label(RichText::new("If no Save As window appears, the file probably went into Downloads. Open the browser Downloads list to find its location.").size(12.).color(MUTED));
             }
             _ => {
                 ui.label(RichText::new("Select the file you just exported").strong());
@@ -735,7 +753,10 @@ impl App {
         });
         if !backend::tools_ready() {
             ui.add_space(12.);
-            ui.colored_label(Color32::from_rgb(174, 100, 20), "Download tools are missing. Run Setup tools.ps1 from the app folder, then restart.");
+            ui.colored_label(
+                Color32::from_rgb(174, 100, 20),
+                format!("Download tools are missing. {}", platform::tools_help()),
+            );
         }
         if self.browser_importing {
             card(ui, |ui| {
@@ -996,10 +1017,7 @@ impl App {
                         if primary(ui, "Open folder", true).clicked()
                             && let Some(folder) = &self.destination
                         {
-                            let _ = backend::hidden(
-                                std::process::Command::new("explorer.exe").arg(folder),
-                            )
-                            .spawn();
+                            let _ = platform::open_folder(folder);
                         }
                         if ui.button("Download again").clicked() {
                             self.choose_folder();
@@ -1107,16 +1125,18 @@ impl eframe::App for App {
                     ui.heading(format!("stream-dlp {} is available", update.version));
                     ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
                 }
-                ui.label("Update downloads and verifies the Windows installer, then closes the app and opens setup. You choose whether to complete installation. Portable users can choose their existing app folder in setup.");
+                ui.label(if cfg!(windows) { "Update downloads and verifies the Windows installer, then closes the app and opens setup. You choose whether to complete installation. Portable users can choose their existing app folder in setup." } else { "Mac updates are manual. Download a fresh Mac package from Releases, close the app, and replace your existing copy." });
                 if busy && !self.updater.downloading {
                     ui.label("Finish or cancel the current operation before updating.");
                 }
                 ui.hyperlink_to("Release notes", updater::RELEASES);
                 ui.label(&self.updater.message);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
+                    if cfg!(windows) && ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
                         self.updater.download(ctx);
                     }
+                    #[cfg(not(windows))]
+                    ui.hyperlink_to("Download Mac package", updater::RELEASES);
                     if ui.add_enabled(!self.updater.downloading, egui::Button::new("Later")).clicked() {
                         self.updater.prompt = false;
                     }
@@ -1138,12 +1158,16 @@ impl eframe::App for App {
             .open(&mut self.about)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label("A small native Windows app, written in Rust.");
+                ui.label("A small native app, written in Rust.");
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                 if ui
                     .add_enabled(
                         !self.updater.checking && !self.updater.downloading,
-                        egui::Button::new("Check for updates"),
+                        egui::Button::new(if cfg!(windows) {
+                            "Check for updates"
+                        } else {
+                            "Get Mac updates"
+                        }),
                     )
                     .clicked()
                 {
@@ -1161,9 +1185,11 @@ impl eframe::App for App {
                 ui.label(if backend::tools_ready() {
                     "All download tools are ready."
                 } else {
-                    "Run Setup tools.ps1 from the app folder to install the tools."
+                    platform::tools_help()
                 });
-                ui.label("To update tools, close stream-dlp and run Setup tools.ps1 again.");
+                #[cfg(not(windows))]
+                ui.hyperlink_to("Download Mac updates", updater::RELEASES);
+                ui.label(platform::tools_help());
                 ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
             });
     }
@@ -1173,6 +1199,27 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
+    if std::env::args().skip(1).any(|arg| arg == "--check-tools") {
+        // CI can exercise the installed app's actual bundle lookup without a
+        // desktop session, browser profile, or external video service.
+        for name in ["yt-dlp", "ffmpeg", "ffprobe", "deno"] {
+            let path = backend::tools_dir().join(platform::executable(name));
+            let result = backend::hidden(std::process::Command::new(&path).arg(
+                if name == "yt-dlp" || name == "deno" {
+                    "--version"
+                } else {
+                    "-version"
+                },
+            ))
+            .status();
+            if !result.is_ok_and(|status| status.success()) {
+                eprintln!("Bundled tool check failed: {}", path.display());
+                std::process::exit(1);
+            }
+        }
+        println!("All bundled download tools are ready.");
+        return Ok(());
+    }
     eframe::run_native(
         "stream-dlp",
         eframe::NativeOptions {

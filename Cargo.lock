@@ -2541,6 +2541,7 @@ version = "0.3.4"
 dependencies = [
  "dirs",
  "eframe",
+ "libc",
  "rfd",
  "semver",
  "serde",

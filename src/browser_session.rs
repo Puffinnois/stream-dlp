@@ -2,7 +2,11 @@
 use crate::session::SessionCookies;
 use std::{
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::AtomicBool,
+};
+#[cfg(windows)]
+use std::{
+    sync::atomic::Ordering,
     time::{Duration, Instant},
 };
 
@@ -14,6 +18,9 @@ pub struct Profile {
 }
 
 pub fn profiles() -> Vec<Profile> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
     let Some(roaming) = dirs::config_dir() else {
         return Vec::new();
     };
@@ -102,10 +109,12 @@ pub fn import(profile: &Profile, cancel: &AtomicBool) -> Result<SessionCookies, 
     }
 }
 
+#[cfg(windows)]
 struct Budget<'a> {
     cancel: &'a AtomicBool,
     start: Instant,
 }
+#[cfg(windows)]
 impl Budget<'_> {
     fn check(&self) -> Result<(), String> {
         if self.cancel.load(Ordering::Relaxed) {
