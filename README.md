@@ -9,10 +9,10 @@ Use **About & tools → Update channel** to choose **Public** (stable releases) 
 requires **Install selected build** and completing setup. The sidebar shows the
 build currently running. Dev builds do not update Public users.
 
-The first Dev version is `0.3.5-dev.1`. Install its Dev installer once to start
-using the selector. Returning to Public v0.3.4 works, but that older app has no
-selector: reopen the Dev installer to return to Dev until the next Public
-release includes the switch. Mac updates remain manual.
+Public `0.3.5` and Dev `0.3.5-dev.1` both include the channel selector. Install
+either build to start switching inside the app. The older Public v0.3.4 has no
+selector, so switching from that version requires installing a newer build
+first. Mac updates remain manual.
 
 See [release channels and promotion](docs/release-channels.md). Windows Dev build
 artifacts are written under `dist/dev/<version>/` by `build.ps1`.

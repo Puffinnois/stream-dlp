@@ -28,11 +28,10 @@ eligible semantic version; same-channel checks never downgrade.
 
 ## First installation
 
-Install the Dev installer once to start testing. Public v0.3.4 has no channel
-selector because it was built before this feature. If you return to v0.3.4,
-reopen the Dev installer to return to Dev. The next approved Public release will
-include the selector so both directions work inside the app. Keep the Dev
-installer until that Public release is available.
+Public v0.3.5 and Dev v0.3.5-dev.1 include the channel selector. Install either
+to start switching inside the app. Public v0.3.4 has no selector because it was
+built before this feature. If you return to v0.3.4, reopen a newer installer
+to regain the selector.
 
 Mac builds retain manual installation: use the selected channel's package on
 GitHub Releases. An automatic Mac installer is not implemented.

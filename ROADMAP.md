@@ -317,4 +317,5 @@ Future scope decisions include which browsers to advertise, whether to build an 
 - [x] Isolate stable releases from explicitly tagged Dev prereleases; install only on request.
 - [x] Allow explicit Dev-to-Public rollback and reject stale background check results.
 - [x] Package Dev artifacts separately with clear installer branding and the same app identity.
-- [ ] Include the selector in the next approved Public release; v0.3.4 requires the Dev installer to switch back.
+- [x] Include the selector in Public v0.3.5; v0.3.4 requires a newer installer to regain it.
+- [x] Windows acceptance confirmed by the user on October 22, 2026, including channel installation and representative Streamable uploads.
