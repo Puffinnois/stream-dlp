@@ -247,7 +247,7 @@ pub enum Event {
     Cancelled,
 }
 
-fn stop(child: &mut std::process::Child) {
+pub(crate) fn stop(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         // SAFETY: hidden() assigns the spawned helper a process group equal to

@@ -57,7 +57,7 @@ def build(skip_tools=False):
             "CFBundleExecutable": "stream-dlp", "CFBundleName": "stream-dlp",
             "CFBundleIdentifier": "io.github.puffinnois.stream-dlp",
             "CFBundlePackageType": "APPL", "CFBundleIconFile": "app.icns",
-            "CFBundleShortVersionString": version, "CFBundleVersion": version,
+            "CFBundleShortVersionString": version.split("-")[0], "CFBundleVersion": version.split("-")[0],
             "LSMinimumSystemVersion": "15.0", "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "stream-dlp contributors. MIT license.",
         }

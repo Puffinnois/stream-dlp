@@ -1,4 +1,6 @@
 //! The experimental Mac release uses manual updates; no PowerShell or installer.
+use crate::release_channel::Channel;
+
 pub const RELEASES: &str = "https://github.com/Puffinnois/stream-dlp/releases";
 
 pub struct Update {
@@ -6,6 +8,7 @@ pub struct Update {
 }
 
 pub struct Updater {
+    pub channel: Channel,
     pub available: Option<Update>,
     pub message: String,
     pub checking: bool,
@@ -16,6 +19,7 @@ pub struct Updater {
 impl Default for Updater {
     fn default() -> Self {
         Self {
+            channel: Channel::load(),
             available: None,
             message: "Mac updates are manual. Download the latest Mac package from Releases."
                 .into(),
@@ -27,6 +31,18 @@ impl Default for Updater {
 }
 
 impl Updater {
+    pub fn set_channel(&mut self, channel: Channel, _ctx: &eframe::egui::Context) {
+        if let Err(error) = channel.save() {
+            self.message = error;
+            return;
+        }
+        self.channel = channel;
+        self.message = format!(
+            "Mac updates are manual. Choose a {} Mac package from Releases.",
+            channel.label()
+        );
+    }
+
     pub fn check(&mut self, _ctx: &eframe::egui::Context) {
         self.prompt = true;
     }

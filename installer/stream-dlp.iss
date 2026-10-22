@@ -5,10 +5,21 @@
   #define PortableDir "..\dist\stream-dlp"
 #endif
 
+#ifndef AppLabel
+  #define AppLabel "stream-dlp"
+#endif
+#ifndef NumericVersion
+  #define NumericVersion AppVersion
+#endif
+#ifndef ReleaseOutput
+  #define ReleaseOutput "..\dist"
+#endif
+
 [Setup]
 AppId={{2B8804F9-9B57-472E-B8E0-B97062EEACB9}
-AppName=stream-dlp
+AppName={#AppLabel}
 AppVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 AppPublisher=Puffinnois
 AppPublisherURL=https://github.com/Puffinnois/stream-dlp
 AppUpdatesURL=https://github.com/Puffinnois/stream-dlp/releases
@@ -18,7 +29,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-OutputDir=..\dist
+OutputDir={#ReleaseOutput}
 OutputBaseFilename=stream-dlp-Setup-Windows-x64
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\stream-dlp.exe

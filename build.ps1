@@ -1,7 +1,16 @@
-param([switch]$SkipTools, [switch]$Installer, [string]$IsccPath, [string]$PortableDirectory = 'dist\stream-dlp')
+param([switch]$SkipTools, [switch]$Installer, [string]$IsccPath, [string]$PortableDirectory)
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
+    $manifest = Get-Content -LiteralPath 'Cargo.toml' -Raw
+    if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cannot find app version in Cargo.toml.' }
+    $appVersion = $Matches[1]
+    $devBuild = $appVersion -match '-dev\.\d+$'
+    if ($appVersion.Contains('-') -and -not $devBuild) { throw 'Prerelease versions must use -dev.N.' }
+    $releaseDirectory = if ($devBuild) { "dist\dev\$appVersion" } else { 'dist' }
+    $releaseOutput = Join-Path $PSScriptRoot $releaseDirectory
+    if (-not $PortableDirectory) { $PortableDirectory = Join-Path $releaseDirectory 'stream-dlp' }
+    New-Item -ItemType Directory -Path $releaseOutput -Force | Out-Null
     cargo test --locked
     if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }
     cargo build --release --locked
@@ -12,12 +21,12 @@ try {
     foreach ($file in @('Setup tools.ps1', 'README.md', 'LICENSE', 'THIRD-PARTY.md')) { Copy-Item -LiteralPath $file -Destination $portable -Force }
     $docs = Join-Path $portable 'docs'
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
-    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'release-0.3.4.md', 'macos.md')) {
+    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'automatic-streamable-upload.md', 'release-channels.md', 'release-0.3.5-dev.1.md', 'release-0.3.4.md', 'macos.md')) {
         Copy-Item -LiteralPath (Join-Path 'docs' $document) -Destination $docs -Force
     }
     if (-not $SkipTools) { & '.\Setup tools.ps1' -Destination (Join-Path $portable 'tools') }
     # The distributable installs third-party tools directly from their official releases.
-    $zip = Join-Path $PSScriptRoot 'dist\stream-dlp-Windows-x64.zip'
+    $zip = Join-Path $releaseOutput 'stream-dlp-Windows-x64.zip'
     Compress-Archive -Path (Join-Path $portable 'stream-dlp.exe'),(Join-Path $portable 'Setup tools.ps1'),(Join-Path $portable 'README.md'),(Join-Path $portable 'LICENSE'),(Join-Path $portable 'THIRD-PARTY.md'),$docs -DestinationPath $zip -Force
     Write-Host "Portable app: $portable"
     Write-Host "App + setup zip: $zip"
@@ -33,10 +42,10 @@ try {
             else { $IsccPath = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
         }
         if (-not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
-        $manifest = Get-Content -LiteralPath 'Cargo.toml' -Raw
-        if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cannot find app version in Cargo.toml.' }
-        & $IsccPath "/DAppVersion=$($Matches[1])" "/DPortableDir=$portable" 'installer\stream-dlp.iss'
+        $appLabel = if ($devBuild) { 'stream-dlp Dev' } else { 'stream-dlp' }
+        $numericVersion = ($appVersion -split '-')[0] + '.0'
+        & $IsccPath "/DAppVersion=$appVersion" "/DAppLabel=$appLabel" "/DNumericVersion=$numericVersion" "/DReleaseOutput=$releaseOutput" "/DPortableDir=$portable" 'installer\stream-dlp.iss'
         if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation failed.' }
-        Write-Host "Windows installer: $(Join-Path $PSScriptRoot 'dist\stream-dlp-Setup-Windows-x64.exe')"
+        Write-Host "Windows installer: $(Join-Path $releaseOutput 'stream-dlp-Setup-Windows-x64.exe')"
     }
 } finally { Pop-Location }

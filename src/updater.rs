@@ -1,4 +1,5 @@
-//! Stable GitHub release checks. Downloading and launching always require a UI click.
+//! Channel-specific GitHub release checks. Downloading and launching always require a UI click.
+use crate::release_channel::Channel;
 use serde::Deserialize;
 use std::{path::PathBuf, process::Command, sync::mpsc};
 
@@ -27,17 +28,37 @@ struct Asset {
     digest: Option<String>,
 }
 
+#[cfg(test)]
 fn parse_release(json: &str, current: &str) -> Result<Option<Update>, String> {
-    let release: Release = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    if release.draft || release.prerelease {
-        return Ok(None);
-    }
-    let version = semver::Version::parse(release.tag_name.trim_start_matches('v'))
-        .map_err(|_| "The release has an invalid version.".to_string())?;
+    parse_releases(&format!("[{json}]"), current, Channel::Public, false)
+}
+fn parse_releases(
+    json: &str,
+    current: &str,
+    channel: Channel,
+    switching: bool,
+) -> Result<Option<Update>, String> {
+    let releases: Vec<Release> = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let current = semver::Version::parse(current).map_err(|e| e.to_string())?;
-    if !version.pre.is_empty() || version <= current {
-        return Ok(None);
+    let mut candidates = Vec::new();
+    for release in releases {
+        if release.draft {
+            continue;
+        }
+        let version = semver::Version::parse(release.tag_name.trim_start_matches('v'))
+            .map_err(|_| "The release has an invalid version.".to_string())?;
+        let eligible = match channel {
+            Channel::Public => !release.prerelease && version.pre.is_empty(),
+            Channel::Dev => release.prerelease && version.pre.as_str().starts_with("dev."),
+        };
+        if eligible && version != current && (switching || version > current) {
+            candidates.push((version, release));
+        }
     }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    let Some((version, release)) = candidates.into_iter().next() else {
+        return Ok(None);
+    };
     let asset = release
         .assets
         .into_iter()
@@ -80,23 +101,37 @@ fn powershell(script: &str, vars: &[(&str, &str)]) -> Result<String, String> {
         .trim()
         .to_string())
 }
-
-pub fn check() -> Result<Option<Update>, String> {
+fn check(channel: Channel) -> Result<Option<Update>, String> {
     let json = powershell(
         r#"
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-try {
-    $release = Invoke-RestMethod 'https://api.github.com/repos/Puffinnois/stream-dlp/releases/latest' -Headers @{ 'User-Agent' = 'stream-dlp'; 'Accept' = 'application/vnd.github+json' } -TimeoutSec 30
-    $release | ConvertTo-Json -Depth 12 -Compress
-} catch {
-    if ($_.Exception.Response.StatusCode.value__ -eq 404) { '{"tag_name":"0.0.0","draft":false,"prerelease":false,"assets":[]}' }
-    else { throw }
+$headers = @{ 'User-Agent' = 'stream-dlp'; 'Accept' = 'application/vnd.github+json' }
+if ($env:STREAM_DLP_CHANNEL -eq 'Public') {
+    try {
+        $release = Invoke-RestMethod 'https://api.github.com/repos/Puffinnois/stream-dlp/releases/latest' -Headers $headers -TimeoutSec 30
+        ConvertTo-Json -InputObject @($release) -Depth 12 -Compress
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -eq 404) { '[]' } else { throw }
+    }
+} else {
+    $releases = @()
+    for ($page = 1; $page -le 5; $page++) {
+        $batch = Invoke-RestMethod "https://api.github.com/repos/Puffinnois/stream-dlp/releases?per_page=100&page=$page" -Headers $headers -TimeoutSec 30
+        foreach ($release in $batch) { $releases += $release }
+        if ($batch.Count -lt 100) { break }
+    }
+    ConvertTo-Json -InputObject @($releases) -Depth 12 -Compress
 }
 "#,
-        &[],
+        &[("STREAM_DLP_CHANNEL", channel.label())],
     )?;
-    parse_release(&json, env!("CARGO_PKG_VERSION"))
+    parse_releases(
+        &json,
+        env!("CARGO_PKG_VERSION"),
+        channel,
+        channel != Channel::installed(),
+    )
 }
 
 pub struct Installer {
@@ -143,11 +178,13 @@ if ($actual -ne $env:STREAM_DLP_UPDATE_HASH) { throw 'Installer checksum verific
 }
 
 pub enum Event {
-    Checked(Result<Option<Update>, String>),
+    Checked(u64, Result<Option<Update>, String>),
     Downloaded(Result<Installer, String>),
 }
 
 pub struct Updater {
+    pub channel: Channel,
+    generation: u64,
     pub available: Option<Update>,
     pub message: String,
     pub checking: bool,
@@ -161,6 +198,8 @@ impl Default for Updater {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
+            channel: Channel::load(),
+            generation: 0,
             available: None,
             message: String::new(),
             checking: false,
@@ -173,15 +212,32 @@ impl Default for Updater {
 }
 
 impl Updater {
+    pub fn set_channel(&mut self, channel: Channel, ctx: &eframe::egui::Context) {
+        if self.downloading || self.channel == channel {
+            return;
+        }
+        if let Err(error) = channel.save() {
+            self.message = error;
+            return;
+        }
+        self.channel = channel;
+        self.generation += 1;
+        self.available = None;
+        self.prompt = false;
+        self.checking = false;
+        self.check(ctx);
+    }
     pub fn check(&mut self, ctx: &eframe::egui::Context) {
         if self.checking || self.downloading {
             return;
         }
         self.checking = true;
-        self.message = "Checking for updates…".into();
+        self.message = format!("Checking {} releases...", self.channel.label());
+        self.generation += 1;
+        let (generation, channel) = (self.generation, self.channel);
         let (tx, ctx) = (self.tx.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let _ = tx.send(Event::Checked(check()));
+            let _ = tx.send(Event::Checked(generation, check(channel)));
             ctx.request_repaint();
         });
     }
@@ -205,12 +261,15 @@ impl Updater {
     pub fn poll(&mut self) -> bool {
         while let Ok(event) = self.rx.try_recv() {
             match event {
-                Event::Checked(result) => {
+                Event::Checked(generation, result) => {
+                    if generation != self.generation {
+                        continue;
+                    }
                     self.checking = false;
                     match result {
                         Ok(update) => {
                             self.message = if update.is_some() {
-                                "An update is available."
+                                "A build is available for the selected channel."
                             } else {
                                 "You’re up to date."
                             }
@@ -242,6 +301,7 @@ mod tests {
     fn release(version: &str) -> serde_json::Value {
         serde_json::json!({"tag_name": version, "draft": false, "prerelease": false, "assets": [{"name": ASSET, "browser_download_url": format!("https://github.com/Puffinnois/stream-dlp/releases/download/{version}/{ASSET}"), "digest": format!("sha256:{}", "a".repeat(64))}]})
     }
+
     #[test]
     fn stable_versions_compare_numerically_and_never_downgrade() {
         for (tag, expected) in [
@@ -265,6 +325,7 @@ mod tests {
                 .is_none()
         );
     }
+
     #[test]
     fn refuses_missing_installer_digest_and_foreign_urls() {
         for field in ["digest", "browser_download_url", "name"] {
@@ -277,6 +338,87 @@ mod tests {
     }
 
     #[test]
+    fn channels_are_isolated_and_switching_can_return_to_public() {
+        let mut dev = release("v0.3.5-dev.2");
+        dev["prerelease"] = true.into();
+        let mut previous_dev = release("v0.3.5-dev.1");
+        previous_dev["prerelease"] = true.into();
+        let mut beta = release("v9.0.0-beta.1");
+        beta["prerelease"] = true.into();
+        let mut draft = release("v10.0.0-dev.1");
+        draft["prerelease"] = true.into();
+        draft["draft"] = true.into();
+        let releases =
+            serde_json::json!([previous_dev, beta, release("v0.3.4"), dev, draft]).to_string();
+        let choose = |current, channel, switching| {
+            parse_releases(&releases, current, channel, switching)
+                .unwrap()
+                .map(|u| u.version)
+        };
+        assert_eq!(
+            choose("0.3.3", Channel::Public, false).as_deref(),
+            Some("0.3.4")
+        );
+        assert_eq!(
+            choose("0.3.4", Channel::Dev, true).as_deref(),
+            Some("0.3.5-dev.2")
+        );
+        assert_eq!(
+            choose("0.3.5-dev.2", Channel::Public, true).as_deref(),
+            Some("0.3.4")
+        );
+        assert!(choose("0.3.5-dev.2", Channel::Dev, false).is_none());
+        assert!(choose("0.3.5-dev.3", Channel::Dev, false).is_none());
+        assert!(choose("0.3.5-dev.2", Channel::Public, false).is_none());
+    }
+
+    #[test]
+    fn stale_checks_cannot_offer_the_wrong_channel() {
+        let mut updater = Updater {
+            generation: 2,
+            checking: true,
+            ..Default::default()
+        };
+        updater
+            .tx
+            .send(Event::Checked(
+                1,
+                parse_release(&release("v9.0.0").to_string(), "0.3.3"),
+            ))
+            .unwrap();
+        updater.poll();
+        assert!(updater.available.is_none());
+        assert!(!updater.prompt);
+        assert!(updater.checking);
+        updater.tx.send(Event::Checked(2, Ok(None))).unwrap();
+        updater.poll();
+        assert!(!updater.checking);
+    }
+
+    #[test]
+    #[ignore = "requires GitHub network access; checks release metadata only"]
+    fn github_channel_checks_parse_live_metadata() {
+        let public = check(Channel::Public)
+            .unwrap()
+            .expect("Public release should be available from a Dev build");
+        assert!(
+            semver::Version::parse(&public.version)
+                .unwrap()
+                .pre
+                .is_empty()
+        );
+        if let Some(dev) = check(Channel::Dev).unwrap() {
+            assert!(
+                semver::Version::parse(&dev.version)
+                    .unwrap()
+                    .pre
+                    .as_str()
+                    .starts_with("dev.")
+            );
+        }
+    }
+
+    #[test]
     fn discovering_an_update_never_starts_a_download() {
         let mut updater = Updater {
             checking: true,
@@ -284,10 +426,10 @@ mod tests {
         };
         updater
             .tx
-            .send(Event::Checked(parse_release(
-                &release("v9.0.0").to_string(),
-                "0.3.3",
-            )))
+            .send(Event::Checked(
+                0,
+                parse_release(&release("v9.0.0").to_string(), "0.3.3"),
+            ))
             .unwrap();
         assert!(!updater.poll());
         assert!(updater.prompt);

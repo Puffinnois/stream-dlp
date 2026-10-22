@@ -2,6 +2,21 @@
 
 A small native YouTube downloader written in Rust. Windows is the established release; experimental Apple Silicon Mac support is being added. A light, minimal interface with blue accents, inspired by RustDesk.
 
+## Public and Dev versions
+
+Use **About & tools → Update channel** to choose **Public** (stable releases) or
+**Dev** (experimental prereleases). Selection is remembered; installing a build
+requires **Install selected build** and completing setup. The sidebar shows the
+build currently running. Dev builds do not update Public users.
+
+The first Dev version is `0.3.5-dev.1`. Install its Dev installer once to start
+using the selector. Returning to Public v0.3.4 works, but that older app has no
+selector: reopen the Dev installer to return to Dev until the next Public
+release includes the switch. Mac updates remain manual.
+
+See [release channels and promotion](docs/release-channels.md). Windows Dev build
+artifacts are written under `dist/dev/<version>/` by `build.ps1`.
+
 ## Experimental Mac version
 
 The first Mac target is Apple Silicon (M1 or newer), macOS 15 or newer. The Mac
@@ -46,9 +61,9 @@ Private, age-restricted, or members-only videos require an account with access, 
 
 The Windows installer is `dist/stream-dlp-Setup-Windows-x64.exe`. It includes the download tools, installs for the current user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Uninstall through Windows Settings. The app has an embedded blue download-arrow icon for Explorer, shortcuts, and the taskbar.
 
-The app checks the latest stable GitHub release in the background each time it opens. A newer version offers **Update** and **Later**. You can also use **About & tools → Check for updates**. Nothing downloads until you choose Update. Finish or cancel an active operation first. The app downloads the Windows installer, checks its SHA-256 digest from GitHub, then closes and opens setup for you to review. You may cancel setup. Network errors do not block downloading videos; check again later. Portable users can select their existing folder in setup, or download a fresh portable ZIP from Releases.
+The app checks your selected channel in the background each time it opens. An available build offers **Install selected build** and **Later**. Use **About & tools → Update channel** to change channels or **Check for updates** to check again. Nothing downloads until you click Install selected build. Finish or cancel an active operation first. The Windows installer is verified against GitHub's SHA-256 digest, then setup opens for you to review. You may cancel setup. Network errors do not block downloading videos. Portable users can select their existing app folder in setup, or download a fresh ZIP from Releases.
 
-App updates require a published stable release at `Puffinnois/stream-dlp` with a semantic version tag such as `v0.3.4` and an asset named `stream-dlp-Setup-Windows-x64.exe`. GitHub must supply its SHA-256 digest. Drafts, prereleases, older versions, and unverified installers are never installed. Publishing a release is a separate step from building locally.
+Updates require a matching semantic version tag and an asset named `stream-dlp-Setup-Windows-x64.exe` with GitHub's SHA-256 digest. Public uses stable releases; Dev uses `vX.Y.Z-dev.N` prereleases. Drafts and unverified installers are rejected. Same-channel checks never downgrade, while an explicit channel switch can offer an older target-channel build. Publishing is a separate step from building locally. See [release channels](docs/release-channels.md).
 
 The ready-to-run local portable folder includes tools. The small distributable ZIP contains the app and setup script; extract the ZIP into a writable folder, then run:
 
@@ -74,16 +89,46 @@ To also build the Windows installer, install Inno Setup and run `./build.ps1 -In
 
 If the existing portable executable is open, use `-PortableDirectory 'dist\stream-dlp-0.3.4'` to build a separate folder. Without `-SkipTools`, setup populates that folder's helpers as usual. The generated installer and ZIP use the selected portable folder.
 
+## My videos and Streamable
+
+Open the **My videos** page from the sidebar, then **Add video folder…** to list the videos
+in a folder. Switch between **Download** and **My videos** without losing the
+current download or folder selection. Select a video to check its container, duration, and size, then use
+**Play video** or **Show file**. **Refresh** reloads the folder after files change.
+The list includes up to 1,000 video filenames in that folder, without scanning
+subfolders. The folder selection lasts for this app session; no library history
+is saved. **Choose existing video…** also works without adding a folder.
+
+After a download, **Upload on Streamable** selects the completed file in the same
+interface. **Upload automatically (experimental)** opens a separate private
+Edge/Chrome window, selects the file automatically, and returns a share link
+after verifying playback. The app shows upload/processing status and offers
+cancellation. Complete any sign-in or verification in that browser window.
+Uploading is an explicit choice and accepts the linked Streamable upload terms.
+Guest links may be publicly accessible and are temporary. **Use website manually**
+remains available as a fallback. Neither flow changes the original file.
+
+Automatic uploading requires installed Edge or Chrome and the bundled Deno tool.
+It does not reuse your normal browser profile or YouTube session. Website changes
+can break automation. Only Windows/Edge is locally exercised; see the
+[automatic uploader implementation and tests](docs/automatic-streamable-upload.md)
+for lifecycle details and validation limits.
+
 ## Verification
 
 See the [v0.3.4 release notes](docs/release-0.3.4.md) for release validation and
 known acceptance limits.
 
-The [R-02 Streamable decision](docs/streamable-feasibility.md) selects a future
+The [R-02 Streamable decision](docs/streamable-feasibility.md) selects the
 browser-assisted sharing workflow. Authorized guest website uploads of synthetic
 and existing downloaded clips processed and played successfully. Direct uploads
-remain blocked by the official read-only API; sharing is not yet implemented in
-the app. Signed-in website acceptance remains open.
+remain blocked by the official read-only API. Signed-in website acceptance
+remains open.
+
+`cargo test --locked local_library_probe -- --ignored --nocapture` checks a real
+generated video and invalid files through FFprobe, including Unicode filenames
+and cancellation. Set `STREAM_DLP_VIDEO_TEST_FOLDER` only to a folder you explicitly
+want this test to read to additionally scan and probe its first two videos.
 
 Browser-session research is recorded in [the R-01 spike](docs/browser-session-spike.md).
 `python scripts/browser_session_spike.py --yt-dlp tools/yt-dlp.exe` probes only
