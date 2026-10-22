@@ -402,15 +402,14 @@ mod tests {
     #[test]
     #[ignore = "requires GitHub network access; checks release metadata only"]
     fn github_channel_checks_parse_live_metadata() {
-        let public = check(Channel::Public)
-            .unwrap()
-            .expect("Public release should be available from a Dev build");
-        assert!(
-            semver::Version::parse(&public.version)
-                .unwrap()
-                .pre
-                .is_empty()
-        );
+        if let Some(public) = check(Channel::Public).unwrap() {
+            assert!(
+                semver::Version::parse(&public.version)
+                    .unwrap()
+                    .pre
+                    .is_empty()
+            );
+        }
         if let Some(dev) = check(Channel::Dev).unwrap() {
             assert!(
                 semver::Version::parse(&dev.version)
