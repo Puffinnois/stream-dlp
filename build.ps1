@@ -12,7 +12,7 @@ try {
     foreach ($file in @('Setup tools.ps1', 'README.md', 'LICENSE', 'THIRD-PARTY.md')) { Copy-Item -LiteralPath $file -Destination $portable -Force }
     $docs = Join-Path $portable 'docs'
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
-    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'release-0.3.4.md')) {
+    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'release-0.3.4.md', 'macos.md')) {
         Copy-Item -LiteralPath (Join-Path 'docs' $document) -Destination $docs -Force
     }
     if (-not $SkipTools) { & '.\Setup tools.ps1' -Destination (Join-Path $portable 'tools') }
