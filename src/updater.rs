@@ -88,7 +88,11 @@ fn parse_releases(
 
 fn powershell(script: &str, vars: &[(&str, &str)]) -> Result<String, String> {
     let mut command = Command::new("powershell.exe");
-    command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    // Keep network errors readable in the UI instead of showing a PowerShell stack dump.
+    let script = format!(
+        "try {{\n{script}\n}} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}"
+    );
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
     command.envs(vars.iter().copied());
     let output = crate::backend::hidden(&mut command)
         .output()
