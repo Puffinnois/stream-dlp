@@ -2,6 +2,7 @@
 mod backend;
 mod browser_session;
 mod export_help;
+mod gif_converter;
 mod platform;
 mod release_channel;
 mod session;
@@ -43,11 +44,13 @@ enum Phase {
 enum Page {
     Download,
     Videos,
+    Gif,
 }
 
 struct App {
     page: Page,
     library: video_library::Library,
+    gif: gif_converter::Converter,
     updater: updater::Updater,
     link: String,
     loaded_link: String,
@@ -146,6 +149,7 @@ impl App {
         Self {
             page: Page::Download,
             library: video_library::Library::default(),
+            gif: gif_converter::Converter::default(),
             updater: updater::Updater::default(),
             link: String::new(),
             loaded_link: String::new(),
@@ -189,7 +193,8 @@ impl App {
     }
 
     fn busy(&self) -> bool {
-        self.library.uploader.status.active
+        self.gif.busy
+            || self.library.uploader.status.active
             || self.updater.downloading
             || self.session_loading
             || matches!(
@@ -663,6 +668,7 @@ impl App {
                 for (page, label) in [
                     (Page::Download, "↓   Download"),
                     (Page::Videos, "My videos"),
+                    (Page::Gif, "GIF converter"),
                 ] {
                     let active = self.page == page;
                     let button = egui::Button::new(
@@ -1055,6 +1061,17 @@ impl App {
                         );
                     }
                     ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                self.saved.is_some() && !self.gif.busy,
+                                egui::Button::new("Make GIF"),
+                            )
+                            .clicked()
+                            && let Some(path) = self.saved.clone()
+                        {
+                            self.gif.select_file(ui.ctx(), path);
+                            self.page = Page::Gif;
+                        }
                         if primary(ui, "Open folder", true).clicked()
                             && let Some(folder) = &self.destination
                         {
@@ -1148,11 +1165,13 @@ impl eframe::App for App {
         }
         self.poll();
         self.library.poll();
+        self.gif.poll();
         if self.busy() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
         if ctx.input(|i| i.viewport().close_requested()) {
             self.library.uploader.cancel();
+            self.gif.cancel();
             self.cancel.store(true, Ordering::Relaxed);
             if self.busy() {
                 self.closing = true;
@@ -1208,6 +1227,11 @@ impl eframe::App for App {
                     .id_salt("page")
                     .show(ui, |ui| match self.page {
                         Page::Download => self.content(ui),
+                        Page::Gif => {
+                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                                self.gif.show(ui)
+                            });
+                        }
                         Page::Videos => {
                             ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
                                 self.library.show(ui);
@@ -1274,6 +1298,7 @@ impl eframe::App for App {
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.library.uploader.cancel();
+        self.gif.cancel();
         self.cancel.store(true, Ordering::Relaxed);
     }
 }
