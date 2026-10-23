@@ -137,23 +137,16 @@ impl Library {
         use egui::RichText;
         let ctx = &ui.ctx().clone();
         let busy = self.busy || self.uploader.status.active;
-        ui.add_space(6.);
-        ui.label(
-            RichText::new("Your videos, ready to share.")
-                .size(30.)
-                .strong(),
+        crate::page_header(
+            ui,
+            "My videos",
+            "Your local videos, ready to play or share.",
         );
-        ui.label(
-            RichText::new("Browse your folder. Play a favorite. Share it on Streamable.")
-                .size(15.)
-                .color(crate::MUTED),
-        );
-        ui.add_space(18.);
         crate::card(ui, |ui| {
             ui.label(
-                RichText::new("01   VIDEO FOLDER")
-                    .size(11.)
-                    .color(crate::MUTED)
+                RichText::new("Video folder")
+                    .size(14.)
+                    .color(crate::INK)
                     .strong(),
             );
             ui.label("Choose a folder to see your videos here.");
@@ -215,9 +208,9 @@ impl Library {
         crate::card(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("02   YOUR VIDEOS")
-                        .size(11.)
-                        .color(crate::MUTED)
+                    RichText::new("Your videos")
+                        .size(14.)
+                        .color(crate::INK)
                         .strong(),
                 );
                 ui.label(
@@ -256,7 +249,7 @@ impl Library {
                             entry.bytes as f64 / 1_000_000.
                         ))
                         .fill(if selected {
-                            egui::Color32::from_rgb(234, 241, 255)
+                            egui::Color32::from_rgb(239, 238, 255)
                         } else {
                             egui::Color32::WHITE
                         })
@@ -290,9 +283,9 @@ impl Library {
             ui.add_space(18.);
             crate::card(ui, |ui| {
                 ui.label(
-                    RichText::new("03   SELECTED VIDEO")
-                        .size(11.)
-                        .color(crate::MUTED)
+                    RichText::new("Selected video")
+                        .size(14.)
+                        .color(crate::INK)
                         .strong(),
                 );
                 ui.strong(video.path.file_name().unwrap_or_default().to_string_lossy());
@@ -347,9 +340,9 @@ impl Library {
             ui.add_space(18.);
             crate::card(ui, |ui| {
                 ui.label(
-                    RichText::new("STREAMABLE UPLOAD")
-                        .size(11.)
-                        .color(crate::MUTED)
+                    RichText::new("Streamable upload")
+                        .size(14.)
+                        .color(crate::INK)
                         .strong(),
                 );
                 let status = &self.uploader.status;

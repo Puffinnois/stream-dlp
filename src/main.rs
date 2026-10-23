@@ -26,10 +26,10 @@ use std::{
     time::Duration,
 };
 
-const BLUE: Color32 = Color32::from_rgb(34, 105, 232);
-const INK: Color32 = Color32::from_rgb(29, 42, 62);
-const MUTED: Color32 = Color32::from_rgb(112, 126, 146);
-const BORDER: Color32 = Color32::from_rgb(227, 233, 241);
+const BLUE: Color32 = Color32::from_rgb(79, 70, 229);
+const INK: Color32 = Color32::from_rgb(30, 33, 43);
+const MUTED: Color32 = Color32::from_rgb(100, 108, 124);
+const BORDER: Color32 = Color32::from_rgb(228, 230, 237);
 
 #[derive(PartialEq)]
 enum Phase {
@@ -45,6 +45,7 @@ enum Page {
     Download,
     Videos,
     Gif,
+    Settings,
 }
 
 struct App {
@@ -68,10 +69,10 @@ struct App {
     progress: f32,
     destination: Option<PathBuf>,
     saved: Option<PathBuf>,
-    about: bool,
+    confirm_install: bool,
     closing: bool,
     session: Option<session::SessionCookies>,
-    session_window: bool,
+    session_expanded: bool,
     session_loading: bool,
     session_error: Option<String>,
     session_tx: mpsc::Sender<Option<SessionImport>>,
@@ -117,16 +118,28 @@ impl App {
         let mut style = (*ctx.style()).clone();
         style.visuals = egui::Visuals::light();
         style.visuals.override_text_color = Some(INK);
-        style.visuals.panel_fill = Color32::from_rgb(247, 249, 252);
+        style.visuals.panel_fill = Color32::from_rgb(246, 247, 250);
         style.visuals.window_fill = Color32::WHITE;
         style.visuals.selection.bg_fill = BLUE;
         style.visuals.selection.stroke.color = Color32::WHITE;
-        style.visuals.widgets.inactive.bg_fill = Color32::WHITE;
+        style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(232, 234, 242);
+        style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(246, 247, 251);
         style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1., BORDER);
-        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(237, 244, 255);
+        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(239, 238, 255);
         style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1., BLUE);
         style.visuals.widgets.active.bg_fill = Color32::from_rgb(223, 235, 255);
-        style.spacing.item_spacing = Vec2::new(12., 12.);
+        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1., BORDER);
+        style.visuals.extreme_bg_color = Color32::from_rgb(250, 250, 253);
+        for widget in [
+            &mut style.visuals.widgets.inactive,
+            &mut style.visuals.widgets.hovered,
+            &mut style.visuals.widgets.active,
+            &mut style.visuals.widgets.noninteractive,
+        ] {
+            widget.corner_radius = egui::CornerRadius::same(8);
+        }
+        style.spacing.interact_size = Vec2::new(40., 36.);
+        style.spacing.item_spacing = Vec2::new(10., 10.);
         style.spacing.button_padding = Vec2::new(18., 10.);
         style
             .text_styles
@@ -134,6 +147,9 @@ impl App {
         style
             .text_styles
             .insert(egui::TextStyle::Button, egui::FontId::proportional(15.));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(12.));
         ctx.set_style(style);
         let mut app = Self::with_profiles(browser_session::profiles());
         if cfg!(windows) {
@@ -167,10 +183,10 @@ impl App {
             progress: 0.,
             destination: None,
             saved: None,
-            about: false,
+            confirm_install: false,
             closing: false,
             session: None,
-            session_window: false,
+            session_expanded: false,
             session_loading: false,
             session_error: None,
             session_tx,
@@ -242,7 +258,7 @@ impl App {
                         self.error = None;
                         self.saved = None;
                         self.phase = Phase::Idle;
-                        self.session_window = false;
+                        self.session_expanded = false;
                         let refresh_used = self.refresh_used;
                         if self.retry_download
                             && self.video.is_some()
@@ -261,7 +277,7 @@ impl App {
                     }
                     Err(error) => {
                         self.session_error = Some(error);
-                        self.session_window = true;
+                        self.session_expanded = true;
                     }
                 }
             }
@@ -472,59 +488,105 @@ impl App {
             }
         });
     }
-    fn session_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.session_window;
-        egui::Window::new("YouTube session").open(&mut open).resizable(false).default_width(520.).default_height(650.).show(ctx, |ui| {
-            ui.spacing_mut().item_spacing.y = 8.;
-            ui.spacing_mut().button_padding = Vec2::new(12., 7.);
-            egui::ScrollArea::vertical().max_height(620.).show(ui, |ui| {
-                ui.label(RichText::new("Connect your YouTube session").size(21.).strong());
-                ui.label("Use your own signed-in session for videos and Shorts.");
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.session_mode, 0, "Import from browser");
-                    ui.selectable_value(&mut self.session_mode, 1, "I have a cookies file");
-                    ui.selectable_value(&mut self.session_mode, 2, "Export guide");
+    fn session_panel(&mut self, ui: &mut egui::Ui) {
+        if !self.session_expanded {
+            return;
+        }
+        ui.add_space(12.);
+        card(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("YouTube connection").size(18.).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Collapse").clicked() {
+                        self.session_expanded = false;
+                    }
                 });
-                ui.separator();
-                if self.session_mode == 0 { self.browser_controls(ui); }
-                else if self.session_mode == 2 { self.export_instructions(ui); }
-                else {
-                    ui.label("Choose the .txt file exported from YouTube. The app checks its format and YouTube cookies before using it.");
+            });
+            ui.label(
+                RichText::new("Connect only when a video needs your signed-in session.")
+                    .color(MUTED),
+            );
+            if self.session_mode == 0 {
+                self.browser_controls(ui);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Import a cookies file…").clicked() {
+                        self.session_mode = 1;
+                    }
+                    if ui.button("Export guide").clicked() {
+                        self.session_mode = 2;
+                    }
+                });
+            } else {
+                if ui.button("← Browser connection").clicked() {
+                    self.session_mode = 0;
+                }
+                if self.session_mode == 2 {
+                    self.export_instructions(ui);
+                } else {
+                    ui.label("Choose a Netscape-format .txt export of your YouTube cookies.");
                     self.session_file_controls(ui, false);
                 }
-                ui.add_space(8.);
-                ui.label(RichText::new("After import, the app retries your link or failed download once. Importing cookies does not prove that YouTube will accept the session. Original browser cookies and exports are kept unchanged.").size(12.).color(MUTED));
-                ui.label(RichText::new("Cookies act like a sign-in. Use your own export and keep it private.").size(12.).color(MUTED));
-                if self.session_loading { ui.horizontal(|ui| {
+            }
+            ui.add_space(8.);
+            ui.label(RichText::new("Your session stays in memory until removed or the app closes. Import retries the current link or failed download once. Cookies act like a sign-in; keep exports private.").size(12.).color(MUTED));
+            if self.session_loading {
+                ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(if self.browser_importing { "Importing YouTube session from Firefox…" } else { "Choose your session export…" });
-                    if self.browser_importing && ui.button("Cancel import").clicked() { self.cancel.store(true, Ordering::Relaxed); }
-                }); }
-                if self.session.is_some() {
-                    ui.colored_label(Color32::from_rgb(31, 139, 99), "YouTube cookies imported · access checked when used");
-                    if let Some(path) = &self.session_file { ui.label(RichText::new(path.display().to_string()).size(12.).color(MUTED)); }
-                    if let Some(profile) = self.browser_source.clone() {
-                        ui.label(format!("Firefox · {}", profile.name));
-                        if ui.add_enabled(!self.busy(), egui::Button::new("Refresh from Firefox & retry")).clicked() { self.import_browser(profile, false); }
+                    ui.label(if self.browser_importing {
+                        "Importing YouTube session from Firefox…"
+                    } else {
+                        "Choose your session export…"
+                    });
+                    if self.browser_importing && ui.button("Cancel import").clicked() {
+                        self.cancel.store(true, Ordering::Relaxed);
                     }
-                    if ui.add_enabled(!self.busy(), egui::Button::new("Remove session")).clicked() {
-                        self.session = None;
-                        self.session_file = None;
-                        self.browser_source = None;
-                        self.retry_download = false;
-                        self.session_error = None;
-                        self.video = None;
-                        self.saved = None;
-                        self.error = None;
-                        self.status.clear();
-                        self.log.clear();
-                        self.phase = Phase::Idle;
+                });
+            }
+            if self.session.is_some() {
+                ui.colored_label(
+                    Color32::from_rgb(31, 139, 99),
+                    "YouTube cookies imported · access checked when used",
+                );
+                if let Some(path) = &self.session_file {
+                    ui.label(
+                        RichText::new(path.display().to_string())
+                            .size(12.)
+                            .color(MUTED),
+                    );
+                }
+                if let Some(profile) = self.browser_source.clone() {
+                    ui.label(format!("Firefox · {}", profile.name));
+                    if ui
+                        .add_enabled(
+                            !self.busy(),
+                            egui::Button::new("Refresh from Firefox & retry"),
+                        )
+                        .clicked()
+                    {
+                        self.import_browser(profile, false);
                     }
                 }
-                if let Some(error) = &self.session_error { ui.colored_label(Color32::from_rgb(175, 46, 57), error); }
-            });
+                if ui
+                    .add_enabled(!self.busy(), egui::Button::new("Remove session"))
+                    .clicked()
+                {
+                    self.session = None;
+                    self.session_file = None;
+                    self.browser_source = None;
+                    self.retry_download = false;
+                    self.session_error = None;
+                    self.video = None;
+                    self.saved = None;
+                    self.error = None;
+                    self.status.clear();
+                    self.log.clear();
+                    self.phase = Phase::Idle;
+                }
+            }
+            if let Some(error) = &self.session_error {
+                ui.colored_label(Color32::from_rgb(175, 46, 57), error);
+            }
         });
-        self.session_window = open;
     }
 
     fn session_file_controls(&mut self, ui: &mut egui::Ui, guided: bool) {
@@ -642,87 +704,229 @@ impl App {
             "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies",
         );
     }
-    fn sidebar(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("sidebar")
-            .exact_width(190.)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::WHITE)
-                    .inner_margin(24)
-                    .stroke(egui::Stroke::new(1., BORDER)),
-            )
-            .show(ctx, |ui| {
-                ui.add_space(14.);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("↓").size(32.).color(BLUE).strong());
-                    ui.label(RichText::new("stream-dlp").size(21.).strong());
-                });
-                ui.add_space(6.);
+    fn settings(&mut self, ui: &mut egui::Ui) {
+        page_header(
+            ui,
+            "Settings",
+            "App updates, download tools, and version information.",
+        );
+        let busy = self.busy();
+        card(ui, |ui| {
+            ui.label(RichText::new("Updates").size(18.).strong());
+            ui.label(
+                RichText::new(format!(
+                    "Installed: {} · {}",
+                    env!("CARGO_PKG_VERSION"),
+                    release_channel::Channel::installed().label()
+                ))
+                .color(MUTED),
+            );
+            let mut channel = self.updater.channel;
+            ui.add_enabled_ui(!busy, |ui| {
+                egui::ComboBox::from_label("Update channel")
+                    .selected_text(channel.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut channel,
+                            release_channel::Channel::Public,
+                            "Public · stable releases",
+                        );
+                        ui.selectable_value(
+                            &mut channel,
+                            release_channel::Channel::Dev,
+                            "Dev · experimental prereleases",
+                        );
+                    });
+            });
+            if channel != self.updater.channel {
+                self.updater.set_channel(channel, ui.ctx());
+            }
+            if self.updater.channel == release_channel::Channel::Dev {
                 ui.label(
-                    RichText::new("A little less friction.")
+                    RichText::new("Dev builds are experimental and may have unfinished features.")
                         .size(12.)
                         .color(MUTED),
                 );
-                ui.add_space(46.);
-                for (page, label) in [
-                    (Page::Download, "↓   Download"),
-                    (Page::Videos, "My videos"),
-                    (Page::Gif, "GIF converter"),
+            }
+            if self.updater.channel != release_channel::Channel::installed() {
+                ui.label("Switching channels can install an older version. Your videos stay in their folders.");
+            }
+            if let Some(update) = &self.updater.available {
+                ui.separator();
+                ui.strong(format!(
+                    "{} {} is available",
+                    self.updater.channel.label(),
+                    update.version
+                ));
+                if cfg!(windows) {
+                    if primary(
+                        ui,
+                        "Install selected build…",
+                        !busy && !self.updater.checking,
+                    )
+                    .clicked()
+                    {
+                        self.confirm_install = true;
+                    }
+                } else {
+                    ui.hyperlink_to("Download Mac package", updater::RELEASES);
+                    ui.label("Close the app and replace it with the downloaded Mac package.");
+                }
+                if busy && !self.updater.downloading {
+                    ui.label("Finish or cancel the current operation before installing.");
+                }
+            }
+            if self.updater.checking || self.updater.downloading {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&self.updater.message);
+                });
+            } else if !self.updater.message.is_empty() {
+                ui.label(&self.updater.message);
+            }
+            ui.horizontal_wrapped(|ui| {
+                if cfg!(windows) {
+                    if ui
+                        .add_enabled(
+                            !self.updater.checking && !self.updater.downloading,
+                            egui::Button::new("Check for updates"),
+                        )
+                        .clicked()
+                    {
+                        self.updater.check(ui.ctx());
+                    }
+                } else {
+                    ui.hyperlink_to("Get Mac updates", updater::RELEASES);
+                }
+                ui.hyperlink_to("Release notes", updater::RELEASES);
+            });
+            ui.label(
+                RichText::new(
+                    "Updates are optional. Nothing downloads until you confirm installation.",
+                )
+                .size(12.)
+                .color(MUTED),
+            );
+        });
+        ui.add_space(16.);
+        card(ui, |ui| {
+            ui.label(RichText::new("Download tools").size(18.).strong());
+            ui.label(if backend::tools_ready() {
+                "All download tools are ready."
+            } else {
+                "Download tools need setup."
+            });
+            ui.label(RichText::new("yt-dlp finds streams, FFmpeg combines video and audio, and Deno handles YouTube’s JavaScript challenges.").color(MUTED));
+            egui::CollapsingHeader::new("Tool details & setup").show(ui, |ui| {
+                ui.label(format!("Location: {}", backend::tools_dir().display()));
+                ui.label(platform::tools_help());
+                ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
+            });
+            if !backend::tools_ready() {
+                ui.label(platform::tools_help());
+            }
+        });
+        ui.add_space(16.);
+        card(ui, |ui| {
+            ui.label(RichText::new("About stream-dlp").size(18.).strong());
+            ui.label("A small native app for downloading videos and making GIFs.");
+            ui.label(
+                RichText::new(format!(
+                    "Version {} · Built with Rust",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .color(MUTED),
+            );
+        });
+    }
+
+    fn install_confirmation(&mut self, ctx: &egui::Context) {
+        if !self.confirm_install {
+            return;
+        }
+        let mut dismiss = false;
+        let response = egui::Modal::new(egui::Id::new("confirm_install"))
+            .frame(egui::Frame::new().fill(Color32::WHITE).corner_radius(16).inner_margin(28)
+                .stroke(egui::Stroke::new(1., BORDER)))
+            .show(ctx, |ui| {
+                ui.set_width(380.);
+                ui.label(RichText::new("Install this update?").size(23.).strong());
+                if let Some(update) = &self.updater.available {
+                    ui.label(RichText::new(format!("{} {}", self.updater.channel.label(), update.version)).color(MUTED));
+                }
+                ui.add_space(8.);
+                ui.label("The app will download and verify the installer, then close and open setup. You can cancel in setup.");
+                ui.label(RichText::new("Portable installation: choose your existing app folder in setup.").size(12.).color(MUTED));
+                ui.add_space(16.);
+                ui.horizontal(|ui| {
+                    if primary(ui, "Download & open setup", !self.busy() && !self.updater.checking && self.updater.available.is_some()).clicked() {
+                        self.updater.download(ctx);
+                        dismiss = true;
+                    }
+                    if ui.button("Cancel").clicked() { dismiss = true; }
+                });
+            });
+        if dismiss || response.should_close() {
+            self.confirm_install = false;
+        }
+    }
+
+    fn sidebar(&mut self, ctx: &egui::Context) {
+        let rail = Color32::from_rgb(26, 29, 40);
+        let quiet = Color32::from_rgb(184, 190, 208);
+        egui::SidePanel::left("sidebar")
+            .exact_width(188.)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(rail).inner_margin(16))
+            .show(ctx, |ui| {
+                ui.add_space(16.);
+                ui.horizontal(|ui| {
+                    icon_tile(ui, 36., BLUE, Color32::WHITE);
+                    ui.label(
+                        RichText::new("stream-dlp")
+                            .size(19.)
+                            .color(Color32::WHITE)
+                            .strong(),
+                    );
+                });
+                ui.add_space(36.);
+                ui.label(RichText::new("WORKSPACE").size(10.).color(quiet));
+                ui.add_space(4.);
+                for (page, label, working) in [
+                    (
+                        Page::Download,
+                        "Download",
+                        matches!(self.phase, Phase::Inspecting | Phase::Downloading),
+                    ),
+                    (
+                        Page::Videos,
+                        "My videos",
+                        self.library.uploader.status.active,
+                    ),
+                    (Page::Gif, "GIF converter", self.gif.busy),
                 ] {
                     let active = self.page == page;
-                    let button = egui::Button::new(
-                        RichText::new(label)
-                            .color(if active { BLUE } else { INK })
-                            .strong(),
-                    )
-                    .fill(if active {
-                        Color32::from_rgb(234, 241, 255)
+                    let label = if working {
+                        format!("{label}  ·")
                     } else {
-                        Color32::WHITE
-                    })
-                    .stroke(egui::Stroke::NONE)
-                    .corner_radius(8.)
-                    .min_size(Vec2::new(ui.available_width(), 44.));
+                        label.into()
+                    };
+                    let button =
+                        egui::Button::new(RichText::new(label).size(15.).color(if active {
+                            Color32::WHITE
+                        } else {
+                            quiet
+                        }))
+                        .fill(if active { BLUE } else { rail })
+                        .stroke(egui::Stroke::NONE)
+                        .corner_radius(9)
+                        .min_size(Vec2::new(ui.available_width(), 44.));
                     if ui.add(button).clicked() {
                         self.page = page;
                     }
                 }
-                ui.add_space(24.);
-                if self.page == Page::Download {
-                    let step = match self.phase {
-                        Phase::Idle | Phase::Inspecting => 0,
-                        Phase::Choosing | Phase::Picking => 1,
-                        _ => 2,
-                    };
-                    for (i, text) in ["Paste a link", "Choose quality", "Save your video"]
-                        .iter()
-                        .enumerate()
-                    {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!("{:02}", i + 1))
-                                    .color(if i <= step { BLUE } else { MUTED })
-                                    .strong(),
-                            );
-                            ui.label(RichText::new(*text).size(13.).color(if i == step {
-                                INK
-                            } else {
-                                MUTED
-                            }));
-                        });
-                        ui.add_space(6.);
-                    }
-                } else {
-                    ui.label(
-                        RichText::new(
-                            "Browse your folder.\nPlay a video.\nShare it on Streamable.",
-                        )
-                        .size(13.)
-                        .color(MUTED),
-                    );
-                }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.add_space(8.);
                     ui.label(
                         RichText::new(format!(
                             "{} · v{}",
@@ -730,34 +934,64 @@ impl App {
                             env!("CARGO_PKG_VERSION")
                         ))
                         .size(11.)
-                        .color(MUTED),
+                        .color(quiet),
                     );
-                    if ui.small_button("About & tools").clicked() {
-                        self.about = true;
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("Settings").color(
+                                if self.page == Page::Settings {
+                                    Color32::WHITE
+                                } else {
+                                    quiet
+                                },
+                            ))
+                            .fill(if self.page == Page::Settings {
+                                BLUE
+                            } else {
+                                rail
+                            })
+                            .min_size(Vec2::new(ui.available_width(), 40.))
+                            .stroke(egui::Stroke::NONE),
+                        )
+                        .clicked()
+                    {
+                        self.page = Page::Settings;
+                    }
+                    if self.updater.available.is_some()
+                        && ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(if self.updater.downloading {
+                                        "Installing update…"
+                                    } else {
+                                        "Update available  →"
+                                    })
+                                    .size(12.)
+                                    .color(Color32::WHITE),
+                                )
+                                .fill(Color32::from_rgb(48, 51, 72))
+                                .stroke(egui::Stroke::NONE)
+                                .min_size(Vec2::new(ui.available_width(), 36.)),
+                            )
+                            .clicked()
+                    {
+                        self.page = Page::Settings;
                     }
                 });
             });
     }
     fn content(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(6.);
-        ui.label(RichText::new("Your next video, saved.").size(30.).strong());
-        ui.label(
-            RichText::new("The quality you want. The folder you choose.")
-                .size(15.)
-                .color(MUTED),
+        page_header(
+            ui,
+            "Download",
+            "Save a YouTube video in the quality you choose.",
         );
-        ui.add_space(18.);
         card(ui, |ui| {
-            ui.label(
-                RichText::new("01   VIDEO LINK")
-                    .size(11.)
-                    .color(MUTED)
-                    .strong(),
-            );
+            ui.label(RichText::new("Video link").size(14.).color(INK).strong());
             ui.add_space(2.);
             ui.horizontal(|ui| {
                 let busy = self.busy();
-                let width = (ui.available_width() - 140.).max(100.);
+                let width = (ui.available_width() - 156.).max(100.);
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
@@ -787,17 +1021,19 @@ impl App {
                     .add_enabled(
                         !self.busy(),
                         egui::Button::new(if self.session.is_some() {
-                            "YouTube session · loaded"
+                            "Session loaded · Manage"
                         } else {
-                            "Connect browser / YouTube session"
-                        }),
+                            "Connect browser…"
+                        })
+                        .frame(false),
                     )
                     .clicked()
                 {
-                    self.session_window = true;
+                    self.session_expanded = true;
                 }
             });
         });
+        self.session_panel(ui);
         if !backend::tools_ready() {
             ui.add_space(12.);
             ui.colored_label(
@@ -831,7 +1067,7 @@ impl App {
                         )
                         .clicked()
                     {
-                        self.session_window = true;
+                        self.session_expanded = true;
                     }
                 });
         }
@@ -851,20 +1087,16 @@ impl App {
         } else {
             ui.add_space(36.);
             ui.vertical_centered(|ui| {
+                icon_tile(ui, 72., Color32::from_rgb(239, 238, 255), BLUE);
+                ui.add_space(14.);
+                ui.label(RichText::new("A link is all you need").size(22.).strong());
                 ui.label(
-                    RichText::new("↓")
-                        .size(62.)
-                        .color(Color32::from_rgb(184, 203, 235)),
-                );
-                ui.add_space(12.);
-                ui.label(RichText::new("Start with a link").size(21.).strong());
-                ui.label(
-                    RichText::new("We’ll find the video and show its available qualities.")
+                    RichText::new("Paste a video or Shorts link above to get started.")
                         .color(MUTED),
                 );
-                ui.add_space(32.);
+                ui.add_space(24.);
                 ui.label(
-                    RichText::new("Your video. Your quality. Your folder.")
+                    RichText::new("Add a link   /   Pick a quality   /   Save to your folder")
                         .size(12.)
                         .color(MUTED),
                 );
@@ -876,7 +1108,7 @@ impl App {
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(234, 241, 255))
+                    .fill(Color32::from_rgb(239, 238, 255))
                     .corner_radius(12)
                     .inner_margin(18)
                     .show(ui, |ui| {
@@ -902,8 +1134,8 @@ impl App {
             ui.add_space(10.);
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("02   CHOOSE QUALITY")
-                        .size(11.)
+                    RichText::new("Quality & format")
+                        .size(14.)
                         .color(MUTED)
                         .strong(),
                 );
@@ -941,7 +1173,7 @@ impl App {
                             let mut picked = false;
                             let row = egui::Frame::new()
                                 .fill(if selected {
-                                    Color32::from_rgb(237, 244, 255)
+                                    Color32::from_rgb(239, 238, 255)
                                 } else {
                                     Color32::WHITE
                                 })
@@ -1014,7 +1246,7 @@ impl App {
             match self.phase {
                 Phase::Downloading => {
                     ui.label(
-                        RichText::new("03   SAVING YOUR VIDEO")
+                        RichText::new("Saving your video")
                             .size(15.)
                             .color(INK)
                             .strong(),
@@ -1024,12 +1256,12 @@ impl App {
                             .desired_width(ui.available_width())
                             .desired_height(32.)
                             .corner_radius(8)
-                            .fill(Color32::from_rgb(88, 146, 247))
+                            .fill(BLUE)
                             .text(
                                 RichText::new(format!("{:.0}%", self.progress * 100.))
                                     .size(18.)
                                     .strong()
-                                    .color(INK),
+                                    .color(Color32::WHITE),
                             )
                             .animate(true),
                     );
@@ -1060,7 +1292,7 @@ impl App {
                                 .color(MUTED),
                         );
                     }
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui
                             .add_enabled(
                                 self.saved.is_some() && !self.gif.busy,
@@ -1101,7 +1333,7 @@ impl App {
                 }
                 _ => {
                     ui.horizontal(|ui| {
-                        if primary(ui, "Choose folder & download   ↓", true).clicked() {
+                        if primary(ui, "Choose folder & download", true).clicked() {
                             self.choose_folder();
                         }
                         ui.label(
@@ -1135,12 +1367,48 @@ impl App {
     }
 }
 
+fn icon_tile(ui: &mut egui::Ui, size: f32, background: Color32, foreground: Color32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    ui.painter().rect_filled(rect, size * 0.25, background);
+    let center = rect.center();
+    let stroke = egui::Stroke::new(2., foreground);
+    ui.painter().line_segment(
+        [
+            center - egui::vec2(0., size * 0.19),
+            center + egui::vec2(0., size * 0.16),
+        ],
+        stroke,
+    );
+    ui.painter().line_segment(
+        [
+            center + egui::vec2(-size * 0.13, size * 0.03),
+            center + egui::vec2(0., size * 0.16),
+        ],
+        stroke,
+    );
+    ui.painter().line_segment(
+        [
+            center + egui::vec2(size * 0.13, size * 0.03),
+            center + egui::vec2(0., size * 0.16),
+        ],
+        stroke,
+    );
+}
+
+fn page_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.add_space(6.);
+    ui.label(RichText::new(title).size(32.).strong());
+    ui.label(RichText::new(subtitle).size(14.).color(MUTED));
+    ui.add_space(22.);
+}
+
 fn primary(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(
         enabled,
         egui::Button::new(RichText::new(text).color(Color32::WHITE).strong())
             .fill(BLUE)
-            .corner_radius(7)
+            .stroke(egui::Stroke::NONE)
+            .corner_radius(9)
             .min_size(Vec2::new(0., 42.)),
     )
 }
@@ -1148,8 +1416,8 @@ fn card<R>(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(Color32::WHITE)
         .stroke(egui::Stroke::new(1., BORDER))
-        .corner_radius(12)
-        .inner_margin(20)
+        .corner_radius(16)
+        .inner_margin(24)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             contents(ui)
@@ -1185,48 +1453,18 @@ impl eframe::App for App {
             }
         }
         self.sidebar(ctx);
-        self.session_dialog(ctx);
-        let busy = self.busy();
-        let mut update_open = self.updater.prompt;
-        egui::Window::new("App update")
-            .open(&mut update_open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(420.)
-            .show(ctx, |ui| {
-                if let Some(update) = &self.updater.available {
-                    ui.heading(format!("{} build {} is available", self.updater.channel.label(), update.version));
-                    ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
-                }
-                ui.label(if cfg!(windows) { "Update downloads and verifies the Windows installer, then closes the app and opens setup. You choose whether to complete installation. Portable users can choose their existing app folder in setup." } else { "Mac updates are manual. Download a fresh Mac package from Releases, close the app, and replace your existing copy." });
-                if busy && !self.updater.downloading {
-                    ui.label("Finish or cancel the current operation before updating.");
-                }
-                ui.hyperlink_to("Release notes", updater::RELEASES);
-                ui.label(&self.updater.message);
-                ui.horizontal(|ui| {
-                    if cfg!(windows) && ui.add_enabled(!busy, egui::Button::new("Install selected build")).clicked() {
-                        self.updater.download(ctx);
-                    }
-                    #[cfg(not(windows))]
-                    ui.hyperlink_to("Download Mac package", updater::RELEASES);
-                    if ui.add_enabled(!self.updater.downloading, egui::Button::new("Later")).clicked() {
-                        self.updater.prompt = false;
-                    }
-                });
-            });
-        self.updater.prompt &= update_open;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(247, 249, 252))
-                    .inner_margin(30),
+                    .fill(Color32::from_rgb(246, 247, 250))
+                    .inner_margin(32),
             )
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("page")
                     .show(ui, |ui| match self.page {
                         Page::Download => self.content(ui),
+                        Page::Settings => self.settings(ui),
                         Page::Gif => {
                             ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
                                 self.gif.show(ui)
@@ -1239,63 +1477,9 @@ impl eframe::App for App {
                         }
                     });
             });
-        egui::Window::new("About stream-dlp")
-            .open(&mut self.about)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.set_max_width(480.);
-                ui.label("A small native app, written in Rust.");
-                ui.label(format!("Version {} · {} build", env!("CARGO_PKG_VERSION"), release_channel::Channel::installed().label()));
-                let mut channel = self.updater.channel;
-                ui.add_enabled_ui(!busy, |ui| {
-                    egui::ComboBox::from_label("Update channel")
-                        .selected_text(channel.label())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut channel, release_channel::Channel::Public, "Public · stable releases");
-                            ui.selectable_value(&mut channel, release_channel::Channel::Dev, "Dev · experimental prereleases");
-                        });
-                });
-                if channel != self.updater.channel { self.updater.set_channel(channel, ctx); }
-                ui.label("Changing channels checks for a build. Installation starts only when you click Install selected build.");
-                if self.updater.channel == release_channel::Channel::Dev {
-                    ui.label("Dev builds may have unfinished features. Dev releases are publicly downloadable.");
-                }
-                if self.updater.channel != release_channel::Channel::installed() {
-                    ui.label("Switching channels replaces this app and can install an older version. Your videos stay in their folders.");
-                }
-                if ui
-                    .add_enabled(
-                        !self.updater.checking && !self.updater.downloading,
-                        egui::Button::new(if cfg!(windows) {
-                            "Check for updates"
-                        } else {
-                            "Get Mac updates"
-                        }),
-                    )
-                    .clicked()
-                {
-                    self.updater.check(ctx);
-                }
-                ui.label(&self.updater.message);
-                if self.updater.available.is_some() && ui.button("Show available update").clicked()
-                {
-                    self.updater.prompt = true;
-                }
-                ui.label("yt-dlp finds and downloads streams. FFmpeg combines video and audio.");
-                ui.label("Deno runs YouTube’s JavaScript challenges for yt-dlp.");
-                ui.add_space(8.);
-                ui.label(format!("Tools: {}", backend::tools_dir().display()));
-                ui.label(if backend::tools_ready() {
-                    "All download tools are ready."
-                } else {
-                    platform::tools_help()
-                });
-                #[cfg(not(windows))]
-                ui.hyperlink_to("Download Mac updates", updater::RELEASES);
-                ui.label(platform::tools_help());
-                ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
-            });
+        self.install_confirmation(ctx);
     }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.library.uploader.cancel();
         self.gif.cancel();
@@ -1374,7 +1558,7 @@ mod app_tests {
                 }
                 assert!(!app.session_loading);
                 assert!(
-                    app.session_window,
+                    app.session_expanded,
                     "Failed background import must show its fallback"
                 );
                 assert!(app.session_error.is_some());
@@ -1394,6 +1578,7 @@ mod app_tests {
         for cancelled in [false, true] {
             let mut app = App::with_profiles(Vec::new());
             app.refresh_used = true;
+            app.session_expanded = true;
             app.session_loading = true;
             app.browser_importing = true;
             app.cancel.store(cancelled, Ordering::Relaxed);
@@ -1407,6 +1592,10 @@ mod app_tests {
             app.poll();
             assert!(!app.session_loading);
             assert_eq!(app.session.is_some(), !cancelled);
+            assert_eq!(
+                app.session_expanded, cancelled,
+                "Successful import collapses the connection panel; cancellation keeps it open"
+            );
             assert!(app.refresh_used);
         }
     }

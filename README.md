@@ -1,10 +1,10 @@
 # stream-dlp
 
-A small native YouTube downloader written in Rust. Windows is the established release; experimental Apple Silicon Mac support is being added. A light, minimal interface with blue accents, inspired by RustDesk.
+A small native YouTube downloader written in Rust. Windows is the established release; experimental Apple Silicon Mac support is being added. A minimal workspace with a charcoal navigation rail, light cards, and indigo accents.
 
 ## Public and Dev versions
 
-Use **About & tools → Update channel** to choose **Public** (stable releases) or
+Use **Settings → Updates → Update channel** to choose **Public** (stable releases) or
 **Dev** (experimental prereleases). Selection is remembered; installing a build
 requires **Install selected build** and completing setup. The sidebar shows the
 build currently running. Dev builds do not update Public users.
@@ -41,17 +41,17 @@ Cancel stops the active process tree. Incomplete `.part` files are retained so a
 
 ## When YouTube asks you to verify
 
-Click **Connect browser / YouTube session** below the video link, or **Connect browser / retry help** in an error message. Choose **Firefox · automatic**, choose your profile (the default is selected for you), and click **Import from Firefox & retry**. No cookie exporter or file selection is needed. The app imports YouTube cookies in the background and retries video detection or the failed download once, keeping its quality and destination. **Auto mode** is on by default: after connecting, an authentication error refreshes only that same Firefox profile and retries once per attempt. Uncheck it to refresh only when you click **Refresh from Firefox & retry**. Browser/profile choices and cookies last for the current app session.
+Click **Connect browser…** below the video link to expand the inline connection panel, or **Connect browser / retry help** in an error message. Choose **Firefox · automatic**, choose your profile (the default is selected for you), and click **Import from Firefox & retry**. No cookie exporter or file selection is needed. Successful import collapses the panel into **Session loaded · Manage**; connection errors stay inline. The app imports YouTube cookies in the background and retries video detection or the failed download once, keeping its quality and destination. **Auto mode** is on by default: after connecting, an authentication error refreshes only that same Firefox profile and retries once per attempt. Uncheck it to refresh only when you click **Refresh from Firefox & retry**. Browser/profile choices and cookies last for the current app session.
 
 Firefox automatic import is experimental and supports normal, unpartitioned profile cookies on Windows, with database schemas through 17. Private windows and Firefox containers need manual export. The importer opens the selected database read-only through Windows' SQLite component, selects only `youtube.com` and its subdomains, and skips expired cookies. It does not copy the whole browser database or create an all-site cookie export. Import runs in the background with cancellation and a query time budget. If the profile is busy or inaccessible, close Firefox and retry. A successful import means cookies were read, not that YouTube has accepted the sign-in.
 
-Chrome and Edge currently offer the guided export path. For those browsers, or if Firefox import fails, choose **I have a cookies file** to import your own Netscape-format `cookies.txt` export from a signed-in YouTube session. The session applies to both video detection and downloading.
+Chrome and Edge currently offer the guided export path. For those browsers, or if Firefox import fails, choose **Import a cookies file…** to import your own Netscape-format `cookies.txt` export from a signed-in YouTube session. The session applies to both video detection and downloading.
 
 Need help making the file? Choose **Export guide**. The three-step guide offers Chrome/Edge and Firefox exporter links, explains the private-window YouTube export, and suggests saving `youtube-cookies.txt` in your Windows Downloads folder under `stream-dlp`. **Open export folder** creates and opens that folder; **Copy folder path** lets you paste its location into a Save As dialog. The folder is located using Windows' Downloads setting, including redirected Downloads folders.
 
 The final guide step opens the file picker in the suggested folder (or Downloads if the subfolder has not been created). **Look in Downloads instead** handles browsers that save exports automatically. The guide also explains using the browser's Ctrl+J downloads list and Show in folder to locate exports such as `cookies (1).txt`. You can browse to any other folder. Subsequent imports start in the last chosen folder for the current app session, and a loaded session shows the selected file path. JSON, HTML, and exports without YouTube cookies receive an explanation rather than being silently accepted.
 
-The dialog links to the [official YouTube cookie export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies). Complete sign-in and any verification yourself in your browser, export only `youtube.com` cookies, and import the export. JSON exports are not supported. Cookie files act like a sign-in: keep them private. The upstream project also notes that account use can trigger restrictions, so use a session only when needed.
+The inline connection panel links to the [official YouTube cookie export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies). Complete sign-in and any verification yourself in your browser, export only `youtube.com` cookies, and import the export. JSON exports are not supported. Cookie files act like a sign-in: keep them private. The upstream project also notes that account use can trigger restrictions, so use a session only when needed.
 
 The imported session stays in memory until you click **Remove session** or close the app. stream-dlp keeps only YouTube-domain cookie entries, normalizes the file format, and supplies a separate temporary copy to yt-dlp for each operation. The copy is deleted when the operation finishes, fails, or is cancelled. The original export is not changed, and the session is not saved in the portable app folder or included in its ZIP.
 
@@ -61,7 +61,7 @@ Private, age-restricted, or members-only videos require an account with access, 
 
 The Windows installer is `dist/stream-dlp-Setup-Windows-x64.exe`. It includes the download tools, installs for the current user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Uninstall through Windows Settings. The app has an embedded blue download-arrow icon for Explorer, shortcuts, and the taskbar.
 
-The app checks your selected channel in the background each time it opens. An available build offers **Install selected build** and **Later**. Use **About & tools → Update channel** to change channels or **Check for updates** to check again. Nothing downloads until you click Install selected build. Finish or cancel an active operation first. The Windows installer is verified against GitHub's SHA-256 digest, then setup opens for you to review. You may cancel setup. Network errors do not block downloading videos. Portable users can select their existing app folder in setup, or download a fresh ZIP from Releases.
+The app checks your selected channel in the background each time it opens. An available build appears as a quiet **Update available** notice in the sidebar. Select it to open Settings; it never interrupts startup with a popup. Use **Settings → Updates → Update channel** to change channels or **Check for updates** to check again. Choose **Install selected build…**, then confirm **Download & open setup** in the centered confirmation. Cancel, Escape, or clicking outside the confirmation dismisses it without downloading. Finish or cancel an active operation first. The Windows installer is verified against GitHub's SHA-256 digest, then setup opens for you to review. You may cancel setup. Network errors do not block downloading videos. Portable users can select their existing app folder in setup, or download a fresh ZIP from Releases.
 
 Updates require a matching semantic version tag and an asset named `stream-dlp-Setup-Windows-x64.exe` with GitHub's SHA-256 digest. Public uses stable releases; Dev uses `vX.Y.Z-dev.N` prereleases. Drafts and unverified installers are rejected. Same-channel checks never downgrade, while an explicit channel switch can offer an older target-channel build. Publishing is a separate step from building locally. See [release channels](docs/release-channels.md).
 
@@ -93,7 +93,7 @@ If the existing portable executable is open, use `-PortableDirectory 'dist\strea
 
 Open **GIF converter** in the sidebar, or **Make GIF** after downloading a video.
 Choose a local video, set the start time and duration (0.1–60 seconds), then choose
-Small file, Balanced, or High quality. Adjust the maximum dimension (160–960 px),
+Small file, Balanced, or High quality. Expand **Advanced settings** to adjust the maximum dimension (160–960 px),
 frame rate (5–30 fps), palette colors, dithering, and looping before **Save GIF…**.
 The converter preserves aspect ratio and does not upscale. GIFs have no audio.
 

@@ -171,23 +171,16 @@ impl Converter {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            RichText::new("Turn a moment into a GIF.")
-                .size(30.)
-                .strong(),
+        crate::page_header(
+            ui,
+            "GIF converter",
+            "Turn a favorite moment into a GIF. Made locally, on your device.",
         );
-        ui.label(
-            RichText::new(
-                "Trim a clip, tune the detail, and save a looping GIF. Entirely on your device.",
-            )
-            .color(crate::MUTED),
-        );
-        ui.add_space(18.);
         crate::card(ui, |ui| {
             ui.label(
-                RichText::new("01   SOURCE VIDEO")
-                    .small()
-                    .color(crate::MUTED)
+                RichText::new("Source video")
+                    .size(14.)
+                    .color(crate::INK)
                     .strong(),
             );
             if let Some((path, duration)) = &self.source {
@@ -222,38 +215,47 @@ impl Converter {
         ui.add_space(16.);
         crate::card(ui, |ui| {
             ui.label(
-                RichText::new("02   SHAPE YOUR GIF")
-                    .small()
-                    .color(crate::MUTED)
+                RichText::new("Clip & quality")
+                    .size(14.)
+                    .color(crate::INK)
                     .strong(),
             );
             ui.add_enabled_ui(!self.busy, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Preset");
-                    if ui.button("Small file").clicked() { self.settings.width = 320; self.settings.fps = 10; self.settings.colors = 64; self.settings.smooth = false; }
-                    if ui.button("Balanced").clicked() { self.settings.width = 480; self.settings.fps = 15; self.settings.colors = 128; self.settings.smooth = false; }
-                    if ui.button("High quality").clicked() { self.settings.width = 720; self.settings.fps = 24; self.settings.colors = 256; self.settings.smooth = true; }
+                    for (label, width, fps, colors, smooth) in [
+                        ("Small file", 320, 10, 64, false),
+                        ("Balanced", 480, 15, 128, false),
+                        ("High quality", 720, 24, 256, true),
+                    ] {
+                        let selected = self.settings.width == width && self.settings.fps == fps
+                            && self.settings.colors == colors && self.settings.smooth == smooth;
+                        if ui.add(egui::Button::new(label).selected(selected)).clicked() {
+                            self.settings.width = width;
+                            self.settings.fps = fps;
+                            self.settings.colors = colors;
+                            self.settings.smooth = smooth;
+                        }
+                    }
                 });
                 ui.separator();
                 egui::Grid::new("gif_settings").num_columns(2).spacing([24., 14.]).show(ui, |ui| {
                     ui.label("Start (seconds)"); ui.add(egui::DragValue::new(&mut self.settings.start).speed(0.1).range(0.0..=self.source.as_ref().map_or(0., |s| s.1))); ui.end_row();
                     ui.label("Duration (seconds)"); ui.add(egui::DragValue::new(&mut self.settings.length).speed(0.1).range(0.1..=60.)); ui.end_row();
+                });
+                egui::CollapsingHeader::new("Advanced settings").show(ui, |ui| {
+                  egui::Grid::new("gif_advanced").num_columns(2).spacing([24., 14.]).show(ui, |ui| {
                     ui.label("Maximum dimension"); ui.add(egui::Slider::new(&mut self.settings.width, 160..=960).suffix(" px")); ui.end_row();
                     ui.label("Frame rate"); ui.add(egui::Slider::new(&mut self.settings.fps, 5..=30).suffix(" fps")); ui.end_row();
                     ui.label("Palette colors"); ui.add(egui::Slider::new(&mut self.settings.colors, 32..=256)); ui.end_row();
                 });
                 ui.horizontal_wrapped(|ui| { ui.checkbox(&mut self.settings.repeat, "Loop forever"); ui.checkbox(&mut self.settings.smooth, "Smooth color dithering"); });
+                });
                 ui.small("Aspect ratio is preserved. Smaller dimensions, fewer frames and shorter clips produce smaller files. GIFs have no audio.");
             });
         });
         ui.add_space(16.);
         crate::card(ui, |ui| {
-            ui.label(
-                RichText::new("03   EXPORT")
-                    .small()
-                    .color(crate::MUTED)
-                    .strong(),
-            );
+            ui.label(RichText::new("Export").size(14.).color(crate::INK).strong());
             let valid = self
                 .source
                 .as_ref()

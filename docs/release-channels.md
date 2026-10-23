@@ -1,8 +1,10 @@
 # Public and Dev builds
 
-On Windows, open **About & tools**, choose **Update channel**, and select Public
+On Windows, open **Settings → Updates**, choose **Update channel**, and select Public
 or Dev. The app checks that channel immediately; it never installs a build until
-you click **Install selected build**. Setup then asks you to complete installation.
+you choose **Install selected build…** and confirm **Download & open setup**.
+Available builds appear in the sidebar without interrupting startup. Setup then
+asks you to complete installation.
 The sidebar identifies the build currently running, while the selector identifies
 the channel you want to receive. Selecting a channel alone does not change the
 running executable.
