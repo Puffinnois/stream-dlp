@@ -24,11 +24,11 @@ struct Entry {
     bytes: u64,
 }
 #[derive(Debug)]
-struct Video {
+pub(crate) struct Video {
     path: PathBuf,
     bytes: u64,
     container: String,
-    duration: Option<f64>,
+    pub(crate) duration: Option<f64>,
 }
 enum ResultData {
     Folder(PathBuf, Vec<Entry>, bool),
@@ -486,7 +486,7 @@ fn parse_probe(path: PathBuf, bytes: u64, data: &[u8]) -> Result<Video, String> 
         duration,
     })
 }
-fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
+pub(crate) fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
     // Keep a normal absolute path for OS file-manager/player compatibility.
     // Windows canonicalization produces extended paths that shell apps may reject.
     let path = std::path::absolute(path)
@@ -564,7 +564,7 @@ fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
     parse_probe(path, meta.len(), &data)
 }
 
-fn open_target(target: &std::ffi::OsStr) -> Result<(), String> {
+pub(crate) fn open_target(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(windows)]
     let mut command = {
         let mut c = Command::new("rundll32.exe");

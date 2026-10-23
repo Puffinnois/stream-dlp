@@ -89,6 +89,21 @@ To also build the Windows installer, install Inno Setup and run `./build.ps1 -In
 
 If the existing portable executable is open, use `-PortableDirectory 'dist\stream-dlp-0.3.4'` to build a separate folder. Without `-SkipTools`, setup populates that folder's helpers as usual. The generated installer and ZIP use the selected portable folder.
 
+## GIF converter
+
+Open **GIF converter** in the sidebar, or **Make GIF** after downloading a video.
+Choose a local video, set the start time and duration (0.1–60 seconds), then choose
+Small file, Balanced, or High quality. Adjust the maximum dimension (160–960 px),
+frame rate (5–30 fps), palette colors, dithering, and looping before **Save GIF…**.
+The converter preserves aspect ratio and does not upscale. GIFs have no audio.
+
+Conversion runs locally using the bundled FFmpeg and FFprobe, with two-pass
+palette optimization, bounded worker threads, progress, and cancellation. You can
+switch pages while it works. Existing files are never replaced; choose a fresh
+filename. Temporary output is cleaned up after cancellation or failure, and the
+finished GIF offers **Preview GIF** (in your default viewer) and **Open output folder**.
+Shorter clips, smaller dimensions, and lower frame rates usually save the most space.
+
 ## My videos and Streamable
 
 Open the **My videos** page from the sidebar, then **Add video folder…** to list the videos

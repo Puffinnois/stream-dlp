@@ -1,6 +1,6 @@
 [package]
 name = "stream-dlp"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2024"
 rust-version = "1.93"
 description = "A simple native YouTube downloader for Windows and macOS"
