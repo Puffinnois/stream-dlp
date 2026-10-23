@@ -13,6 +13,7 @@ mod updater;
 #[path = "updater_manual.rs"]
 mod updater;
 mod video_library;
+mod video_preview;
 
 use backend::{Event, Video};
 use eframe::egui::{self, Color32, RichText, Vec2};

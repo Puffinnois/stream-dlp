@@ -21,7 +21,7 @@ try {
     foreach ($file in @('Setup tools.ps1', 'README.md', 'LICENSE', 'THIRD-PARTY.md')) { Copy-Item -LiteralPath $file -Destination $portable -Force }
     $docs = Join-Path $portable 'docs'
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
-    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'automatic-streamable-upload.md', 'release-channels.md', 'release-0.3.7.md', 'release-0.3.6.md', 'release-0.3.5.md', 'release-0.3.5-dev.1.md', 'release-0.3.4.md', 'macos.md')) {
+    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'automatic-streamable-upload.md', 'release-channels.md', 'release-0.3.8.md', 'release-0.3.7.md', 'release-0.3.6.md', 'release-0.3.5.md', 'release-0.3.5-dev.1.md', 'release-0.3.4.md', 'macos.md')) {
         Copy-Item -LiteralPath (Join-Path 'docs' $document) -Destination $docs -Force
     }
     if (-not $SkipTools) { & '.\Setup tools.ps1' -Destination (Join-Path $portable 'tools') }

@@ -38,6 +38,7 @@ enum ResultData {
 type JobResult = (u64, Result<ResultData, String>);
 
 pub struct Library {
+    previews: crate::video_preview::Previews,
     pub uploader: crate::streamable_upload::Uploader,
     folder: Option<PathBuf>,
     entries: Vec<Entry>,
@@ -55,6 +56,7 @@ impl Default for Library {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
+            previews: crate::video_preview::Previews::default(),
             uploader: crate::streamable_upload::Uploader::default(),
             folder: None,
             entries: vec![],
@@ -122,6 +124,7 @@ impl Library {
             self.busy = false;
             match result {
                 Ok(ResultData::Folder(folder, entries, truncated)) => {
+                    self.previews.clear();
                     self.folder = Some(folder);
                     self.entries = entries;
                     self.truncated = truncated;
@@ -239,30 +242,39 @@ impl Library {
             let mut chosen = None;
             egui::ScrollArea::vertical()
                 .id_salt("local_videos")
-                .max_height(220.)
-                .show(ui, |ui| {
-                    for entry in &self.entries {
+                .max_height(330.)
+                .show_rows(ui, 76.5, self.entries.len(), |ui, rows| {
+                    for index in rows {
+                        let entry = &self.entries[index];
                         let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
                         let selected = self.selected.as_ref().is_some_and(|v| v.path == entry.path);
-                        let button = egui::Button::new(format!(
-                            "{name}  ·  {:.1} MB",
-                            entry.bytes as f64 / 1_000_000.
-                        ))
-                        .fill(if selected {
-                            egui::Color32::from_rgb(239, 238, 255)
-                        } else {
-                            egui::Color32::WHITE
-                        })
-                        .stroke(egui::Stroke::new(
-                            1.,
-                            if selected { crate::BLUE } else { crate::BORDER },
-                        ))
-                        .corner_radius(8.)
-                        .min_size(egui::vec2(ui.available_width(), 48.))
-                        .wrap();
-                        if ui.add_enabled(!busy, button).clicked() {
-                            chosen = Some(entry.path.clone());
-                        }
+                        ui.horizontal(|ui| {
+                            let preview =
+                                self.previews
+                                    .show(ui, &entry.path, None, egui::vec2(136., 76.5));
+                            if preview.on_hover_text("Select video").clicked() && !busy {
+                                chosen = Some(entry.path.clone());
+                            }
+                            let button = egui::Button::new(format!(
+                                "{name}  ·  {:.1} MB",
+                                entry.bytes as f64 / 1_000_000.
+                            ))
+                            .fill(if selected {
+                                egui::Color32::from_rgb(239, 238, 255)
+                            } else {
+                                egui::Color32::WHITE
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.,
+                                if selected { crate::BLUE } else { crate::BORDER },
+                            ))
+                            .corner_radius(8.)
+                            .min_size(egui::vec2(ui.available_width(), 76.5))
+                            .truncate();
+                            if ui.add_enabled(!busy, button).clicked() {
+                                chosen = Some(entry.path.clone());
+                            }
+                        });
                     }
                 });
             if let Some(path) = chosen {
@@ -289,6 +301,15 @@ impl Library {
                         .strong(),
                 );
                 ui.strong(video.path.file_name().unwrap_or_default().to_string_lossy());
+                let width = ui.available_width().min(480.);
+                if self
+                    .previews
+                    .show(ui, &video.path, None, egui::vec2(width, width * 9. / 16.))
+                    .on_hover_text("Play video")
+                    .clicked()
+                {
+                    self.error = open_target(video.path.as_os_str()).err();
+                }
                 let duration = video
                     .duration
                     .map(|s| format!("{s:.1} seconds"))
