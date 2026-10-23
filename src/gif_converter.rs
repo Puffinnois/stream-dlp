@@ -73,6 +73,9 @@ enum Event {
     Finished(Result<(), String>),
 }
 pub struct Converter {
+    previews: crate::video_preview::Previews,
+    preview_time: f64,
+    preview_change: (f64, Instant),
     source: Option<(PathBuf, f64)>,
     settings: Settings,
     pub busy: bool,
@@ -88,6 +91,9 @@ impl Default for Converter {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
+            previews: crate::video_preview::Previews::default(),
+            preview_time: 0.,
+            preview_change: (0., Instant::now()),
             source: None,
             settings: Settings::default(),
             busy: false,
@@ -138,6 +144,9 @@ impl Converter {
             match event {
                 Event::Dismissed => self.message = "Ready when you are".into(),
                 Event::Source(path, duration) => {
+                    self.previews.clear();
+                    self.preview_time = 0.;
+                    self.preview_change = (0., Instant::now());
                     self.source = Some((path, duration));
                     self.settings.start = 0.;
                     self.settings.length = duration.min(5.);
@@ -184,6 +193,40 @@ impl Converter {
                     .strong(),
             );
             if let Some((path, duration)) = &self.source {
+                let width = ui.available_width().min(560.);
+                self.previews.show(
+                    ui,
+                    path,
+                    Some(self.preview_time),
+                    egui::vec2(width, width * 9. / 16.),
+                );
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self.settings.start,
+                            0.0..=(*duration - self.settings.length).max(0.),
+                        )
+                        .text("Clip start")
+                        .suffix(" s")
+                        .fixed_decimals(1),
+                    );
+                });
+                if self.preview_change.0 != self.settings.start {
+                    self.preview_change = (self.settings.start, Instant::now());
+                }
+                if self.preview_time != self.settings.start {
+                    if self.preview_change.1.elapsed() >= Duration::from_millis(180) {
+                        self.preview_time = self.settings.start;
+                    }
+                    ui.ctx().request_repaint_after(Duration::from_millis(180));
+                }
+                ui.small(format!(
+                    "Frame at {:.1} s · Move Clip start to preview your moment",
+                    self.preview_time
+                ));
+                if ui.button("Play source video").clicked() {
+                    self.error = crate::video_library::open_target(path.as_os_str()).err();
+                }
                 ui.label(
                     RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).strong(),
                 );

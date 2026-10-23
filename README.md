@@ -92,6 +92,10 @@ If the existing portable executable is open, use `-PortableDirectory 'dist\strea
 ## GIF converter
 
 Open **GIF converter** in the sidebar, or **Make GIF** after downloading a video.
+Selecting a video shows a large frame preview. Move **Clip start** to preview your
+chosen moment, or use **Play source video** to open it in your system player.
+**My videos** shows thumbnails for videos in an added folder and a larger preview
+for the selected video. Previews load locally in the background as you browse.
 Choose a local video, set the start time and duration (0.1–60 seconds), then choose
 Small file, Balanced, or High quality. Expand **Advanced settings** to adjust the maximum dimension (160–960 px),
 frame rate (5–30 fps), palette colors, dithering, and looping before **Save GIF…**.
