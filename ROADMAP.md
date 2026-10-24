@@ -91,6 +91,13 @@ Direct upload remains blocked by the documented read-only API.
 
 ### R-03 — Platform feasibility spike
 
+October 24, 2026: [TikTok investigation](docs/tiktok-feasibility.md) compares the
+bundled and latest stable helpers using 20 anonymous metadata probes. Direct
+individual-video metadata succeeded. A user-supplied sample passed helper-level
+download, full audio/video decode, and no-overwrite checks. Short/mobile links and
+production-app acceptance remain open. Investigations proceed one platform at a time; the other
+platforms have not been investigated yet.
+
 - [ ] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
 - [ ] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
 - [ ] Record supported URL patterns, required cookies, missing metadata, collection responses, and failures for each platform.
@@ -175,6 +182,10 @@ No Chrome automatic integration has been implemented or selected yet.
 Depends on F-01 through F-03. Ship each platform independently after live validation.
 
 ### P-01 — TikTok
+
+Initial scope and implementation requirements are recorded in the
+[TikTok feasibility decision](docs/tiktok-feasibility.md). Application integration
+is pending; metadata success alone does not establish download support.
 
 - [ ] Support individual public video URLs and verified short/share links.
 - [ ] Handle vertical video, missing creator metadata, and available format variations.
