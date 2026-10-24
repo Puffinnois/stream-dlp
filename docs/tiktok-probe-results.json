@@ -1,0 +1,284 @@
+{
+  "investigation_date": "2026-10-24",
+  "mode": "anonymous metadata only; no media downloads",
+  "results": [
+    {
+      "version": "2026.08.19",
+      "case": "desktop",
+      "url": "https://www.tiktok.com/@patroxofficial/video/6742501081818877190?langCountry=en",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 8,
+      "duration": 27,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.08.19",
+      "case": "second-video",
+      "url": "https://www.tiktok.com/@hankgreen1/video/7047596209028074758",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 10,
+      "duration": 21,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.08.19",
+      "case": "share",
+      "url": "https://www.tiktok.com/share/video/7668090902816017671/",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 9,
+      "duration": 30,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024",
+        "720x1280"
+      ]
+    },
+    {
+      "version": "2026.08.19",
+      "case": "short-www",
+      "url": "https://www.tiktok.com/t/ZTRC5xgJp",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [vm.tiktok] ZTRC5xgJp: Unable to download webpage: HTTPSConnection(host='www.tiktok.com', port=443): Failed to resolve 'www.tiktok.com' ([Errno 11001] getaddrinfo failed) (caused by TransportError(\"HTTPSConnection(host='www.tiktok.com', port=443): Failed to resolve 'www.tiktok.com' ([Errno 11001] getaddrinfo failed)\"))",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.08.19",
+      "case": "short-vm",
+      "url": "https://vm.tiktok.com/ZTR45GpSF/",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [vm.tiktok] ZTR45GpSF: Unable to download webpage: HTTPSConnection(host='vm.tiktok.com', port=443): Failed to resolve 'vm.tiktok.com' ([Errno 11001] getaddrinfo failed) (caused by TransportError(\"HTTPSConnection(host='vm.tiktok.com', port=443): Failed to resolve 'vm.tiktok.com' ([Errno 11001] getaddrinfo failed)\"))",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.08.19",
+      "case": "short-vt",
+      "url": "https://vt.tiktok.com/ZSe4FqkKd",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "WARNING: [generic] Falling back on generic information extractor\nERROR: Unsupported URL: [URL]",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "desktop",
+      "url": "https://www.tiktok.com/@patroxofficial/video/6742501081818877190?langCountry=en",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 8,
+      "duration": 27,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.10.21",
+      "case": "second-video",
+      "url": "https://www.tiktok.com/@hankgreen1/video/7047596209028074758",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 10,
+      "duration": 21,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.10.21",
+      "case": "share",
+      "url": "https://www.tiktok.com/share/video/7668090902816017671/",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 9,
+      "duration": 30,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024",
+        "720x1280"
+      ]
+    },
+    {
+      "version": "2026.10.21",
+      "case": "short-www",
+      "url": "https://www.tiktok.com/t/ZTRC5xgJp",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "WARNING: [generic] Falling back on generic information extractor\nERROR: Unsupported URL: [URL]",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "short-vm",
+      "url": "https://vm.tiktok.com/ZTR45GpSF/",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [vm.tiktok] ZTR45GpSF: Unable to download webpage: HTTPSConnection(host='vm.tiktok.com', port=443): Failed to resolve 'vm.tiktok.com' ([Errno 11001] getaddrinfo failed) (caused by TransportError(\"HTTPSConnection(host='vm.tiktok.com', port=443): Failed to resolve 'vm.tiktok.com' ([Errno 11001] getaddrinfo failed)\"))",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "short-vt",
+      "url": "https://vt.tiktok.com/ZSe4FqkKd",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "WARNING: [generic] Falling back on generic information extractor\nERROR: Unsupported URL: [URL]",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.08.19",
+      "case": "desktop",
+      "url": "https://www.tiktok.com/@patroxofficial/video/6742501081818877190?langCountry=en",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 8,
+      "duration": 27,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.08.19",
+      "case": "mobile-variant",
+      "url": "https://m.tiktok.com/v/6742501081818877190.html",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [generic] 6742501081818877190: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.08.19",
+      "case": "photo-variant",
+      "url": "https://www.tiktok.com/@patroxofficial/photo/6742501081818877190",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "WARNING: [generic] Falling back on generic information extractor\nERROR: Unsupported URL: [URL]",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.08.19",
+      "case": "invalid-id",
+      "url": "https://www.tiktok.com/@_/video/0",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [TikTok] 0: Video not available, status code 100002; please report this issue on  [URL] , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "desktop",
+      "url": "https://www.tiktok.com/@patroxofficial/video/6742501081818877190?langCountry=en",
+      "exit_code": 0,
+      "timed_out": false,
+      "error": "",
+      "format_count": 8,
+      "duration": 27,
+      "has_title": true,
+      "has_uploader": true,
+      "dimensions": [
+        "576x1024"
+      ]
+    },
+    {
+      "version": "2026.10.21",
+      "case": "mobile-variant",
+      "url": "https://m.tiktok.com/v/6742501081818877190.html",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [generic] 6742501081818877190: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "photo-variant",
+      "url": "https://www.tiktok.com/@patroxofficial/photo/6742501081818877190",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "WARNING: [generic] Falling back on generic information extractor\nERROR: Unsupported URL: [URL]",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    },
+    {
+      "version": "2026.10.21",
+      "case": "invalid-id",
+      "url": "https://www.tiktok.com/@_/video/0",
+      "exit_code": 1,
+      "timed_out": false,
+      "error": "ERROR: [TikTok] 0: Unable to download webpage: Failed to perform, curl: (6) Could not resolve host: www.tiktok.com. See [URL] first for more details. (caused by TransportError('Failed to perform, curl: (6) Could not resolve host: www.tiktok.com. See [URL] first for more details.'))",
+      "format_count": 0,
+      "duration": null,
+      "has_title": null,
+      "has_uploader": null,
+      "dimensions": []
+    }
+  ]
+}
