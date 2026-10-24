@@ -152,11 +152,7 @@ impl App {
             .text_styles
             .insert(egui::TextStyle::Small, egui::FontId::proportional(12.));
         ctx.set_style(style);
-        let mut app = Self::with_profiles(browser_session::profiles());
-        if cfg!(windows) {
-            app.updater.check(ctx);
-        }
-        app
+        Self::with_profiles(browser_session::profiles())
     }
 
     fn with_profiles(browser_profiles: Vec<browser_session::Profile>) -> Self {
@@ -965,15 +961,16 @@ impl App {
                                     RichText::new(if self.updater.downloading {
                                         "Installing update…"
                                     } else {
-                                        "Update available  →"
+                                        "●  Update available"
                                     })
                                     .size(12.)
-                                    .color(Color32::WHITE),
+                                    .color(quiet),
                                 )
-                                .fill(Color32::from_rgb(48, 51, 72))
+                                .fill(rail)
                                 .stroke(egui::Stroke::NONE)
-                                .min_size(Vec2::new(ui.available_width(), 36.)),
+                                .min_size(Vec2::new(ui.available_width(), 28.)),
                             )
+                            .on_hover_text("Open Settings to review the available update")
                             .clicked()
                     {
                         self.page = Page::Settings;
@@ -1431,6 +1428,9 @@ impl eframe::App for App {
         if self.updater.poll() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
+        }
+        if !self.closing {
+            self.updater.check_automatically(ctx);
         }
         self.poll();
         self.library.poll();
