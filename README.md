@@ -1,6 +1,20 @@
 # stream-dlp
 
-A small native YouTube downloader written in Rust. Windows is the established release; experimental Apple Silicon Mac support is being added. A minimal workspace with a charcoal navigation rail, light cards, and indigo accents.
+A small native YouTube downloader written in Rust, with experimental TikTok video support. Windows is the established release; experimental Apple Silicon Mac support is being added. A minimal workspace with a charcoal navigation rail, light cards, and indigo accents.
+
+## Experimental TikTok support (development build)
+
+Paste a full public `www.tiktok.com/@creator/video/<id>` or
+`www.tiktok.com/share/video/<id>` link, then use **Find video** and the existing
+download workflow. TikTok currently offers H.264/H.265 video formats containing
+audio. Portrait dimensions appear directly in the quality list. TikTok filenames
+have a source prefix, and YouTube sessions are never attached to TikTok requests.
+
+Short/mobile links, photo posts, profiles, collections, live streams, authenticated
+access, silent clips, and video-only formats are not supported in this first
+implementation. For a short link, open it in your browser and copy the full video
+URL. Website restrictions can still prevent a public video from downloading.
+See [TikTok validation and remaining work](docs/tiktok-feasibility.md).
 
 ## Public and Dev versions
 

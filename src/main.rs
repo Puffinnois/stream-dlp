@@ -316,6 +316,7 @@ impl App {
                         Phase::Idle
                     };
                     if needs_session
+                        && backend::source(&self.loaded_link) != Some(backend::Source::TikTok)
                         && self.auto_refresh
                         && !self.refresh_used
                         && !self.closing
@@ -350,7 +351,10 @@ impl App {
         self.destination = Some(folder.clone());
         self.error = None;
         self.progress = 0.;
-        self.status = "Connecting to YouTube…".into();
+        self.status = format!(
+            "Connecting to {}…",
+            self.video.as_ref().unwrap().source.label()
+        );
         self.log.clear();
         self.phase = Phase::Downloading;
         self.cancel = Arc::new(AtomicBool::new(false));
@@ -982,7 +986,7 @@ impl App {
         page_header(
             ui,
             "Download",
-            "Save a YouTube video in the quality you choose.",
+            "Save a YouTube or TikTok video in the quality you choose.",
         );
         card(ui, |ui| {
             ui.label(RichText::new("Video link").size(14.).color(INK).strong());
@@ -993,7 +997,7 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text("Paste a YouTube link here")
+                        .hint_text("Paste a YouTube or full TikTok video link")
                         .desired_width(width)
                         .margin(Vec2::new(12., 12.)),
                 );
@@ -1011,17 +1015,19 @@ impl App {
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new("Videos, Shorts, and shared links supported.")
-                        .size(12.)
-                        .color(MUTED),
+                    RichText::new(
+                        "YouTube videos and Shorts · TikTok public video links (experimental)",
+                    )
+                    .size(12.)
+                    .color(MUTED),
                 );
                 if ui
                     .add_enabled(
                         !self.busy(),
                         egui::Button::new(if self.session.is_some() {
-                            "Session loaded · Manage"
+                            "YouTube session loaded · Manage"
                         } else {
-                            "Connect browser…"
+                            "Connect YouTube browser…"
                         })
                         .frame(false),
                     )
@@ -1058,12 +1064,13 @@ impl App {
                 .inner_margin(14)
                 .show(ui, |ui| {
                     ui.colored_label(Color32::from_rgb(175, 46, 57), error);
-                    if ui
-                        .add_enabled(
-                            !self.busy(),
-                            egui::Button::new("Connect browser / retry help"),
-                        )
-                        .clicked()
+                    if backend::source(&self.link) == Some(backend::Source::YouTube)
+                        && ui
+                            .add_enabled(
+                                !self.busy(),
+                                egui::Button::new("Connect browser / retry help"),
+                            )
+                            .clicked()
                     {
                         self.session_expanded = true;
                     }
@@ -1117,10 +1124,11 @@ impl App {
                     let seconds = video.duration.unwrap_or(0.) as u64;
                     ui.label(
                         RichText::new(format!(
-                            "{}   ·   {}:{:02}   ·   YouTube",
+                            "{}   ·   {}:{:02}   ·   {}",
                             video.uploader.as_deref().unwrap_or("Unknown creator"),
                             seconds / 60,
-                            seconds % 60
+                            seconds % 60,
+                            video.source.label()
                         ))
                         .size(12.)
                         .color(MUTED),
@@ -1148,9 +1156,11 @@ impl App {
                 });
             });
             ui.label(
-                RichText::new(
-                    "Available streams · video-only choices are combined with matching audio.",
-                )
+                RichText::new(if video.source == backend::Source::TikTok {
+                    "Experimental TikTok support · these video formats include audio."
+                } else {
+                    "Available streams · video-only choices are combined with matching audio."
+                })
                 .size(11.)
                 .color(MUTED),
             );
@@ -1572,6 +1582,21 @@ mod app_tests {
                 assert!(!app.refresh_used);
             }
         }
+    }
+
+    #[test]
+    fn tiktok_errors_cannot_refresh_youtube_sessions() {
+        let mut app = App::with_profiles(Vec::new());
+        app.loaded_link = "https://www.tiktok.com/@creator/video/123".into();
+        app.browser_source = Some(browser_session::Profile {
+            name: "Unused".into(),
+            path: PathBuf::from("unused"),
+            default: false,
+        });
+        app.tx.send(auth_error()).unwrap();
+        app.poll();
+        assert!(!app.session_loading);
+        assert!(!app.refresh_used);
     }
 
     #[test]
