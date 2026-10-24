@@ -3,7 +3,39 @@
 Investigated October 24, 2026, on Windows. Scope: TikTok only. Status: anonymous
 metadata feasibility established for three individual video URLs. A user-supplied
 clip also passed helper-level download, full decode, and no-overwrite checks.
-Application integration and interactive playback acceptance remain open.
+Direct-link application integration is now implemented experimentally. Interactive
+player acceptance and broader compatibility checks remain open.
+
+## Implementation follow-up
+
+The development build accepts full individual TikTok video/share URLs and rejects
+short/mobile links and unsupported content. The backend restricts extraction to
+TikTok, rejects collections and unexpected extractor identities, filters the first
+version to muxed H.264/H.265 video with audio, supplies missing-title fallbacks,
+and displays portrait dimensions and unknown resolutions clearly. Output names
+include a TikTok prefix. TikTok errors are source-specific and do not expose raw
+signed URLs in the UI. YouTube cookies are excluded at the helper-command boundary;
+TikTok failures cannot trigger YouTube automatic session refresh.
+
+An opt-in production-backend test passed using the authorized sample: inspection,
+download with a synthetic YouTube session present, full audio/video decoding,
+byte-for-byte and modification-time no-overwrite checks, and cancellation during
+helper startup. The local DASH download/merge/cancel regression also passed.
+Cancellation during a long active transfer and close-window cleanup still merit
+manual acceptance; startup cancellation does not prove every transfer phase.
+
+```powershell
+$env:STREAM_DLP_TIKTOK_TEST_URL = 'https://www.tiktok.com/@thegolivebutton/video/7622412096440929566'
+cargo test --locked tiktok_authorized_production_pipeline -- --ignored --nocapture
+```
+
+This is a local development change, not a published release. The original spike
+and its proposed broader implementation requirements are preserved below.
+
+Windows UI verification loaded the user-supplied URL in the development build
+and confirmed the TikTok source label, creator, duration, portrait format choices,
+and updated input help. Download/decoding and cancellation were exercised through
+the production backend test, not through the GUI's folder picker or player.
 
 ## Decision
 
@@ -146,9 +178,9 @@ above are the reproducible baseline.
 
 ## Acceptance before declaring TikTok supported
 
-- [ ] Add routing and metadata fixtures for the supported URL shapes, deceptive
+- [x] Add routing and metadata fixtures for the supported URL shapes, deceptive
   domains, missing fields, portrait formats, collections, and codec filtering.
-- [ ] Verify TikTok commands cannot receive a loaded YouTube session and cannot
+- [x] Verify TikTok commands cannot receive a loaded YouTube session and cannot
   trigger its automatic refresh/retry behavior.
 - [ ] Use an owned/permitted sample for real download, ffprobe stream checks,
   playback, cancellation, and no-overwrite behavior through the production app.

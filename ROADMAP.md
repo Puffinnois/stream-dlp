@@ -184,8 +184,10 @@ Depends on F-01 through F-03. Ship each platform independently after live valida
 ### P-01 — TikTok
 
 Initial scope and implementation requirements are recorded in the
-[TikTok feasibility decision](docs/tiktok-feasibility.md). Application integration
-is pending; metadata success alone does not establish download support.
+[TikTok feasibility decision](docs/tiktok-feasibility.md). Full direct video links
+are implemented experimentally, with production-backend download, decode,
+no-overwrite, session isolation, and startup-cancellation validation. Short/mobile
+links and wider acceptance remain open; no other platform was added.
 
 - [ ] Support individual public video URLs and verified short/share links.
 - [ ] Handle vertical video, missing creator metadata, and available format variations.

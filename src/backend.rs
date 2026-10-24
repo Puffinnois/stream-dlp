@@ -14,6 +14,32 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Source {
+    #[default]
+    YouTube,
+    TikTok,
+}
+
+impl Source {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::YouTube => "YouTube",
+            Self::TikTok => "TikTok",
+        }
+    }
+}
+
+pub fn source(link: &str) -> Option<Source> {
+    let normalized = normalize_url(link).ok()?;
+    let url = url::Url::parse(&normalized).ok()?;
+    Some(if url.host_str() == Some("www.tiktok.com") {
+        Source::TikTok
+    } else {
+        Source::YouTube
+    })
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Format {
     pub format_id: String,
@@ -41,6 +67,14 @@ impl Format {
     }
     pub fn quality(&self) -> String {
         if self.video() {
+            if self.height.is_none() {
+                return "Video · unknown resolution".into();
+            }
+            if let (Some(width), Some(height)) = (self.width, self.height)
+                && height > width
+            {
+                return format!("{width} × {height}");
+            }
             format!(
                 "{}p{}",
                 self.height.unwrap_or(0),
@@ -106,6 +140,12 @@ impl Format {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Video {
+    #[serde(skip)]
+    pub source: Source,
+    #[serde(skip)]
+    pub source_url: String,
+    pub id: Option<String>,
+    #[serde(default, deserialize_with = "title_or_default")]
     pub title: String,
     pub uploader: Option<String>,
     pub duration: Option<f64>,
@@ -115,11 +155,28 @@ pub struct Video {
     pub is_live: bool,
 }
 
+fn title_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
 pub fn parse_video(json: &str) -> Result<Video, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("Could not read the video details: {e}"))?;
+    if value.get("entries").is_some()
+        || value
+            .get("_type")
+            .and_then(|v| v.as_str())
+            .is_some_and(|t| t != "video")
+    {
+        return Err("Choose one video; profiles and collections are not supported.".into());
+    }
     let mut video: Video =
         serde_json::from_str(json).map_err(|e| format!("Could not read the video details: {e}"))?;
     if video.is_live {
         return Err("This is a live stream. Try again after the broadcast has ended.".into());
+    }
+    if video.title.trim().is_empty() {
+        video.title = format!("Video {}", video.id.as_deref().unwrap_or("untitled"));
     }
     video
         .formats
@@ -138,6 +195,27 @@ pub fn parse_video(json: &str) -> Result<Video, String> {
     Ok(video)
 }
 
+fn parse_video_for(json: &str, link: &str) -> Result<Video, String> {
+    let mut video = parse_video(json)?;
+    video.source_url = link.to_owned();
+    if source(link) == Some(Source::TikTok) {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        if value["extractor_key"].as_str() != Some("TikTok") {
+            return Err("This link did not return an individual TikTok video.".into());
+        }
+        video.source = Source::TikTok;
+        // First TikTok release supports muxed, playable video only. Do not treat
+        // an audio-only slideshow or an untested video-only stream as a video.
+        video.formats.retain(|f| {
+            f.audio() && matches!(f.vcodec.as_deref(), Some("h264" | "h265" | "avc1" | "hevc"))
+        });
+        if video.formats.is_empty() {
+            return Err("TikTok returned no supported video with audio. Photo posts, silent clips, and video-only formats are not supported yet.".into());
+        }
+    }
+    Ok(video)
+}
+
 pub fn normalize_url(input: &str) -> Result<String, String> {
     let input = input.trim();
     let full = if input.starts_with("https://") || input.starts_with("http://") {
@@ -145,11 +223,44 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
     } else {
         format!("https://{input}")
     };
-    let url = url::Url::parse(&full).map_err(|_| "Paste a valid YouTube video link.".to_owned())?;
+    let url = url::Url::parse(&full)
+        .map_err(|_| "Paste a valid YouTube or TikTok video link.".to_owned())?;
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
-        return Err("Paste a standard YouTube video link.".into());
+        return Err("Paste a standard video link without credentials or a custom port.".into());
     }
     let host = url.host_str().unwrap_or("");
+    if matches!(host, "vm.tiktok.com" | "vt.tiktok.com" | "m.tiktok.com") {
+        return Err("Open the TikTok link in your browser and copy the full www.tiktok.com/@creator/video/… link. Short and mobile links are not supported yet.".into());
+    }
+    if matches!(host, "www.tiktok.com" | "tiktok.com") {
+        let parts: Vec<_> = url
+            .path()
+            .trim_end_matches('/')
+            .split('/')
+            .skip(1)
+            .collect();
+        if parts.len() == 3
+            && parts[1] == "video"
+            && (parts[0] == "share"
+                || parts[0].strip_prefix('@').is_some_and(|u| {
+                    !u.is_empty()
+                        && u.bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+                }))
+            && !parts[2].is_empty()
+            && parts[2].len() <= 20
+            && parts[2].bytes().all(|c| c.is_ascii_digit())
+        {
+            let mut canonical = url.clone();
+            canonical.set_scheme("https").map_err(|_| "Invalid URL")?;
+            canonical
+                .set_host(Some("www.tiktok.com"))
+                .map_err(|_| "Invalid host")?;
+            canonical.set_fragment(None);
+            return Ok(canonical.to_string());
+        }
+        return Err("Paste a full TikTok /@creator/video/… or /share/video/… link. Short links, photo posts, profiles, collections, and live streams are not supported yet.".into());
+    }
     let id = if host == "youtu.be" || host == "www.youtu.be" {
         url.path_segments()
             .and_then(|mut s| s.next())
@@ -180,7 +291,7 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
-        .ok_or("Paste a YouTube video link, such as youtube.com/watch?v=… or youtu.be/… .")?;
+        .ok_or("Paste a YouTube or full TikTok video link.")?;
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
 
@@ -239,6 +350,18 @@ fn command(
     Ok((cmd, session_file))
 }
 
+fn command_for(
+    link: &str,
+    session: Option<&SessionCookies>,
+) -> Result<(Command, Option<tempfile::NamedTempFile>), String> {
+    let site = source(link);
+    let (mut cmd, file) = command(session.filter(|_| site == Some(Source::YouTube)))?;
+    if site == Some(Source::TikTok) {
+        cmd.args(["--use-extractors", "TikTok"]);
+    }
+    Ok((cmd, file))
+}
+
 pub enum Event {
     Loaded(Video),
     Line(String),
@@ -273,7 +396,7 @@ pub fn inspect(
     cancel: Arc<AtomicBool>,
 ) {
     let result = (|| {
-        let (mut cmd, _session_file) = command(session.as_ref())?;
+        let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
         cmd.args(["--dump-single-json", "--skip-download", "--", &link]);
         let mut child = cmd
             .stdout(Stdio::piped())
@@ -300,7 +423,7 @@ pub fn inspect(
                     return Ok(None);
                 }
                 return Err(
-                    "YouTube took too long to respond. Check your connection and try again.".into(),
+                    "The video service took too long to respond. Check your connection and try again.".into(),
                 );
             }
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
@@ -314,9 +437,9 @@ pub fn inspect(
             .map_err(|e| e.to_string())?;
         let errors = err.join().unwrap_or_default();
         if !status.success() {
-            return Err(friendly_error(&errors));
+            return Err(error_for(&errors, &link));
         }
-        parse_video(&output).map(Some)
+        parse_video_for(&output, &link).map(Some)
     })();
     let _ = tx.send(match result {
         Ok(Some(v)) => Event::Loaded(v),
@@ -344,6 +467,29 @@ fn friendly_error(raw: &str) -> String {
     }
 }
 
+fn error_for(raw: &str, link: &str) -> String {
+    if source(link) != Some(Source::TikTok) {
+        return friendly_error(raw);
+    }
+    let lower = raw.to_lowercase();
+    if lower.contains("log in")
+        || lower.contains("login")
+        || lower.contains("sign in")
+        || lower.contains("private")
+    {
+        "TikTok requires access or verification for this video. Only public videos are supported; YouTube browser sessions cannot unlock TikTok videos.".into()
+    } else if lower.contains("resolve")
+        || lower.contains("timed out")
+        || lower.contains("connection")
+    {
+        "Could not connect to TikTok. Check your connection and try again.".into()
+    } else if lower.contains("blocked") || lower.contains("403") || lower.contains("429") {
+        "TikTok restricted this request. Try again later or check the video in your browser.".into()
+    } else {
+        "TikTok could not provide this video. It may be unavailable or unsupported; check the link in your browser or update the download tools.".into()
+    }
+}
+
 pub fn download(
     link: String,
     format: Format,
@@ -353,10 +499,15 @@ pub fn download(
     cancel: Arc<AtomicBool>,
 ) {
     let result = (|| {
-        let (mut cmd, _session_file) = command(session.as_ref())?;
+        let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
+        let template = if source(&link) == Some(Source::TikTok) {
+            "TikTok %(title).140s [%(id)s] [%(format_id)s].%(ext)s"
+        } else {
+            "%(title).150s [%(id)s] [%(format_id)s].%(ext)s"
+        };
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
-            .args(["--output", "%(title).150s [%(id)s] [%(format_id)s].%(ext)s", "--", &link]);
+            .args(["--output", template, "--", &link]);
         let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -386,7 +537,11 @@ pub fn download(
                     tail.pop_front();
                 }
                 tail.push_back(line.clone());
-                let _ = tx.send(Event::Line(line));
+                // TikTok diagnostics can contain signed media URLs. Only send
+                // structured progress to the UI; errors are classified below.
+                if source(&link) != Some(Source::TikTok) || line.starts_with("__PROGRESS__") {
+                    let _ = tx.send(Event::Line(line));
+                }
             }
         };
         let status = loop {
@@ -410,8 +565,9 @@ pub fn download(
             process_line(line);
         }
         if !status.success() {
-            return Err(friendly_error(
+            return Err(error_for(
                 &tail.into_iter().collect::<Vec<_>>().join("\n"),
+                &link,
             ));
         }
         let path = final_path.filter(|p| p.is_file()).ok_or(
@@ -449,6 +605,157 @@ pub fn progress(line: &str) -> Option<(f32, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tiktok_routing_rejects_unverified_content_and_deceptive_hosts() {
+        for link in [
+            "https://www.tiktok.com/@creator/video/7622412096440929566",
+            "tiktok.com/share/video/7622412096440929566/?lang=en",
+        ] {
+            assert_eq!(source(link), Some(Source::TikTok));
+            assert!(
+                normalize_url(link)
+                    .unwrap()
+                    .starts_with("https://www.tiktok.com/")
+            );
+        }
+        for link in [
+            "https://www.tiktok.com.evil.com/@c/video/123",
+            "https://www.tiktok.com@evil.com/@c/video/123",
+            "https://www.tiktok.com:8080/@c/video/123",
+            "https://vm.tiktok.com/abc",
+            "https://www.tiktok.com/t/abc",
+            "https://www.tiktok.com/@c/photo/123",
+            "https://www.tiktok.com/@c/live",
+            "https://www.tiktok.com/@c",
+            "https://www.tiktok.com/@c/video/123/extra",
+            "https://www.tiktok.com/@c/video/nope",
+        ] {
+            assert!(normalize_url(link).is_err(), "{link}");
+        }
+    }
+
+    #[test]
+    fn tiktok_session_and_metadata_are_isolated() {
+        let link = "https://www.tiktok.com/@creator/video/123";
+        let (cmd, cookie_file) = command_for(link, Some(&crate::session::fake_session())).unwrap();
+        assert!(cookie_file.is_none());
+        assert!(!cmd.get_args().any(|a| a == "--cookies"));
+        let json = r#"{"id":"123","extractor_key":"TikTok","title":null,"formats":[{"format_id":"ok","width":540,"height":958,"vcodec":"h264","acodec":"aac"},{"format_id":"unknown","vcodec":"h264","acodec":"aac"},{"format_id":"bad","vcodec":"bytevc2","acodec":"aac"},{"format_id":"silent","vcodec":"h264","acodec":"none"}]}"#;
+        let video = parse_video_for(json, link).unwrap();
+        assert_eq!(video.source, Source::TikTok);
+        assert_eq!(video.source_url, link);
+        assert_eq!(video.title, "Video 123");
+        assert_eq!(video.formats.len(), 2);
+        assert_eq!(video.formats[0].quality(), "540 × 958");
+        assert!(!video.formats[1].quality().contains("0p"));
+        assert!(parse_video_for(&json.replace("TikTok", "Generic"), link).is_err());
+        assert!(parse_video_for(r#"{"_type":"playlist","entries":[]}"#, link).is_err());
+        assert!(parse_video_for(r#"{"extractor_key":"TikTok","formats":[{"format_id":"audio","vcodec":"none","acodec":"aac"}]}"#, link).is_err());
+        let error = error_for("ERROR: Sign in https://cdn.example/?secret=token", link);
+        assert!(!error.starts_with("YouTube"));
+        assert!(!error.contains("secret"));
+    }
+
+    #[test]
+    #[ignore = "requires explicitly supplied permitted TikTok URL, internet and tools"]
+    fn tiktok_authorized_production_pipeline() {
+        let link = normalize_url(
+            &std::env::var("STREAM_DLP_TIKTOK_TEST_URL")
+                .expect("Supply an owned/permitted TikTok video URL"),
+        )
+        .unwrap();
+        assert_eq!(source(&link), Some(Source::TikTok));
+        let (tx, rx) = std::sync::mpsc::channel();
+        inspect(
+            link.clone(),
+            Some(crate::session::fake_session()),
+            tx,
+            Arc::new(AtomicBool::new(false)),
+        );
+        let video = match rx.recv().unwrap() {
+            Event::Loaded(v) => v,
+            Event::Failed(e) => panic!("{e}"),
+            _ => panic!("No metadata"),
+        };
+        let format = video
+            .formats
+            .iter()
+            .find(|f| f.vcodec.as_deref() == Some("h264"))
+            .unwrap()
+            .clone();
+        let folder =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output/tiktok-production");
+        std::fs::create_dir_all(&folder).unwrap();
+        let run_download = || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            download(
+                link.clone(),
+                format.clone(),
+                folder.clone(),
+                Some(crate::session::fake_session()),
+                tx,
+                Arc::new(AtomicBool::new(false)),
+            );
+            rx.into_iter()
+                .find_map(|e| match e {
+                    Event::Complete(p) => Some(p),
+                    Event::Failed(e) => panic!("{e}"),
+                    _ => None,
+                })
+                .expect("No output file")
+        };
+        let path = run_download();
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("TikTok ")
+        );
+        let before = std::fs::read(&path).unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(run_download(), path);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
+        let decoded = hidden(
+            Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
+                .args(["-v", "error", "-xerror", "-i"])
+                .arg(&path)
+                .args(["-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"]),
+        )
+        .output()
+        .unwrap();
+        assert!(
+            decoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&decoded.stderr)
+        );
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let worker = thread::spawn(move || download(link, format, folder, None, tx, worker_cancel));
+        thread::sleep(Duration::from_millis(100));
+        cancel.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("Cancellation timed out")
+            {
+                Event::Cancelled => break,
+                Event::Line(_) => {}
+                _ => panic!("Expected cancellation during helper startup"),
+            }
+        }
+        worker.join().unwrap();
+        println!(
+            "Production TikTok inspect/download/decode/no-overwrite/cancellation passed: {}",
+            path.display()
+        );
+    }
     #[cfg(unix)]
     #[test]
     fn cancellation_stops_descendants_in_the_helper_process_group() {
