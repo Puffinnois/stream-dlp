@@ -1,10 +1,16 @@
 //! Channel-specific GitHub release checks. Downloading and launching always require a UI click.
 use crate::release_channel::Channel;
 use serde::Deserialize;
-use std::{path::PathBuf, process::Command, sync::mpsc};
+use std::{
+    path::PathBuf,
+    process::Command,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 pub const RELEASES: &str = "https://github.com/Puffinnois/stream-dlp/releases";
 const ASSET: &str = "stream-dlp-Setup-Windows-x64.exe";
+const CHECK_INTERVAL: Duration = Duration::from_secs(4 * 60 * 60);
 
 #[derive(Clone, Debug)]
 pub struct Update {
@@ -193,7 +199,7 @@ pub struct Updater {
     pub message: String,
     pub checking: bool,
     pub downloading: bool,
-    pub prompt: bool,
+    next_check: Instant,
     tx: mpsc::Sender<Event>,
     rx: mpsc::Receiver<Event>,
 }
@@ -208,7 +214,7 @@ impl Default for Updater {
             message: String::new(),
             checking: false,
             downloading: false,
-            prompt: false,
+            next_check: Instant::now(),
             tx,
             rx,
         }
@@ -227,7 +233,6 @@ impl Updater {
         self.channel = channel;
         self.generation += 1;
         self.available = None;
-        self.prompt = false;
         self.checking = false;
         self.check(ctx);
     }
@@ -236,6 +241,7 @@ impl Updater {
             return;
         }
         self.checking = true;
+        self.next_check = Instant::now() + CHECK_INTERVAL;
         self.message = format!("Checking {} releases...", self.channel.label());
         self.generation += 1;
         let (generation, channel) = (self.generation, self.channel);
@@ -244,6 +250,20 @@ impl Updater {
             let _ = tx.send(Event::Checked(generation, check(channel)));
             ctx.request_repaint();
         });
+    }
+
+    fn check_due(&self, now: Instant) -> bool {
+        !self.checking && !self.downloading && now >= self.next_check
+    }
+
+    /// Wake the otherwise idle UI only when another background check is due.
+    pub fn check_automatically(&mut self, ctx: &eframe::egui::Context) {
+        if self.check_due(Instant::now()) {
+            self.check(ctx);
+        }
+        if !self.checking && !self.downloading {
+            ctx.request_repaint_after(self.next_check.saturating_duration_since(Instant::now()));
+        }
     }
 
     pub fn download(&mut self, ctx: &eframe::egui::Context) {
@@ -278,7 +298,6 @@ impl Updater {
                                 "You’re up to date."
                             }
                             .into();
-                            self.prompt = update.is_some();
                             self.available = update;
                         }
                         Err(error) => {
@@ -302,6 +321,43 @@ impl Updater {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_checks_run_on_startup_and_respect_interval_and_active_work() {
+        let mut updater = Updater::default();
+        let now = Instant::now();
+        assert!(updater.check_due(now));
+        updater.next_check = now + CHECK_INTERVAL;
+        assert!(!updater.check_due(now));
+        assert!(!updater.check_due(updater.next_check - Duration::from_secs(1)));
+        assert!(updater.check_due(updater.next_check));
+        updater.checking = true;
+        assert!(!updater.check_due(updater.next_check));
+        updater.checking = false;
+        updater.downloading = true;
+        assert!(!updater.check_due(updater.next_check));
+    }
+
+    #[test]
+    fn failed_background_check_keeps_available_update_and_retry_deadline() {
+        let mut updater = Updater {
+            available: parse_release(&release("v9.0.0").to_string(), "0.3.3").unwrap(),
+            checking: true,
+            next_check: Instant::now() + CHECK_INTERVAL,
+            ..Default::default()
+        };
+        let deadline = updater.next_check;
+        updater
+            .tx
+            .send(Event::Checked(0, Err("Offline".into())))
+            .unwrap();
+        assert!(!updater.poll());
+        assert!(!updater.checking);
+        assert!(updater.available.is_some());
+        assert_eq!(updater.next_check, deadline);
+        assert!(!updater.check_due(Instant::now()));
+    }
+
     fn release(version: &str) -> serde_json::Value {
         serde_json::json!({"tag_name": version, "draft": false, "prerelease": false, "assets": [{"name": ASSET, "browser_download_url": format!("https://github.com/Puffinnois/stream-dlp/releases/download/{version}/{ASSET}"), "digest": format!("sha256:{}", "a".repeat(64))}]})
     }
@@ -392,7 +448,6 @@ mod tests {
             .unwrap();
         updater.poll();
         assert!(updater.available.is_none());
-        assert!(!updater.prompt);
         assert!(updater.checking);
         updater.tx.send(Event::Checked(2, Ok(None))).unwrap();
         updater.poll();
@@ -435,7 +490,6 @@ mod tests {
             ))
             .unwrap();
         assert!(!updater.poll());
-        assert!(updater.prompt);
         assert!(updater.available.is_some());
         assert!(!updater.checking);
         assert!(!updater.downloading);

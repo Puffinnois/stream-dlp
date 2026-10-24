@@ -13,7 +13,6 @@ pub struct Updater {
     pub message: String,
     pub checking: bool,
     pub downloading: bool,
-    pub prompt: bool,
 }
 
 impl Default for Updater {
@@ -25,7 +24,6 @@ impl Default for Updater {
                 .into(),
             checking: false,
             downloading: false,
-            prompt: false,
         }
     }
 }
@@ -43,9 +41,9 @@ impl Updater {
         );
     }
 
-    pub fn check(&mut self, _ctx: &eframe::egui::Context) {
-        self.prompt = true;
-    }
+    pub fn check(&mut self, _ctx: &eframe::egui::Context) {}
+
+    pub fn check_automatically(&mut self, _ctx: &eframe::egui::Context) {}
 
     pub fn download(&mut self, _ctx: &eframe::egui::Context) {
         self.message = "Use the Releases link to download the latest Mac package.".into();
