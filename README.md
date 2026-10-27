@@ -53,6 +53,12 @@ The format list shows every non-DRM video and audio stream returned by YouTube, 
 
 Cancel stops the active process tree. Incomplete `.part` files are retained so a later attempt in the same folder can resume. Existing complete files are not overwritten. Closing the app signals cancellation. Regular videos and Shorts use the same downloader. Active live streams and DRM-protected formats are not supported. YouTube can change availability; run the tool setup again if extraction stops working.
 
+Missing video details are shown explicitly: an absent title falls back to the
+video ID or **Untitled video**, and missing creator, duration, resolution, bitrate,
+container, and size use unknown labels. Unknown duration and resolution are not
+shown as zero. Estimated stream sizes keep a `~` prefix; files smaller than 1 MB
+show `<1 MB`.
+
 ## When YouTube asks you to verify
 
 Click **Connect browser…** below the video link to expand the inline connection panel, or **Connect browser / retry help** in an error message. Choose **Firefox · automatic**, choose your profile (the default is selected for you), and click **Import from Firefox & retry**. No cookie exporter or file selection is needed. Successful import collapses the panel into **Session loaded · Manage**; connection errors stay inline. The app imports YouTube cookies in the background and retries video detection or the failed download once, keeping its quality and destination. **Auto mode** is on by default: after connecting, an authentication error refreshes only that same Firefox profile and retries once per attempt. Uncheck it to refresh only when you click **Refresh from Firefox & retry**. Browser/profile choices and cookies last for the current app session.

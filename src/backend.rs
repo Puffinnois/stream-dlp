@@ -33,17 +33,21 @@ impl Source {
 pub fn source(link: &str) -> Option<Source> {
     let normalized = normalize_url(link).ok()?;
     let url = url::Url::parse(&normalized).ok()?;
-    Some(if url.host_str() == Some("www.tiktok.com") {
-        Source::TikTok
-    } else {
-        Source::YouTube
-    })
+    Some(
+        if url.host_str().is_some_and(|host| {
+            matches!(host, "www.tiktok.com" | "vm.tiktok.com" | "vt.tiktok.com")
+        }) {
+            Source::TikTok
+        } else {
+            Source::YouTube
+        },
+    )
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Format {
     pub format_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "string_or_default")]
     pub ext: String,
     pub height: Option<u32>,
     pub width: Option<u32>,
@@ -67,25 +71,27 @@ impl Format {
     }
     pub fn quality(&self) -> String {
         if self.video() {
-            if self.height.is_none() {
+            let Some(height) = self.height.filter(|h| *h > 0) else {
                 return "Video · unknown resolution".into();
-            }
-            if let (Some(width), Some(height)) = (self.width, self.height)
+            };
+            if let Some(width) = self.width.filter(|w| *w > 0)
                 && height > width
             {
                 return format!("{width} × {height}");
             }
             format!(
                 "{}p{}",
-                self.height.unwrap_or(0),
-                if self.fps.unwrap_or(0.) > 30. {
+                height,
+                if positive(self.fps).is_some_and(|fps| fps > 30.) {
                     format!(" · {} fps", self.fps.unwrap_or(0.).round())
                 } else {
                     String::new()
                 }
             )
         } else {
-            format!("Audio · {} kbps", self.abr.unwrap_or(0.).round())
+            positive(self.abr)
+                .map(|abr| format!("Audio · {} kbps", abr.round().max(1.)))
+                .unwrap_or_else(|| "Audio · unknown bitrate".into())
         }
     }
     pub fn details(&self) -> String {
@@ -96,31 +102,42 @@ impl Format {
         }
         .unwrap_or("unknown");
         let mut parts = vec![codec.to_owned()];
-        if let Some(note) = &self.format_note
-            && !note.is_empty()
-        {
-            parts.push(note.clone());
+        if let Some(note) = nonblank(self.format_note.as_deref()) {
+            parts.push(note.to_owned());
         }
-        if let Some(lang) = &self.language {
-            parts.push(lang.clone());
+        if let Some(lang) = nonblank(self.language.as_deref()) {
+            parts.push(lang.to_owned());
         }
         parts.push(format!("ID {}", self.format_id));
-        if let (Some(w), Some(h)) = (self.width, self.height) {
+        if let (Some(w), Some(h)) = (self.width, self.height)
+            && w > 0
+            && h > 0
+        {
             parts.push(format!("{w} × {h}"));
         }
         parts.join(" · ")
     }
     pub fn size(&self) -> String {
-        self.filesize
-            .or(self.filesize_approx)
+        let exact = positive(self.filesize);
+        exact
+            .or(positive(self.filesize_approx))
             .map(|n| {
                 format!(
                     "{}{} MB",
-                    if self.filesize.is_none() { "~" } else { "" },
-                    (n / 1_048_576.).round()
+                    if exact.is_none() { "~" } else { "" },
+                    if n < 1_048_576. {
+                        "<1".into()
+                    } else {
+                        (n / 1_048_576.).round().to_string()
+                    }
                 )
             })
-            .unwrap_or_else(|| "Size varies".into())
+            .unwrap_or_else(|| "Size unknown".into())
+    }
+    pub fn container_label(&self) -> String {
+        nonblank(Some(&self.ext))
+            .map(str::to_uppercase)
+            .unwrap_or_else(|| "Unknown container".into())
     }
     pub fn selector(&self) -> String {
         if self.video() && !self.audio() {
@@ -145,7 +162,8 @@ pub struct Video {
     #[serde(skip)]
     pub source_url: String,
     pub id: Option<String>,
-    #[serde(default, deserialize_with = "title_or_default")]
+    pub extractor_key: Option<String>,
+    #[serde(default, deserialize_with = "string_or_default")]
     pub title: String,
     pub uploader: Option<String>,
     pub duration: Option<f64>,
@@ -155,7 +173,64 @@ pub struct Video {
     pub is_live: bool,
 }
 
-fn title_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediaIdentity {
+    pub source: Source,
+    pub source_url: String,
+    pub id: Option<String>,
+    pub extractor_key: Option<String>,
+}
+
+impl Video {
+    pub fn creator_label(&self) -> &str {
+        nonblank(self.uploader.as_deref()).unwrap_or("Unknown creator")
+    }
+
+    pub fn duration_label(&self) -> String {
+        let Some(duration) = positive(self.duration) else {
+            return "Duration unknown".into();
+        };
+        if duration < 1. {
+            return "Less than 1 second".into();
+        }
+        let seconds = duration as u64;
+        if seconds >= 3600 {
+            format!(
+                "{}:{:02}:{:02}",
+                seconds / 3600,
+                seconds / 60 % 60,
+                seconds % 60
+            )
+        } else {
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        }
+    }
+
+    pub fn identity(&self) -> MediaIdentity {
+        MediaIdentity {
+            source: self.source,
+            source_url: self.source_url.clone(),
+            id: self.id.clone(),
+            extractor_key: self.extractor_key.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CompletedDownload {
+    pub path: PathBuf,
+    pub media: MediaIdentity,
+}
+
+fn positive(value: Option<f64>) -> Option<f64> {
+    value.filter(|n| n.is_finite() && *n > 0.)
+}
+
+fn nonblank(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+fn string_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
 }
 
@@ -176,7 +251,9 @@ pub fn parse_video(json: &str) -> Result<Video, String> {
         return Err("This is a live stream. Try again after the broadcast has ended.".into());
     }
     if video.title.trim().is_empty() {
-        video.title = format!("Video {}", video.id.as_deref().unwrap_or("untitled"));
+        video.title = nonblank(video.id.as_deref())
+            .map(|id| format!("Video {id}"))
+            .unwrap_or_else(|| "Untitled video".into());
     }
     video
         .formats
@@ -229,16 +306,62 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
         return Err("Paste a standard video link without credentials or a custom port.".into());
     }
     let host = url.host_str().unwrap_or("");
-    if matches!(host, "vm.tiktok.com" | "vt.tiktok.com" | "m.tiktok.com") {
-        return Err("Open the TikTok link in your browser and copy the full www.tiktok.com/@creator/video/… link. Short and mobile links are not supported yet.".into());
-    }
-    if matches!(host, "www.tiktok.com" | "tiktok.com") {
+    if matches!(
+        host,
+        "www.tiktok.com" | "tiktok.com" | "m.tiktok.com" | "vm.tiktok.com" | "vt.tiktok.com"
+    ) {
         let parts: Vec<_> = url
             .path()
             .trim_end_matches('/')
             .split('/')
             .skip(1)
             .collect();
+        let short_token = if matches!(host, "vm.tiktok.com" | "vt.tiktok.com") && parts.len() == 1 {
+            Some(parts[0])
+        } else if !matches!(host, "vm.tiktok.com" | "vt.tiktok.com")
+            && parts.len() == 2
+            && parts[0] == "t"
+        {
+            Some(parts[1])
+        } else {
+            None
+        };
+        if short_token.is_some_and(|token| {
+            !token.is_empty()
+                && token.len() <= 128
+                && token
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
+        }) {
+            let mut canonical = url.clone();
+            canonical.set_scheme("https").map_err(|_| "Invalid URL")?;
+            if matches!(host, "tiktok.com" | "m.tiktok.com") {
+                canonical
+                    .set_host(Some("www.tiktok.com"))
+                    .map_err(|_| "Invalid host")?;
+            }
+            canonical.set_fragment(None);
+            return Ok(canonical.to_string());
+        }
+        if matches!(host, "vm.tiktok.com" | "vt.tiktok.com") {
+            return Err("Paste a TikTok video or share link.".into());
+        }
+        if parts.len() == 2
+            && parts[0] == "v"
+            && let Some(id) = parts[1].strip_suffix(".html")
+            && !id.is_empty()
+            && id.len() <= 20
+            && id.bytes().all(|c| c.is_ascii_digit())
+        {
+            let mut canonical = url.clone();
+            canonical.set_scheme("https").map_err(|_| "Invalid URL")?;
+            canonical
+                .set_host(Some("www.tiktok.com"))
+                .map_err(|_| "Invalid host")?;
+            canonical.set_path(&format!("/share/video/{id}"));
+            canonical.set_fragment(None);
+            return Ok(canonical.to_string());
+        }
         if parts.len() == 3
             && parts[1] == "video"
             && (parts[0] == "share"
@@ -259,7 +382,13 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
             canonical.set_fragment(None);
             return Ok(canonical.to_string());
         }
-        return Err("Paste a full TikTok /@creator/video/… or /share/video/… link. Short links, photo posts, profiles, collections, and live streams are not supported yet.".into());
+        return Err(if parts.contains(&"photo") {
+            "TikTok photo slideshows are not supported. Choose an individual video post."
+        } else if parts.contains(&"live") {
+            "TikTok live streams are not supported. Choose a recorded video post."
+        } else {
+            "Paste an individual TikTok video or share link. Profiles and collections are not supported."
+        }.into());
     }
     let id = if host == "youtu.be" || host == "www.youtu.be" {
         url.path_segments()
@@ -293,6 +422,13 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
         })
         .ok_or("Paste a YouTube or full TikTok video link.")?;
     Ok(format!("https://www.youtube.com/watch?v={id}"))
+}
+
+pub fn is_tiktok_short(link: &str) -> bool {
+    url::Url::parse(link).is_ok_and(|u| {
+        matches!(u.host_str(), Some("vm.tiktok.com" | "vt.tiktok.com"))
+            || (u.host_str() == Some("www.tiktok.com") && u.path().starts_with("/t/"))
+    })
 }
 
 pub fn tools_dir() -> PathBuf {
@@ -365,7 +501,7 @@ fn command_for(
 pub enum Event {
     Loaded(Video),
     Line(String),
-    Complete(PathBuf),
+    Complete(CompletedDownload),
     Failed(String),
     Cancelled,
 }
@@ -396,6 +532,14 @@ pub fn inspect(
     cancel: Arc<AtomicBool>,
 ) {
     let result = (|| {
+        let link = if is_tiktok_short(&link) {
+            match crate::tiktok::resolve(&link, &cancel)? {
+                Some(resolved) => resolved,
+                None => return Ok(None),
+            }
+        } else {
+            link
+        };
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
         cmd.args(["--dump-single-json", "--skip-download", "--", &link]);
         let mut child = cmd
@@ -483,7 +627,16 @@ fn error_for(raw: &str, link: &str) -> String {
         || lower.contains("connection")
     {
         "Could not connect to TikTok. Check your connection and try again.".into()
-    } else if lower.contains("blocked") || lower.contains("403") || lower.contains("429") {
+    } else if lower.contains("429") || lower.contains("rate limit") {
+        "TikTok is limiting requests. Wait a while before trying again.".into()
+    } else if lower.contains("100002")
+        || lower.contains("not available")
+        || lower.contains("unavailable")
+        || lower.contains("removed")
+        || lower.contains("404")
+    {
+        "This TikTok video is unavailable or has been removed. Check that it still plays in your browser.".into()
+    } else if lower.contains("blocked") || lower.contains("403") {
         "TikTok restricted this request. Try again later or check the video in your browser.".into()
     } else {
         "TikTok could not provide this video. It may be unavailable or unsupported; check the link in your browser or update the download tools.".into()
@@ -491,23 +644,24 @@ fn error_for(raw: &str, link: &str) -> String {
 }
 
 pub fn download(
-    link: String,
+    media: MediaIdentity,
     format: Format,
     folder: PathBuf,
     session: Option<SessionCookies>,
     tx: Sender<Event>,
     cancel: Arc<AtomicBool>,
 ) {
+    let link = media.source_url.as_str();
     let result = (|| {
-        let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
-        let template = if source(&link) == Some(Source::TikTok) {
+        let (mut cmd, _session_file) = command_for(link, session.as_ref())?;
+        let template = if source(link) == Some(Source::TikTok) {
             "TikTok %(title).140s [%(id)s] [%(format_id)s].%(ext)s"
         } else {
             "%(title).150s [%(id)s] [%(format_id)s].%(ext)s"
         };
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
-            .args(["--output", template, "--", &link]);
+            .args(["--output", template, "--", link]);
         let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -539,7 +693,7 @@ pub fn download(
                 tail.push_back(line.clone());
                 // TikTok diagnostics can contain signed media URLs. Only send
                 // structured progress to the UI; errors are classified below.
-                if source(&link) != Some(Source::TikTok) || line.starts_with("__PROGRESS__") {
+                if source(link) != Some(Source::TikTok) || line.starts_with("__PROGRESS__") {
                     let _ = tx.send(Event::Line(line));
                 }
             }
@@ -567,7 +721,7 @@ pub fn download(
         if !status.success() {
             return Err(error_for(
                 &tail.into_iter().collect::<Vec<_>>().join("\n"),
-                &link,
+                link,
             ));
         }
         let path = final_path.filter(|p| p.is_file()).ok_or(
@@ -576,7 +730,7 @@ pub fn download(
         Ok(Some(path))
     })();
     let _ = tx.send(match result {
-        Ok(Some(path)) => Event::Complete(path),
+        Ok(Some(path)) => Event::Complete(CompletedDownload { path, media }),
         Ok(None) => Event::Cancelled,
         Err(e) => Event::Failed(e),
     });
@@ -607,6 +761,167 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tiktok_share_and_mobile_routes_keep_session_isolation() {
+        for link in [
+            "https://vm.tiktok.com/ABC123/",
+            "https://vt.tiktok.com/ABC123/",
+            "https://www.tiktok.com/t/ABC123?lang=en",
+            "https://m.tiktok.com/@creator/video/123",
+            "https://m.tiktok.com/v/123.html",
+        ] {
+            let normalized = normalize_url(link).unwrap();
+            assert_eq!(source(&normalized), Some(Source::TikTok));
+            let (cmd, session) =
+                command_for(&normalized, Some(&crate::session::fake_session())).unwrap();
+            assert!(session.is_none());
+            assert!(!cmd.get_args().any(|a| a == "--cookies"));
+        }
+        assert_eq!(
+            normalize_url("https://m.tiktok.com/v/123.html?lang=en").unwrap(),
+            "https://www.tiktok.com/share/video/123?lang=en"
+        );
+        for (url, explanation) in [
+            ("https://www.tiktok.com/@creator/photo/123", "photo"),
+            ("https://www.tiktok.com/@creator/live", "live"),
+            ("https://www.tiktok.com/@creator", "Profiles"),
+        ] {
+            assert!(normalize_url(url).unwrap_err().contains(explanation));
+        }
+        let link = "https://www.tiktok.com/@creator/video/123";
+        for (raw, expected) in [
+            ("HTTP 429 token=secret", "limiting"),
+            ("status 100002 token=secret", "unavailable"),
+            ("Private video token=secret", "access"),
+            ("HTTP 403 token=secret", "restricted"),
+            ("Failed to resolve token=secret", "connect"),
+        ] {
+            let message = error_for(raw, link);
+            assert!(message.contains(expected), "{message}");
+            assert!(!message.contains("secret"));
+        }
+    }
+
+    #[test]
+    fn missing_metadata_has_honest_labels_for_both_platforms() {
+        for (link, extractor) in [
+            ("https://www.youtube.com/watch?v=abcdefghijk", "Youtube"),
+            ("https://www.tiktok.com/@creator/video/123", "TikTok"),
+        ] {
+            for missing in [
+                serde_json::json!({}),
+                serde_json::json!({
+                    "title": null, "id": null, "uploader": null, "duration": null
+                }),
+                serde_json::json!({
+                    "title": "  ", "id": " ", "uploader": "\t", "duration": 0
+                }),
+            ] {
+                let mut fixture = missing;
+                fixture["extractor_key"] = extractor.into();
+                fixture["formats"] = serde_json::json!([{
+                    "format_id": "muxed", "vcodec": "h264", "acodec": "aac",
+                    "ext": null, "height": 0, "width": 0, "filesize": 0
+                }]);
+                let video = parse_video_for(&fixture.to_string(), link).unwrap();
+                assert_eq!(video.title, "Untitled video");
+                assert_eq!(video.creator_label(), "Unknown creator");
+                assert_eq!(video.duration_label(), "Duration unknown");
+                let format = &video.formats[0];
+                assert_eq!(format.quality(), "Video · unknown resolution");
+                assert_eq!(format.container_label(), "Unknown container");
+                assert_eq!(format.size(), "Size unknown");
+                assert!(!format.details().contains("0 × 0"));
+                // Missing display metadata must not change download selection.
+                assert_eq!(format.selector(), "muxed");
+            }
+        }
+    }
+
+    #[test]
+    fn valid_and_partial_metadata_keep_useful_details() {
+        let mut video = parse_video(
+            r#"{"id":"123","uploader":" Creator ","duration":65,
+            "formats":[{"format_id":"v","vcodec":"h264","acodec":"aac",
+                "height":1080,"width":1920,"fps":60,"ext":"mp4","filesize":2097152}]}"#,
+        )
+        .unwrap();
+        assert_eq!(video.title, "Video 123");
+        assert_eq!(video.creator_label(), "Creator");
+        for (duration, label) in [
+            (65., "1:05"),
+            (3661., "1:01:01"),
+            (0.5, "Less than 1 second"),
+            (-1., "Duration unknown"),
+            (f64::NAN, "Duration unknown"),
+        ] {
+            video.duration = Some(duration);
+            assert_eq!(video.duration_label(), label);
+        }
+        let format = &mut video.formats[0];
+        assert_eq!(format.quality(), "1080p · 60 fps");
+        assert_eq!(format.container_label(), "MP4");
+        assert_eq!(format.size(), "2 MB");
+        format.filesize = Some(-1.);
+        format.filesize_approx = Some(3145728.);
+        assert_eq!(format.size(), "~3 MB");
+        format.filesize = Some(100.);
+        assert_eq!(format.size(), "<1 MB");
+        format.filesize = Some(f64::INFINITY);
+        format.filesize_approx = None;
+        assert_eq!(format.size(), "Size unknown");
+        format.width = Some(0);
+        assert_eq!(format.quality(), "1080p · 60 fps");
+        assert!(!format.details().contains("0 ×"));
+        format.height = None;
+        assert_eq!(format.quality(), "Video · unknown resolution");
+        format.vcodec = Some("none".into());
+        for abr in [None, Some(0.), Some(-1.), Some(f64::NAN)] {
+            format.abr = abr;
+            assert_eq!(format.quality(), "Audio · unknown bitrate");
+        }
+        format.abr = Some(128.);
+        assert_eq!(format.quality(), "Audio · 128 kbps");
+    }
+
+    #[test]
+    fn inspection_retains_identity_with_optional_extractor_metadata() {
+        for (link, extractor, expected_source) in [
+            (
+                "https://www.youtube.com/watch?v=abcdefghijk",
+                "Youtube",
+                Source::YouTube,
+            ),
+            (
+                "https://www.tiktok.com/@creator/video/123",
+                "TikTok",
+                Source::TikTok,
+            ),
+        ] {
+            let json = serde_json::json!({
+                "id": "123", "extractor_key": extractor,
+                "formats": [{"format_id": "muxed", "vcodec": "h264", "acodec": "aac"}]
+            });
+            let video = parse_video_for(&json.to_string(), link).unwrap();
+            assert_eq!(
+                video.identity(),
+                MediaIdentity {
+                    source: expected_source,
+                    source_url: link.into(),
+                    id: Some("123".into()),
+                    extractor_key: Some(extractor.into()),
+                }
+            );
+        }
+        let video = parse_video_for(
+            r#"{"formats":[{"format_id":"muxed","vcodec":"h264","acodec":"aac"}]}"#,
+            "https://www.youtube.com/watch?v=abcdefghijk",
+        )
+        .unwrap();
+        assert_eq!(video.identity().id, None);
+        assert_eq!(video.identity().extractor_key, None);
+    }
+
+    #[test]
     fn tiktok_routing_rejects_unverified_content_and_deceptive_hosts() {
         for link in [
             "https://www.tiktok.com/@creator/video/7622412096440929566",
@@ -623,8 +938,8 @@ mod tests {
             "https://www.tiktok.com.evil.com/@c/video/123",
             "https://www.tiktok.com@evil.com/@c/video/123",
             "https://www.tiktok.com:8080/@c/video/123",
-            "https://vm.tiktok.com/abc",
-            "https://www.tiktok.com/t/abc",
+            "https://vm.tiktok.com/abc/extra",
+            "https://www.tiktok.com/t/abc/extra",
             "https://www.tiktok.com/@c/photo/123",
             "https://www.tiktok.com/@c/live",
             "https://www.tiktok.com/@c",
@@ -690,7 +1005,7 @@ mod tests {
         let run_download = || {
             let (tx, rx) = std::sync::mpsc::channel();
             download(
-                link.clone(),
+                video.identity(),
                 format.clone(),
                 folder.clone(),
                 Some(crate::session::fake_session()),
@@ -699,7 +1014,10 @@ mod tests {
             );
             rx.into_iter()
                 .find_map(|e| match e {
-                    Event::Complete(p) => Some(p),
+                    Event::Complete(result) => {
+                        assert_eq!(result.media, video.identity());
+                        Some(result.path)
+                    }
                     Event::Failed(e) => panic!("{e}"),
                     _ => None,
                 })
@@ -736,7 +1054,9 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
-        let worker = thread::spawn(move || download(link, format, folder, None, tx, worker_cancel));
+        let worker = thread::spawn(move || {
+            download(video.identity(), format, folder, None, tx, worker_cancel)
+        });
         thread::sleep(Duration::from_millis(100));
         cancel.store(true, Ordering::Relaxed);
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -833,6 +1153,8 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let done = Arc::new(AtomicBool::new(false));
         let server_done = done.clone();
+        let slow = Arc::new(AtomicBool::new(false));
+        let server_slow = slow.clone();
         let server_root = output.clone();
         let server = thread::spawn(move || {
             while !server_done.load(Ordering::Relaxed) {
@@ -883,7 +1205,18 @@ mod tests {
                         );
                         let _ = stream.write_all(headers.as_bytes());
                         if !head {
-                            let _ = stream.write_all(&bytes);
+                            if server_slow.load(Ordering::Relaxed) && !name.ends_with(".mpd") {
+                                for chunk in bytes.chunks(256) {
+                                    if server_done.load(Ordering::Relaxed)
+                                        || stream.write_all(chunk).is_err()
+                                    {
+                                        break;
+                                    }
+                                    thread::sleep(Duration::from_millis(20));
+                                }
+                            } else {
+                                let _ = stream.write_all(&bytes);
+                            }
                         }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -922,20 +1255,21 @@ mod tests {
             format.selector()
         );
         download(
-            link,
+            video.identity(),
             format,
             output,
             Some(crate::session::fake_session()),
             tx,
             Arc::new(AtomicBool::new(false)),
         );
-        done.store(true, Ordering::Relaxed);
-        server.join().unwrap();
         let mut saved = None;
         let mut had_progress = false;
         for event in rx {
             match event {
-                Event::Complete(path) => saved = Some(path),
+                Event::Complete(result) => {
+                    assert_eq!(result.media, video.identity());
+                    saved = Some(result.path);
+                }
                 Event::Line(line) => {
                     had_progress |= progress(&line).is_some();
                     println!("{line}");
@@ -971,7 +1305,7 @@ mod tests {
         );
         let (cancel_tx, cancel_rx) = std::sync::mpsc::channel();
         download(
-            format!("http://{address}/manifest.mpd"),
+            video.identity(),
             video.formats[0].clone(),
             saved.parent().unwrap().to_owned(),
             Some(crate::session::fake_session()),
@@ -980,6 +1314,48 @@ mod tests {
         );
         assert!(matches!(cancel_rx.recv().unwrap(), Event::Cancelled));
         println!("Verified cancellation stops the child process.");
+        slow.store(true, Ordering::Relaxed);
+        let transfer_folder = saved.parent().unwrap().join("cancel-active");
+        std::fs::create_dir_all(&transfer_folder).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let worker = thread::spawn(move || {
+            download(
+                video.identity(),
+                video.formats[0].clone(),
+                transfer_folder,
+                None,
+                tx,
+                worker_cancel,
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut transferred = false;
+        let mut cancelled = false;
+        while let Ok(event) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            match event {
+                Event::Line(line) if progress(&line).is_some() => {
+                    transferred = true;
+                    cancel.store(true, Ordering::Relaxed);
+                }
+                Event::Cancelled => {
+                    cancelled = true;
+                    break;
+                }
+                Event::Failed(_) | Event::Complete(_) => break,
+                _ => {}
+            }
+        }
+        cancel.store(true, Ordering::Relaxed);
+        done.store(true, Ordering::Relaxed);
+        worker.join().unwrap();
+        server.join().unwrap();
+        assert!(
+            transferred && cancelled,
+            "Expected cancellation after transfer progress"
+        );
+        println!("Verified cancellation during an active throttled transfer.");
     }
 
     #[test]
@@ -1008,10 +1384,13 @@ mod tests {
             .clone();
         let output = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output");
         std::fs::create_dir_all(&output).unwrap();
-        download(link, format, output, None, tx, cancel);
+        download(video.identity(), format, output, None, tx, cancel);
         let path = loop {
             match rx.recv().unwrap() {
-                Event::Complete(path) => break path,
+                Event::Complete(result) => {
+                    assert_eq!(result.media, video.identity());
+                    break result.path;
+                }
                 Event::Failed(error) => panic!("Download failed: {error}"),
                 Event::Line(line) => println!("{line}"),
                 _ => panic!("Unexpected download event"),
