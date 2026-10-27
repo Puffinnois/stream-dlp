@@ -23,9 +23,11 @@ FFMPEG_URL = f"https://ffmpeg.org/releases/ffmpeg-{FFMPEG_VERSION}.tar.xz"
 FFMPEG_FLAGS = [
     "--disable-autodetect", "--disable-shared", "--enable-static",
     "--disable-doc", "--disable-ffplay", "--disable-debug", "--disable-x86asm",
-    # Downloads are performed by yt-dlp; FFmpeg only remuxes local media.
-    # Retain two built-in encoders for the synthetic audio/video integration test.
-    "--disable-encoders", "--enable-encoder=mpeg4,aac",
+    # Downloads are performed by yt-dlp; FFmpeg remuxes local media and makes GIFs and previews.
+    # mpeg4/aac: the synthetic audio/video integration test. png (the GIF palette) and gif:
+    # the GIF converter. rawvideo: video previews. The PNG codec needs the system zlib.
+    "--enable-zlib",
+    "--disable-encoders", "--enable-encoder=mpeg4,aac,png,gif,rawvideo",
 ]
 
 
