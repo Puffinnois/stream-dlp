@@ -592,6 +592,13 @@ pub fn inspect(
     });
 }
 
+/// The failure that asks for a YouTube session; the UI keys its Firefox auto-refresh on it.
+pub const YOUTUBE_SIGN_IN: &str = "YouTube requires sign-in or a verification check. Use Connect browser / retry help to import your YouTube session, then retry. YouTube may still restrict this connection or video.";
+
+pub fn needs_session(error: &str) -> bool {
+    error == YOUTUBE_SIGN_IN
+}
+
 fn friendly_error(raw: &str) -> String {
     let tail = raw
         .lines()
@@ -605,7 +612,7 @@ fn friendly_error(raw: &str) -> String {
         || tail.contains("confirm you’re not a bot")
         || tail.contains("confirm you're not a bot")
     {
-        "YouTube requires sign-in or a verification check. Open YouTube session to import from Firefox automatically, or choose a fresh cookies.txt export, then retry. YouTube may still restrict this connection or video.".into()
+        YOUTUBE_SIGN_IN.into()
     } else {
         tail.trim_start_matches("ERROR: ").to_owned()
     }
@@ -1423,7 +1430,9 @@ mod tests {
             "WARNING: No title found\nERROR: [youtube] id: Sign in to confirm you’re not a bot. Use --cookies-from-browser...",
         );
         assert!(error.contains("verification check"));
+        assert!(needs_session(&error));
         assert!(!error.contains("--cookies-from-browser"));
+        assert!(!needs_session(&friendly_error("ERROR: Video unavailable")));
         assert!(friendly_error("ERROR: Video unavailable").contains("Video unavailable"));
     }
     #[test]

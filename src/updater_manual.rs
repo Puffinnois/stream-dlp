@@ -28,6 +28,9 @@ impl Default for Updater {
     }
 }
 
+/// Mac updates download nothing, so there is nothing to clean up.
+pub fn remove_stale_installers() {}
+
 impl Updater {
     pub fn set_channel(&mut self, channel: Channel, _ctx: &eframe::egui::Context) {
         if let Err(error) = channel.save() {

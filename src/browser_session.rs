@@ -252,7 +252,7 @@ mod native {
     }
 
     pub(super) fn import(path: &Path, cancel: &AtomicBool) -> Result<SessionCookies, String> {
-        let mut budget = Budget {
+        let budget = Budget {
             cancel,
             start: Instant::now(),
         };
@@ -262,12 +262,13 @@ mod native {
         }
         // SQLITE_OPEN_READONLY: never copy/export the full database or write cookies.
         let db = Database::open(path, 1)?;
+        // A shared pointer: `read` below also borrows the budget while the callback can run.
         unsafe {
             sqlite3_progress_handler(
                 db.0,
                 1000,
                 Some(progress),
-                (&mut budget as *mut Budget<'_>).cast(),
+                ptr::from_ref(&budget).cast_mut().cast(),
             );
         }
         let result = read(&db, &budget);
