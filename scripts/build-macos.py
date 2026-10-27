@@ -64,7 +64,7 @@ def build(skip_tools=False):
         (contents / "Info.plist").write_bytes(plistlib.dumps(info))
         for name in ("yt-dlp", "ffmpeg", "ffprobe", "deno"):
             binary = resources / "tools" / name
-            run("lipo", "-verify_arch", "arm64", str(binary))
+            run("lipo", str(binary), "-verify_arch", "arm64")
             # Reject accidental Homebrew/developer-machine dependencies.
             libraries = subprocess.check_output(["otool", "-L", str(binary)], text=True)
             for line in libraries.splitlines():
