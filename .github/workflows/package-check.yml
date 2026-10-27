@@ -1,0 +1,64 @@
+name: Package check
+
+# Builds the Windows installer without releasing it, checks the packaged and the installed app
+# can run their bundled tools, and attaches the installer to the run. Push any branch named
+# check/** (or run it by hand) to try a change on Windows before tagging a release.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['check/**']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.93.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: cargo xtask check
+
+      - name: Install Inno Setup
+        run: |
+          if (-not (Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue)) { choco install innosetup --no-progress -y }
+
+      - name: Build portable app and installer
+        id: build
+        run: .\build.ps1 -Installer -SkipTests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # The release build is a GUI app: Start-Process -Wait is what waits for its exit code.
+      # Silent install only on the runner: locally it would replace your real installation.
+      - name: Check the packaged and installed app find their tools
+        run: |
+          function Test-Tools([string]$folder) {
+            $run = Start-Process -FilePath (Join-Path $folder 'stream-dlp.exe') -ArgumentList '--check-tools' -Wait -PassThru -NoNewWindow
+            if ($run.ExitCode -ne 0) { throw "stream-dlp.exe in $folder could not run its bundled tools (exit $($run.ExitCode))." }
+          }
+          Test-Tools $env:PORTABLE
+          $target = Join-Path $env:RUNNER_TEMP 'installed'
+          $setup = Start-Process -FilePath $env:INSTALLER -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Silent install failed (exit $($setup.ExitCode))." }
+          Test-Tools $target
+        env:
+          PORTABLE: ${{ steps.build.outputs.portable }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stream-dlp-windows-${{ steps.build.outputs.version }}
+          path: |
+            ${{ steps.build.outputs.installer }}
+            ${{ steps.build.outputs.zip }}
+            ${{ steps.build.outputs.sums }}
+          if-no-files-found: error

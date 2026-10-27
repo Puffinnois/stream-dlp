@@ -7,10 +7,8 @@ it as a stable Mac release until the checklist below is complete.
 
 ## Install and use
 
-CI activation is pending: the current GitHub login cannot create workflows.
-The workflow is saved in `ci/checks.yml`. Once it is activated, download the
-`stream-dlp-macOS-arm64-experimental` artifact from a successful
-GitHub Actions run. Extract the artifact download, then extract the app ZIP inside
+Download the `stream-dlp-macOS-arm64-experimental` artifact from a successful
+run of the Checks workflow (`.github/workflows/checks.yml`). Extract the artifact download, then extract the app ZIP inside
 it. Move `stream-dlp.app` to Applications and open it. The app includes yt-dlp,
 FFmpeg, ffprobe, and Deno; users do not need Python, Homebrew, Rust, or Terminal.
 GitHub Actions artifacts require signing into GitHub; public Releases assets can
@@ -66,12 +64,10 @@ packaged lookup paths. Nothing reads a user's browser profile during CI.
 
 ## Automated checks and release policy
 
-The workflow is stored at `ci/checks.yml` because the current GitHub OAuth login
-lacks the `workflow` permission. It is not active yet. To activate it, authorize
-a GitHub login with that permission and move the file to
-`.github/workflows/checks.yml`, or add it at that path through GitHub's web editor.
-It is configured to run on pushes, pull requests, and manual dispatch.
-Windows runs formatting, unit tests, and Clippy. An Apple Silicon macOS 15 runner
+The Checks workflow is `.github/workflows/checks.yml`. Pushing workflow files
+needs a GitHub login with the `workflow` permission. It runs on pushed branches,
+pull requests, and manual dispatch. Windows runs `cargo xtask check`
+(formatting, Clippy, Rust and Deno tests). An Apple Silicon macOS 15 runner
 builds the Mac helpers and app, runs unit tests and Clippy, downloads and merges a
 synthetic local DASH video, checks audio/video with ffprobe, tests cookie
 isolation and cancellation, verifies bundle signatures and helper execution, and

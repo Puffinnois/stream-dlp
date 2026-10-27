@@ -7,6 +7,7 @@ mod platform;
 mod release_channel;
 mod session;
 mod streamable_upload;
+mod tiktok;
 #[cfg(windows)]
 mod updater;
 #[cfg(not(windows))]
@@ -69,7 +70,7 @@ struct App {
     status: String,
     progress: f32,
     destination: Option<PathBuf>,
-    saved: Option<PathBuf>,
+    saved: Option<backend::CompletedDownload>,
     confirm_install: bool,
     closing: bool,
     session: Option<session::SessionCookies>,
@@ -225,6 +226,9 @@ impl App {
                 self.error = None;
                 self.video = None;
                 self.saved = None;
+                // The last video's "ready" or "cancelled" line must not label the next one.
+                self.status.clear();
+                self.progress = 0.;
                 self.log.clear();
                 self.phase = Phase::Inspecting;
                 self.cancel = Arc::new(AtomicBool::new(false));
@@ -306,8 +310,7 @@ impl App {
                     self.status = "Your download is ready.".into();
                 }
                 Event::Failed(error) => {
-                    let needs_session =
-                        error.starts_with("YouTube requires sign-in or a verification check.");
+                    let needs_session = backend::needs_session(&error);
                     self.retry_download = self.phase == Phase::Downloading;
                     self.error = Some(error);
                     self.phase = if self.video.is_some() {
@@ -327,14 +330,18 @@ impl App {
                     }
                 }
                 Event::Cancelled => {
+                    if self.phase == Phase::Downloading {
+                        self.status =
+                            "Cancelled. Partial downloads can be resumed by choosing the same folder."
+                                .into();
+                    } else {
+                        self.status.clear();
+                    }
                     self.phase = if self.video.is_some() {
                         Phase::Choosing
                     } else {
                         Phase::Idle
                     };
-                    self.status =
-                        "Cancelled. Partial downloads can be resumed by choosing the same folder."
-                            .into();
                 }
             }
         }
@@ -358,14 +365,28 @@ impl App {
         self.log.clear();
         self.phase = Phase::Downloading;
         self.cancel = Arc::new(AtomicBool::new(false));
-        let (link, format, tx, cancel) = (
-            self.loaded_link.clone(),
+        let (media, format, tx, cancel) = (
+            self.video.as_ref().unwrap().identity(),
             self.video.as_ref().unwrap().formats[self.selected].clone(),
             self.tx.clone(),
             self.cancel.clone(),
         );
         let session = self.session.clone();
-        std::thread::spawn(move || backend::download(link, format, folder, session, tx, cancel));
+        std::thread::spawn(move || backend::download(media, format, folder, session, tx, cancel));
+    }
+    /// Switches the format list (0 all, 1 video, 2 audio); a hidden selection moves to the
+    /// first shown format so the download always matches a visible row.
+    fn set_filter(&mut self, filter: usize) {
+        self.filter = filter;
+        if let Some(video) = &self.video
+            && !video
+                .formats
+                .get(self.selected)
+                .is_some_and(|f| shown(filter, f))
+            && let Some(first) = video.formats.iter().position(|f| shown(filter, f))
+        {
+            self.selected = first;
+        }
     }
     fn choose_folder(&mut self) {
         self.phase = Phase::Picking;
@@ -997,7 +1018,7 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text("Paste a YouTube or full TikTok video link")
+                        .hint_text("Paste a YouTube or TikTok video/share link")
                         .desired_width(width)
                         .margin(Vec2::new(12., 12.)),
                 );
@@ -1064,7 +1085,7 @@ impl App {
                 .inner_margin(14)
                 .show(ui, |ui| {
                     ui.colored_label(Color32::from_rgb(175, 46, 57), error);
-                    if backend::source(&self.link) == Some(backend::Source::YouTube)
+                    if backend::source(&self.loaded_link) == Some(backend::Source::YouTube)
                         && ui
                             .add_enabled(
                                 !self.busy(),
@@ -1121,13 +1142,11 @@ impl App {
                     });
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&video.title).size(18.).strong());
-                    let seconds = video.duration.unwrap_or(0.) as u64;
                     ui.label(
                         RichText::new(format!(
-                            "{}   ·   {}:{:02}   ·   {}",
-                            video.uploader.as_deref().unwrap_or("Unknown creator"),
-                            seconds / 60,
-                            seconds % 60,
+                            "{}   ·   {}   ·   {}",
+                            video.creator_label(),
+                            video.duration_label(),
                             video.source.label()
                         ))
                         .size(12.)
@@ -1149,7 +1168,7 @@ impl App {
                     ui.add_enabled_ui(!self.busy(), |ui| {
                         for (index, name) in [(2, "Audio"), (1, "Video"), (0, "All")] {
                             if ui.selectable_label(self.filter == index, name).clicked() {
-                                self.filter = index;
+                                self.set_filter(index);
                             }
                         }
                     });
@@ -1172,9 +1191,7 @@ impl App {
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!self.busy(), |ui| {
                         for (index, format) in video.formats.iter().enumerate() {
-                            if (self.filter == 1 && !format.video())
-                                || (self.filter == 2 && format.video())
-                            {
+                            if !shown(self.filter, format) {
                                 continue;
                             }
                             let selected = self.selected == index;
@@ -1197,7 +1214,7 @@ impl App {
                                                 RichText::new(format!(
                                                     "{}   {}",
                                                     format.quality(),
-                                                    format.ext.to_uppercase()
+                                                    format.container_label()
                                                 ))
                                                 .strong(),
                                             );
@@ -1240,7 +1257,7 @@ impl App {
                 RichText::new(format!(
                     "Selected: {} · {}{}",
                     selected.quality(),
-                    selected.ext.to_uppercase(),
+                    selected.container_label(),
                     if selected.video() && !selected.audio() {
                         " + audio (MKV if needed)"
                     } else {
@@ -1293,9 +1310,10 @@ impl App {
                         Color32::from_rgb(31, 139, 99),
                         RichText::new("✓   Download complete").strong(),
                     );
-                    if let Some(path) = &self.saved {
+                    if let Some(saved) = &self.saved {
+                        ui.label(format!("Saved from {}", saved.media.source.label()));
                         ui.label(
-                            RichText::new(path.display().to_string())
+                            RichText::new(saved.path.display().to_string())
                                 .size(12.)
                                 .color(MUTED),
                         );
@@ -1307,7 +1325,7 @@ impl App {
                                 egui::Button::new("Make GIF"),
                             )
                             .clicked()
-                            && let Some(path) = self.saved.clone()
+                            && let Some(path) = self.saved.as_ref().map(|saved| saved.path.clone())
                         {
                             self.gif.select_file(ui.ctx(), path);
                             self.page = Page::Gif;
@@ -1326,7 +1344,7 @@ impl App {
                                 egui::Button::new("Upload on Streamable"),
                             )
                             .clicked()
-                            && let Some(path) = self.saved.clone()
+                            && let Some(path) = self.saved.as_ref().map(|saved| saved.path.clone())
                         {
                             self.library.select_file(ui.ctx(), path);
                             self.page = Page::Videos;
@@ -1401,6 +1419,14 @@ fn icon_tile(ui: &mut egui::Ui, size: f32, background: Color32, foreground: Colo
         ],
         stroke,
     );
+}
+
+fn shown(filter: usize, format: &backend::Format) -> bool {
+    match filter {
+        1 => format.video(),
+        2 => !format.video(),
+        _ => true,
+    }
 }
 
 fn page_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
@@ -1520,6 +1546,7 @@ fn main() -> eframe::Result {
         println!("All bundled download tools are ready.");
         return Ok(());
     }
+    std::thread::spawn(updater::remove_stale_installers);
     eframe::run_native(
         "stream-dlp",
         eframe::NativeOptions {
@@ -1542,8 +1569,69 @@ fn app_icon() -> egui::IconData {
 mod app_tests {
     use super::*;
 
+    #[test]
+    fn completed_download_keeps_identity_when_input_changes() {
+        let mut app = App::with_profiles(Vec::new());
+        let media = backend::MediaIdentity {
+            source: backend::Source::TikTok,
+            source_url: "https://www.tiktok.com/@creator/video/123".into(),
+            id: Some("123".into()),
+            extractor_key: Some("TikTok".into()),
+        };
+        let path = PathBuf::from("download.mp4");
+        app.link = "https://www.youtube.com/watch?v=abcdefghijk".into();
+        app.tx
+            .send(Event::Complete(backend::CompletedDownload {
+                path: path.clone(),
+                media: media.clone(),
+            }))
+            .unwrap();
+        app.poll();
+        let saved = app.saved.as_ref().unwrap();
+        assert_eq!(saved.path, path);
+        assert_eq!(saved.media, media);
+        assert!(app.phase == Phase::Done);
+    }
+
     fn auth_error() -> Event {
-        Event::Failed("YouTube requires sign-in or a verification check. Retry help.".into())
+        Event::Failed(backend::YOUTUBE_SIGN_IN.into())
+    }
+
+    #[test]
+    fn format_filter_moves_a_hidden_selection_to_a_shown_format() {
+        let mut app = App::with_profiles(Vec::new());
+        app.video = Some(
+            backend::parse_video(
+                r#"{"formats":[{"format_id":"137","vcodec":"avc1","acodec":"none","height":1080},
+                {"format_id":"140","vcodec":"none","acodec":"mp4a"}]}"#,
+            )
+            .unwrap(),
+        );
+        app.set_filter(2);
+        assert_eq!(
+            app.video.as_ref().unwrap().formats[app.selected].format_id,
+            "140"
+        );
+        app.set_filter(0);
+        assert_eq!(app.selected, 1, "A shown selection is kept");
+        app.set_filter(1);
+        assert_eq!(
+            app.video.as_ref().unwrap().formats[app.selected].format_id,
+            "137"
+        );
+    }
+
+    #[test]
+    fn cancelled_inspection_does_not_mention_partial_downloads() {
+        for (phase, partial) in [(Phase::Inspecting, false), (Phase::Downloading, true)] {
+            let mut app = App::with_profiles(Vec::new());
+            app.status = "Your download is ready.".into();
+            app.phase = phase;
+            app.tx.send(Event::Cancelled).unwrap();
+            app.poll();
+            assert_eq!(app.status.contains("Partial downloads"), partial);
+            assert!(partial || app.status.is_empty());
+        }
     }
 
     #[test]

@@ -9,13 +9,15 @@ The sidebar identifies the build currently running, while the selector identifie
 the channel you want to receive. Selecting a channel alone does not change the
 running executable.
 
-Public receives stable GitHub releases. Dev receives only GitHub prereleases
-whose version is `vX.Y.Z-dev.N`. Dev builds can contain unfinished features and
-are publicly downloadable in this public repository. They are excluded from
-Public update checks and must never be marked as GitHub's latest stable release.
+Public receives stable GitHub releases. Dev receives GitHub prereleases whose
+version is `vX.Y.Z-dev.N` and every newer stable release, so a Dev install never
+falls behind Public (from 0.3.9; earlier Dev builds only see prereleases). Dev
+builds can contain unfinished features and are publicly downloadable in this
+public repository. They are excluded from Public update checks and must never be
+marked as GitHub's latest stable release.
 
 Switching from Dev to Public offers the latest stable version even when its
-version number is lower. Both use the same per-user installation and shortcuts;
+version number is lower. Switching from Public to Dev offers only newer builds. Both use the same per-user installation and shortcuts;
 install into your existing app folder to replace that copy. Videos are separate
 files and are not moved. The selection is saved in the user's local app-data
 directory as `stream-dlp/update-channel.json`, shared by installed and portable
@@ -40,14 +42,17 @@ GitHub Releases. An automatic Mac installer is not implemented.
 
 ## Build and promotion
 
-Set Cargo.toml and Cargo.lock to `X.Y.Z-dev.N` for a Dev build. `build.ps1`
-places its Windows installer, ZIP, and portable staging folder under
-`dist/dev/X.Y.Z-dev.N/`, leaving stable artifacts intact. Installer branding says
-stream-dlp Dev, but its installation identity and destination match Public so
-switching replaces the app. Asset filenames stay constant within each release.
+Releases are built by the Release workflow, never uploaded by hand. On a clean
+`main`, `cargo xtask release dev` (or an explicit `X.Y.Z-dev.N`) sets Cargo.toml
+and Cargo.lock to the Dev version, commits, and tags it; `git push --follow-tags`
+starts the build. The workflow uploads the installer, ZIP, and SHA256SUMS.txt to a
+draft prerelease. Edit its notes and publish it; GitHub never marks a prerelease
+as latest. Locally, `build.ps1` places a Dev build's installer, ZIP, and portable
+staging folder under `dist/dev/X.Y.Z-dev.N/`, leaving stable artifacts intact.
+Installer branding says stream-dlp Dev, but its installation identity and
+destination match Public so switching replaces the app. Asset filenames stay
+constant within each release.
 
-After tests, upload the installer, ZIP, and SHA256SUMS.txt to a draft GitHub
-prerelease with matching `vX.Y.Z-dev.N` tag. Verify asset sizes and server digests
-before publishing it as a prerelease with latest disabled. When testing is
-approved, remove the version suffix, rebuild and validate, then create a stable
-release. Promotion requires a fresh stable build; do not relabel a Dev binary.
+When testing is approved, `cargo xtask release patch` (or `minor`) removes the
+version suffix and tags the stable version, and the workflow makes a fresh
+stable build. Promotion never relabels a Dev binary.
