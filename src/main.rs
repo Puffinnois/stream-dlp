@@ -7,6 +7,7 @@ mod platform;
 mod release_channel;
 mod session;
 mod streamable_upload;
+mod tiktok;
 #[cfg(windows)]
 mod updater;
 #[cfg(not(windows))]
@@ -69,7 +70,7 @@ struct App {
     status: String,
     progress: f32,
     destination: Option<PathBuf>,
-    saved: Option<PathBuf>,
+    saved: Option<backend::CompletedDownload>,
     confirm_install: bool,
     closing: bool,
     session: Option<session::SessionCookies>,
@@ -358,14 +359,14 @@ impl App {
         self.log.clear();
         self.phase = Phase::Downloading;
         self.cancel = Arc::new(AtomicBool::new(false));
-        let (link, format, tx, cancel) = (
-            self.loaded_link.clone(),
+        let (media, format, tx, cancel) = (
+            self.video.as_ref().unwrap().identity(),
             self.video.as_ref().unwrap().formats[self.selected].clone(),
             self.tx.clone(),
             self.cancel.clone(),
         );
         let session = self.session.clone();
-        std::thread::spawn(move || backend::download(link, format, folder, session, tx, cancel));
+        std::thread::spawn(move || backend::download(media, format, folder, session, tx, cancel));
     }
     fn choose_folder(&mut self) {
         self.phase = Phase::Picking;
@@ -997,7 +998,7 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text("Paste a YouTube or full TikTok video link")
+                        .hint_text("Paste a YouTube or TikTok video/share link")
                         .desired_width(width)
                         .margin(Vec2::new(12., 12.)),
                 );
@@ -1121,13 +1122,11 @@ impl App {
                     });
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&video.title).size(18.).strong());
-                    let seconds = video.duration.unwrap_or(0.) as u64;
                     ui.label(
                         RichText::new(format!(
-                            "{}   ·   {}:{:02}   ·   {}",
-                            video.uploader.as_deref().unwrap_or("Unknown creator"),
-                            seconds / 60,
-                            seconds % 60,
+                            "{}   ·   {}   ·   {}",
+                            video.creator_label(),
+                            video.duration_label(),
                             video.source.label()
                         ))
                         .size(12.)
@@ -1197,7 +1196,7 @@ impl App {
                                                 RichText::new(format!(
                                                     "{}   {}",
                                                     format.quality(),
-                                                    format.ext.to_uppercase()
+                                                    format.container_label()
                                                 ))
                                                 .strong(),
                                             );
@@ -1240,7 +1239,7 @@ impl App {
                 RichText::new(format!(
                     "Selected: {} · {}{}",
                     selected.quality(),
-                    selected.ext.to_uppercase(),
+                    selected.container_label(),
                     if selected.video() && !selected.audio() {
                         " + audio (MKV if needed)"
                     } else {
@@ -1293,9 +1292,10 @@ impl App {
                         Color32::from_rgb(31, 139, 99),
                         RichText::new("✓   Download complete").strong(),
                     );
-                    if let Some(path) = &self.saved {
+                    if let Some(saved) = &self.saved {
+                        ui.label(format!("Saved from {}", saved.media.source.label()));
                         ui.label(
-                            RichText::new(path.display().to_string())
+                            RichText::new(saved.path.display().to_string())
                                 .size(12.)
                                 .color(MUTED),
                         );
@@ -1307,7 +1307,7 @@ impl App {
                                 egui::Button::new("Make GIF"),
                             )
                             .clicked()
-                            && let Some(path) = self.saved.clone()
+                            && let Some(path) = self.saved.as_ref().map(|saved| saved.path.clone())
                         {
                             self.gif.select_file(ui.ctx(), path);
                             self.page = Page::Gif;
@@ -1326,7 +1326,7 @@ impl App {
                                 egui::Button::new("Upload on Streamable"),
                             )
                             .clicked()
-                            && let Some(path) = self.saved.clone()
+                            && let Some(path) = self.saved.as_ref().map(|saved| saved.path.clone())
                         {
                             self.library.select_file(ui.ctx(), path);
                             self.page = Page::Videos;
@@ -1541,6 +1541,30 @@ fn app_icon() -> egui::IconData {
 #[cfg(test)]
 mod app_tests {
     use super::*;
+
+    #[test]
+    fn completed_download_keeps_identity_when_input_changes() {
+        let mut app = App::with_profiles(Vec::new());
+        let media = backend::MediaIdentity {
+            source: backend::Source::TikTok,
+            source_url: "https://www.tiktok.com/@creator/video/123".into(),
+            id: Some("123".into()),
+            extractor_key: Some("TikTok".into()),
+        };
+        let path = PathBuf::from("download.mp4");
+        app.link = "https://www.youtube.com/watch?v=abcdefghijk".into();
+        app.tx
+            .send(Event::Complete(backend::CompletedDownload {
+                path: path.clone(),
+                media: media.clone(),
+            }))
+            .unwrap();
+        app.poll();
+        let saved = app.saved.as_ref().unwrap();
+        assert_eq!(saved.path, path);
+        assert_eq!(saved.media, media);
+        assert!(app.phase == Phase::Done);
+    }
 
     fn auth_error() -> Event {
         Event::Failed("YouTube requires sign-in or a verification check. Retry help.".into())
