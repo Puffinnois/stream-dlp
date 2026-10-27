@@ -1,0 +1,4 @@
+# The repository stores LF; checkouts keep LF on every platform.
+* text=auto eol=lf
+*.ico binary
+*.png binary
