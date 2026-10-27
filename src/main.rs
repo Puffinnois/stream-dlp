@@ -226,6 +226,9 @@ impl App {
                 self.error = None;
                 self.video = None;
                 self.saved = None;
+                // The last video's "ready" or "cancelled" line must not label the next one.
+                self.status.clear();
+                self.progress = 0.;
                 self.log.clear();
                 self.phase = Phase::Inspecting;
                 self.cancel = Arc::new(AtomicBool::new(false));
@@ -307,8 +310,7 @@ impl App {
                     self.status = "Your download is ready.".into();
                 }
                 Event::Failed(error) => {
-                    let needs_session =
-                        error.starts_with("YouTube requires sign-in or a verification check.");
+                    let needs_session = backend::needs_session(&error);
                     self.retry_download = self.phase == Phase::Downloading;
                     self.error = Some(error);
                     self.phase = if self.video.is_some() {
@@ -328,14 +330,18 @@ impl App {
                     }
                 }
                 Event::Cancelled => {
+                    if self.phase == Phase::Downloading {
+                        self.status =
+                            "Cancelled. Partial downloads can be resumed by choosing the same folder."
+                                .into();
+                    } else {
+                        self.status.clear();
+                    }
                     self.phase = if self.video.is_some() {
                         Phase::Choosing
                     } else {
                         Phase::Idle
                     };
-                    self.status =
-                        "Cancelled. Partial downloads can be resumed by choosing the same folder."
-                            .into();
                 }
             }
         }
@@ -367,6 +373,20 @@ impl App {
         );
         let session = self.session.clone();
         std::thread::spawn(move || backend::download(media, format, folder, session, tx, cancel));
+    }
+    /// Switches the format list (0 all, 1 video, 2 audio); a hidden selection moves to the
+    /// first shown format so the download always matches a visible row.
+    fn set_filter(&mut self, filter: usize) {
+        self.filter = filter;
+        if let Some(video) = &self.video
+            && !video
+                .formats
+                .get(self.selected)
+                .is_some_and(|f| shown(filter, f))
+            && let Some(first) = video.formats.iter().position(|f| shown(filter, f))
+        {
+            self.selected = first;
+        }
     }
     fn choose_folder(&mut self) {
         self.phase = Phase::Picking;
@@ -1065,7 +1085,7 @@ impl App {
                 .inner_margin(14)
                 .show(ui, |ui| {
                     ui.colored_label(Color32::from_rgb(175, 46, 57), error);
-                    if backend::source(&self.link) == Some(backend::Source::YouTube)
+                    if backend::source(&self.loaded_link) == Some(backend::Source::YouTube)
                         && ui
                             .add_enabled(
                                 !self.busy(),
@@ -1148,7 +1168,7 @@ impl App {
                     ui.add_enabled_ui(!self.busy(), |ui| {
                         for (index, name) in [(2, "Audio"), (1, "Video"), (0, "All")] {
                             if ui.selectable_label(self.filter == index, name).clicked() {
-                                self.filter = index;
+                                self.set_filter(index);
                             }
                         }
                     });
@@ -1171,9 +1191,7 @@ impl App {
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!self.busy(), |ui| {
                         for (index, format) in video.formats.iter().enumerate() {
-                            if (self.filter == 1 && !format.video())
-                                || (self.filter == 2 && format.video())
-                            {
+                            if !shown(self.filter, format) {
                                 continue;
                             }
                             let selected = self.selected == index;
@@ -1403,6 +1421,14 @@ fn icon_tile(ui: &mut egui::Ui, size: f32, background: Color32, foreground: Colo
     );
 }
 
+fn shown(filter: usize, format: &backend::Format) -> bool {
+    match filter {
+        1 => format.video(),
+        2 => !format.video(),
+        _ => true,
+    }
+}
+
 fn page_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.add_space(6.);
     ui.label(RichText::new(title).size(32.).strong());
@@ -1520,6 +1546,7 @@ fn main() -> eframe::Result {
         println!("All bundled download tools are ready.");
         return Ok(());
     }
+    std::thread::spawn(updater::remove_stale_installers);
     eframe::run_native(
         "stream-dlp",
         eframe::NativeOptions {
@@ -1567,7 +1594,44 @@ mod app_tests {
     }
 
     fn auth_error() -> Event {
-        Event::Failed("YouTube requires sign-in or a verification check. Retry help.".into())
+        Event::Failed(backend::YOUTUBE_SIGN_IN.into())
+    }
+
+    #[test]
+    fn format_filter_moves_a_hidden_selection_to_a_shown_format() {
+        let mut app = App::with_profiles(Vec::new());
+        app.video = Some(
+            backend::parse_video(
+                r#"{"formats":[{"format_id":"137","vcodec":"avc1","acodec":"none","height":1080},
+                {"format_id":"140","vcodec":"none","acodec":"mp4a"}]}"#,
+            )
+            .unwrap(),
+        );
+        app.set_filter(2);
+        assert_eq!(
+            app.video.as_ref().unwrap().formats[app.selected].format_id,
+            "140"
+        );
+        app.set_filter(0);
+        assert_eq!(app.selected, 1, "A shown selection is kept");
+        app.set_filter(1);
+        assert_eq!(
+            app.video.as_ref().unwrap().formats[app.selected].format_id,
+            "137"
+        );
+    }
+
+    #[test]
+    fn cancelled_inspection_does_not_mention_partial_downloads() {
+        for (phase, partial) in [(Phase::Inspecting, false), (Phase::Downloading, true)] {
+            let mut app = App::with_profiles(Vec::new());
+            app.status = "Your download is ready.".into();
+            app.phase = phase;
+            app.tx.send(Event::Cancelled).unwrap();
+            app.poll();
+            assert_eq!(app.status.contains("Partial downloads"), partial);
+            assert!(partial || app.status.is_empty());
+        }
     }
 
     #[test]

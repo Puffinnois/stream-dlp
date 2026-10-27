@@ -2,7 +2,7 @@
 use crate::release_channel::Channel;
 use serde::Deserialize;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::mpsc,
     time::{Duration, Instant},
@@ -46,18 +46,25 @@ fn parse_releases(
 ) -> Result<Option<Update>, String> {
     let releases: Vec<Release> = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let current = semver::Version::parse(current).map_err(|e| e.to_string())?;
+    // Dev follows stable releases too, so only a switch to Public can offer an older build.
+    let allow_older = switching && channel == Channel::Public;
     let mut candidates = Vec::new();
     for release in releases {
         if release.draft {
             continue;
         }
-        let version = semver::Version::parse(release.tag_name.trim_start_matches('v'))
-            .map_err(|_| "The release has an invalid version.".to_string())?;
-        let eligible = match channel {
-            Channel::Public => !release.prerelease && version.pre.is_empty(),
-            Channel::Dev => release.prerelease && version.pre.as_str().starts_with("dev."),
+        // A tag that is not a version must not block every update check.
+        let Ok(version) = semver::Version::parse(release.tag_name.trim_start_matches('v')) else {
+            continue;
         };
-        if eligible && version != current && (switching || version > current) {
+        let stable = !release.prerelease && version.pre.is_empty();
+        let eligible = match channel {
+            Channel::Public => stable,
+            Channel::Dev => {
+                stable || (release.prerelease && version.pre.as_str().starts_with("dev."))
+            }
+        };
+        if eligible && version != current && (allow_older || version > current) {
             candidates.push((version, release));
         }
     }
@@ -160,9 +167,38 @@ impl Installer {
     }
 }
 
+const UPDATE_PREFIX: &str = "stream-dlp-update-";
+
+/// Removes the installer folders that `Installer::launch` kept for setup a day or more ago.
+pub fn remove_stale_installers() {
+    remove_stale_in(&std::env::temp_dir(), Duration::from_secs(24 * 60 * 60));
+}
+
+fn remove_stale_in(directory: &Path, age: Duration) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(UPDATE_PREFIX)
+            && entry.file_type().is_ok_and(|t| t.is_dir())
+            && entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|elapsed| elapsed > age);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn download(update: &Update) -> Result<Installer, String> {
     let directory = tempfile::Builder::new()
-        .prefix("stream-dlp-update-")
+        .prefix(UPDATE_PREFIX)
         .tempdir()
         .map_err(|e| e.to_string())?;
     let path = directory.path().join(ASSET);
@@ -394,7 +430,61 @@ mod tests {
             assert!(parse_release(&value.to_string(), "0.3.3").is_err());
         }
         assert!(parse_release("{}", "0.3.3").is_err());
-        assert!(parse_release(&release("bad-version").to_string(), "0.3.3").is_err());
+    }
+
+    #[test]
+    fn tags_that_are_not_versions_are_skipped() {
+        assert!(
+            parse_release(&release("bad-version").to_string(), "0.3.3")
+                .unwrap()
+                .is_none()
+        );
+        let releases = serde_json::json!([release("nightly"), release("v0.3.4")]).to_string();
+        assert_eq!(
+            parse_releases(&releases, "0.3.3", Channel::Dev, false)
+                .unwrap()
+                .map(|u| u.version)
+                .as_deref(),
+            Some("0.3.4")
+        );
+    }
+
+    #[test]
+    fn dev_follows_newer_stable_releases_without_offering_older_builds() {
+        let mut dev = release("v0.3.5-dev.1");
+        dev["prerelease"] = true.into();
+        let releases = serde_json::json!([dev, release("v0.3.7")]).to_string();
+        let choose = |current, channel, switching| {
+            parse_releases(&releases, current, channel, switching)
+                .unwrap()
+                .map(|u| u.version)
+        };
+        assert_eq!(
+            choose("0.3.5-dev.1", Channel::Dev, false).as_deref(),
+            Some("0.3.7")
+        );
+        // Switching Public → Dev must not offer the older Dev build.
+        assert!(choose("0.3.7", Channel::Dev, true).is_none());
+        assert!(choose("0.3.7", Channel::Dev, false).is_none());
+    }
+
+    #[test]
+    fn stale_installer_folders_are_removed_and_others_kept() {
+        let temp = tempfile::tempdir().unwrap();
+        let stale = temp.path().join(format!("{UPDATE_PREFIX}old"));
+        let unrelated = temp.path().join("other-update-old");
+        let file = temp.path().join(format!("{UPDATE_PREFIX}file"));
+        std::fs::create_dir(&stale).unwrap();
+        std::fs::write(stale.join(ASSET), b"setup").unwrap();
+        std::fs::create_dir(&unrelated).unwrap();
+        std::fs::write(&file, b"not a folder").unwrap();
+        remove_stale_in(temp.path(), Duration::from_secs(3600));
+        assert!(stale.exists(), "Recent installers stay for setup");
+        std::thread::sleep(Duration::from_millis(50));
+        remove_stale_in(temp.path(), Duration::ZERO);
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
+        assert!(file.exists());
     }
 
     #[test]
