@@ -32,10 +32,13 @@ Mac package, and replace the old app. **About & tools → Get Mac updates** link
 Releases. There is no automatic Mac version check or installation yet. Downloads
 saved outside the app remain in their selected destination.
 
-The first FFmpeg build is intended for local stream copying and merging. It has
-no external codec libraries; video/audio conversion is outside this release's
-scope. Downloaded codecs are not guaranteed to play in QuickTime. The local test
-uses built-in MPEG-4/AAC encoders to avoid requiring Homebrew or hardware encoding.
+The bundled FFmpeg is built for local stream copying and merging, the GIF
+converter, and video previews. It has no external codec libraries; besides the
+system zlib, its only encoders are the built-in PNG, GIF, and raw video ones those
+features need, plus MPEG-4/AAC for the local test. Other video/audio conversion is
+outside this release's scope. Downloaded codecs are not guaranteed to play in
+QuickTime. The local test uses the built-in MPEG-4/AAC encoders to avoid requiring
+Homebrew or hardware encoding.
 
 ## Build on a Mac
 
