@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $headers = @{ 'User-Agent' = 'stream-dlp-Setup'; 'Accept' = 'application/vnd.github+json' }
+# CI passes its token so shared runners stay under the API rate limit; it is sent only to the API.
+if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 $staging = Join-Path ([IO.Path]::GetTempPath()) ('stream-dlp-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 New-Item -ItemType Directory -Path $Destination -Force | Out-Null

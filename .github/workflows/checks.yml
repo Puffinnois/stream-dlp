@@ -1,7 +1,9 @@
 name: Windows and experimental Mac checks
 
 on:
+  # Branches only: a version tag runs the Release workflow, which checks too.
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -11,17 +13,19 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust
-        run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
-      - name: Check formatting
-        run: cargo +1.93.1 fmt --all -- --check
-      - name: Test
-        run: cargo +1.93.1 test --locked
-      - name: Lint
-        run: cargo +1.93.1 clippy --all-targets --locked -- -D warnings
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.93.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Formatting, Clippy, Rust and Deno tests
+        run: cargo xtask check
 
   macos:
     runs-on: macos-15
