@@ -43,9 +43,14 @@ try {
         if (-not $IsccPath) {
             $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
             if ($compiler) { $IsccPath = $compiler.Source }
-            else { $IsccPath = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
+            else {
+                # tools\inno-setup in this checkout, else a standard Inno Setup 6 or 7 installation.
+                $IsccPath = @('tools\inno-setup\ISCC.exe', "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe") |
+                    ForEach-Object { Get-ChildItem -Path $_ -ErrorAction SilentlyContinue } |
+                    Select-Object -First 1 -ExpandProperty FullName
+            }
         }
-        if (-not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
+        if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
         $appLabel = if ($devBuild) { 'stream-dlp Dev' } else { 'stream-dlp' }
         $numericVersion = ($appVersion -split '-')[0] + '.0'
         & $IsccPath "/DAppVersion=$appVersion" "/DAppLabel=$appLabel" "/DNumericVersion=$numericVersion" "/DReleaseOutput=$releaseOutput" "/DPortableDir=$portable" 'installer\stream-dlp.iss'

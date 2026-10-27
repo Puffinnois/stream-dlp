@@ -37,7 +37,7 @@ jobs:
 
       - name: Install Inno Setup
         run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+          if (-not (Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue)) { choco install innosetup --no-progress -y }
 
       - name: Build portable app and installer
         id: build
