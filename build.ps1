@@ -1,4 +1,4 @@
-param([switch]$SkipTools, [switch]$Installer, [string]$IsccPath, [string]$PortableDirectory)
+param([switch]$SkipTools, [switch]$SkipTests, [switch]$Installer, [string]$IsccPath, [string]$PortableDirectory)
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
@@ -11,8 +11,11 @@ try {
     $releaseOutput = Join-Path $PSScriptRoot $releaseDirectory
     if (-not $PortableDirectory) { $PortableDirectory = Join-Path $releaseDirectory 'stream-dlp' }
     New-Item -ItemType Directory -Path $releaseOutput -Force | Out-Null
-    cargo test --locked
-    if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }
+    # CI runs `cargo xtask check` first and passes -SkipTests.
+    if (-not $SkipTests) {
+        cargo test --locked
+        if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }
+    }
     cargo build --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     $portable = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $PortableDirectory))
@@ -21,15 +24,16 @@ try {
     foreach ($file in @('Setup tools.ps1', 'README.md', 'LICENSE', 'THIRD-PARTY.md')) { Copy-Item -LiteralPath $file -Destination $portable -Force }
     $docs = Join-Path $portable 'docs'
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
-    foreach ($document in @('browser-session-spike.md', 'chrome-auto-mode-options.md', 'streamable-feasibility.md', 'automatic-streamable-upload.md', 'release-channels.md', 'release-0.3.8.md', 'release-0.3.7.md', 'release-0.3.6.md', 'release-0.3.5.md', 'release-0.3.5-dev.1.md', 'release-0.3.4.md', 'macos.md')) {
-        Copy-Item -LiteralPath (Join-Path 'docs' $document) -Destination $docs -Force
-    }
+    # Every Markdown document ships, so a release never needs this script edited.
+    Get-ChildItem -LiteralPath 'docs' -Filter '*.md' -File | Copy-Item -Destination $docs -Force
     if (-not $SkipTools) { & '.\Setup tools.ps1' -Destination (Join-Path $portable 'tools') }
     # The distributable installs third-party tools directly from their official releases.
     $zip = Join-Path $releaseOutput 'stream-dlp-Windows-x64.zip'
     Compress-Archive -Path (Join-Path $portable 'stream-dlp.exe'),(Join-Path $portable 'Setup tools.ps1'),(Join-Path $portable 'README.md'),(Join-Path $portable 'LICENSE'),(Join-Path $portable 'THIRD-PARTY.md'),$docs -DestinationPath $zip -Force
     Write-Host "Portable app: $portable"
     Write-Host "App + setup zip: $zip"
+    $assets = @($zip)
+    $setup = Join-Path $releaseOutput 'stream-dlp-Setup-Windows-x64.exe'
     if ($Installer) {
         foreach ($helper in @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe', 'deno.exe', 'versions.json')) {
             if (-not (Test-Path -LiteralPath (Join-Path $portable "tools\$helper"))) {
@@ -39,13 +43,33 @@ try {
         if (-not $IsccPath) {
             $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
             if ($compiler) { $IsccPath = $compiler.Source }
-            else { $IsccPath = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
+            else {
+                # tools\inno-setup in this checkout, else a standard Inno Setup 6 or 7 installation.
+                $IsccPath = @('tools\inno-setup\ISCC.exe', "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe") |
+                    ForEach-Object { Get-ChildItem -Path $_ -ErrorAction SilentlyContinue } |
+                    Select-Object -First 1 -ExpandProperty FullName
+            }
         }
-        if (-not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
+        if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
         $appLabel = if ($devBuild) { 'stream-dlp Dev' } else { 'stream-dlp' }
         $numericVersion = ($appVersion -split '-')[0] + '.0'
         & $IsccPath "/DAppVersion=$appVersion" "/DAppLabel=$appLabel" "/DNumericVersion=$numericVersion" "/DReleaseOutput=$releaseOutput" "/DPortableDir=$portable" 'installer\stream-dlp.iss'
         if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation failed.' }
-        Write-Host "Windows installer: $(Join-Path $releaseOutput 'stream-dlp-Setup-Windows-x64.exe')"
+        Write-Host "Windows installer: $setup"
+        $assets = @($setup) + $assets
+    }
+    # sha256sum format (lowercase hash, two spaces, name, LF) for the release's SHA256SUMS.txt.
+    $sums = Join-Path $releaseOutput 'SHA256SUMS.txt'
+    $lines = foreach ($asset in $assets) {
+        '{0}  {1}' -f (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path -Leaf $asset)
+    }
+    [IO.File]::WriteAllText($sums, (($lines -join "`n") + "`n"))
+    Write-Host "Checksums: $sums"
+    if ($env:GITHUB_OUTPUT) {
+        # Paths for the GitHub workflows (package check, release).
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8 -Value @(
+            "version=$appVersion", "prerelease=$($devBuild.ToString().ToLowerInvariant())",
+            "portable=$portable", "zip=$zip", "sums=$sums", "installer=$(if ($Installer) { $setup })"
+        )
     }
 } finally { Pop-Location }

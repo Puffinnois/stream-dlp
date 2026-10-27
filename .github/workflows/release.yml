@@ -1,0 +1,78 @@
+name: Release
+
+# `cargo xtask release <bump>` then `git push --follow-tags`: this builds the tagged version on
+# Windows and uploads it to a draft GitHub release. Add notes there and press Publish; the in-app
+# updater never sees drafts. A vX.Y.Z-dev.N tag becomes a prerelease (the Dev channel).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      # build.ps1, the installer and the updater take the version from Cargo.toml, not the tag.
+      - name: Check tag matches Cargo.toml version
+        run: |
+          $manifest = Get-Content -LiteralPath Cargo.toml -Raw
+          if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cannot find the version in Cargo.toml.' }
+          $expected = "v$($Matches[1])"
+          if ($env:GITHUB_REF_NAME -ne $expected) { throw "Tag $env:GITHUB_REF_NAME does not match the Cargo.toml version ($expected)." }
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.93.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: cargo xtask check
+
+      - name: Install Inno Setup
+        run: |
+          if (-not (Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue)) { choco install innosetup --no-progress -y }
+
+      - name: Build portable app and installer
+        id: build
+        run: .\build.ps1 -Installer -SkipTests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # Same check as the Package check workflow.
+      - name: Check the packaged and installed app find their tools
+        run: |
+          function Test-Tools([string]$folder) {
+            $run = Start-Process -FilePath (Join-Path $folder 'stream-dlp.exe') -ArgumentList '--check-tools' -Wait -PassThru -NoNewWindow
+            if ($run.ExitCode -ne 0) { throw "stream-dlp.exe in $folder could not run its bundled tools (exit $($run.ExitCode))." }
+          }
+          Test-Tools $env:PORTABLE
+          $target = Join-Path $env:RUNNER_TEMP 'installed'
+          $setup = Start-Process -FilePath $env:INSTALLER -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Silent install failed (exit $($setup.ExitCode))." }
+          Test-Tools $target
+        env:
+          PORTABLE: ${{ steps.build.outputs.portable }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+
+      # Installed apps (0.3.4 and later) only accept stream-dlp-Setup-Windows-x64.exe at this
+      # repository's release URL, with GitHub's SHA-256 digest, which gh's upload provides.
+      - name: Create draft release
+        run: |
+          Get-Item -LiteralPath $env:INSTALLER, $env:ZIP, $env:SUMS | Format-Table Name, Length
+          $options = @('--draft', '--title', $env:GITHUB_REF_NAME, '--generate-notes')
+          if ($env:PRERELEASE -eq 'true') { $options += '--prerelease' }
+          gh release create $env:GITHUB_REF_NAME @options $env:INSTALLER $env:ZIP $env:SUMS
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+          ZIP: ${{ steps.build.outputs.zip }}
+          SUMS: ${{ steps.build.outputs.sums }}
+          PRERELEASE: ${{ steps.build.outputs.prerelease }}

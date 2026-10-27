@@ -19,9 +19,10 @@ See [TikTok validation and remaining work](docs/tiktok-feasibility.md).
 ## Public and Dev versions
 
 Use **Settings → Updates → Update channel** to choose **Public** (stable releases) or
-**Dev** (experimental prereleases). Selection is remembered; installing a build
-requires **Install selected build** and completing setup. The sidebar shows the
-build currently running. Dev builds do not update Public users.
+**Dev** (experimental prereleases, plus every newer stable release). Selection is
+remembered; installing a build requires **Install selected build** and completing
+setup. The sidebar shows the build currently running. Dev builds do not update
+Public users.
 
 Public `0.3.5` and Dev `0.3.5-dev.1` both include the channel selector. Install
 either build to start switching inside the app. The older Public v0.3.4 has no
@@ -40,10 +41,9 @@ and not notarized, so a browser-downloaded copy may require **Open Anyway** in
 macOS Privacy & Security. Initial real-device acceptance is still pending.
 
 See [Mac build, installation, automated checks, and acceptance checklist](docs/macos.md).
-The GitHub Actions workflow is prepared in `ci/checks.yml`; activation is pending
-permission to add workflows. Once activated, it builds an experimental app ZIP
-without publishing a release. The instructions below describe Windows unless
-otherwise stated.
+The Checks workflow (`.github/workflows/checks.yml`) builds an experimental app ZIP
+on every push, without publishing a release. The instructions below describe
+Windows unless otherwise stated.
 
 ## Use
 
@@ -52,6 +52,12 @@ Open `dist/stream-dlp/stream-dlp.exe`. Paste a YouTube video URL and click **Fin
 The format list shows every non-DRM video and audio stream returned by YouTube, including codec, frame rate, format ID, language, and stream size when available. Video-only choices automatically download matching audio and merge it without re-encoding, so they do not display a missing-audio warning. If matching audio cannot be obtained, the download reports an error instead of silently saving a video without sound. MP4 prefers M4A audio; WebM prefers WebM audio. FFmpeg may use MKV when the available streams cannot share the selected container. Stream size estimates exclude added audio. Progress describes the current stream; audio download and final merging follow. Audio choices save the original audio format without conversion.
 
 Cancel stops the active process tree. Incomplete `.part` files are retained so a later attempt in the same folder can resume. Existing complete files are not overwritten. Closing the app signals cancellation. Regular videos and Shorts use the same downloader. Active live streams and DRM-protected formats are not supported. YouTube can change availability; run the tool setup again if extraction stops working.
+
+Missing video details are shown explicitly: an absent title falls back to the
+video ID or **Untitled video**, and missing creator, duration, resolution, bitrate,
+container, and size use unknown labels. Unknown duration and resolution are not
+shown as zero. Estimated stream sizes keep a `~` prefix; files smaller than 1 MB
+show `<1 MB`.
 
 ## When YouTube asks you to verify
 
@@ -77,7 +83,7 @@ The Windows installer is `dist/stream-dlp-Setup-Windows-x64.exe`. It includes th
 
 On Windows, the app checks your selected channel in the background each time it opens and every four hours while it stays open. An available build appears as a small dot and **Update available** marker in the sidebar. Failed checks retry at the next interval and keep any previously discovered update visible. Select it to open Settings; it never interrupts startup with a popup. Use **Settings → Updates → Update channel** to change channels or **Check for updates** to check again. Choose **Install selected build…**, then confirm **Download & open setup** in the centered confirmation. Cancel, Escape, or clicking outside the confirmation dismisses it without downloading. Finish or cancel an active operation first. The Windows installer is verified against GitHub's SHA-256 digest, then setup opens for you to review. You may cancel setup. Network errors do not block downloading videos. Portable users can select their existing app folder in setup, or download a fresh ZIP from Releases.
 
-Updates require a matching semantic version tag and an asset named `stream-dlp-Setup-Windows-x64.exe` with GitHub's SHA-256 digest. Public uses stable releases; Dev uses `vX.Y.Z-dev.N` prereleases. Drafts and unverified installers are rejected. Same-channel checks never downgrade, while an explicit channel switch can offer an older target-channel build. Publishing is a separate step from building locally. See [release channels](docs/release-channels.md).
+Updates require a matching semantic version tag and an asset named `stream-dlp-Setup-Windows-x64.exe` with GitHub's SHA-256 digest. Public uses stable releases; Dev uses `vX.Y.Z-dev.N` prereleases and newer stable releases. Drafts and unverified installers are rejected. Checks never downgrade, except that switching from Dev to Public can offer an older stable build. Releases are built by CI and published by hand (see [Develop and release](#develop-and-release) and [release channels](docs/release-channels.md)).
 
 The ready-to-run local portable folder includes tools. The small distributable ZIP contains the app and setup script; extract the ZIP into a writable folder, then run:
 
@@ -92,16 +98,22 @@ Setup downloads yt-dlp, FFmpeg/ffprobe, and Deno directly from their official Gi
 Requires Windows 10/11 x64, Rust 1.93 or newer, and the Visual Studio C++ build tools / Windows SDK.
 
 ```powershell
-cargo test --locked
-cargo build --release --locked
+cargo xtask check
 .\build.ps1
 ```
 
-`build.ps1` creates a ready-to-run portable folder and an app/setup ZIP in `dist`. `-SkipTools` builds the app without downloading helpers. The UI and orchestration are Rust (`eframe`/`egui`); extraction is delegated to yt-dlp, media merging to FFmpeg, and JavaScript challenges to Deno. No web server or Electron runtime is used.
+`cargo xtask check` runs formatting, Clippy, the Rust tests, and the Deno script tests (`scripts/*.test.js`, using `tools/deno` or `deno` on PATH), exactly as CI does. `build.ps1` runs the Rust tests, then creates a ready-to-run portable folder, an app/setup ZIP, and `SHA256SUMS.txt` in `dist`. `-SkipTools` builds the app without downloading helpers; `-SkipTests` skips the tests. The UI and orchestration are Rust (`eframe`/`egui`); extraction is delegated to yt-dlp, media merging to FFmpeg, and JavaScript challenges to Deno. No web server or Electron runtime is used.
 
 To also build the Windows installer, install Inno Setup and run `./build.ps1 -Installer -IsccPath 'C:\path\to\ISCC.exe'`. Installer builds require all helpers in the portable folder; `-SkipTools -Installer` reuses helpers already present there. The installer version comes from `Cargo.toml`. `scripts/make-icon.ps1` regenerates the multi-size app icon and PNG preview. `build.rs` embeds that icon and the app version into the Windows executable.
 
 If the existing portable executable is open, use `-PortableDirectory 'dist\stream-dlp-0.3.4'` to build a separate folder. Without `-SkipTools`, setup populates that folder's helpers as usual. The generated installer and ZIP use the selected portable folder.
+
+## Develop and release
+
+- Checks: `cargo xtask check`. The **Checks** workflow runs it (and the Mac build) on every pushed branch and pull request.
+- Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds the installer, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), and attaches the installer, ZIP, and checksums to the run.
+- Release: on a clean `main`, `cargo xtask release <patch|minor|major|dev>` (or an explicit `X.Y.Z` / `X.Y.Z-dev.N`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks the installer, and uploads the installer, ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes (a prerelease for `-dev.N`). Edit the notes and press **Publish**; installed apps only see published releases.
+- Changelog: the GitHub release notes.
 
 ## GIF converter
 
@@ -183,7 +195,9 @@ The optional anonymous live YouTube test is `cargo test --locked youtube_downloa
 - `src/browser_session.rs`: Firefox profile discovery and scoped native cookie import, cancellation and query deadline.
 - `src/export_help.rs`: Windows Downloads location and file-picker folder selection.
 - `Setup tools.ps1`: verified installation and update of external tools.
-- `build.ps1`: tests, release build, portable packaging.
+- `build.ps1`: tests, release build, portable packaging, checksums.
+- `xtask/`: `cargo xtask check` and `cargo xtask release`.
+- `.github/workflows/`: Checks, Package check, and Release.
 
 Downloads execute tools directly using argument arrays, without interpolating video links into a shell. User yt-dlp configs are ignored to keep behavior predictable. Cookies are read only from an export or Firefox profile the user explicitly chooses and passed to yt-dlp for its YouTube requests. No passwords, analytics, or download history are collected.
 

@@ -118,11 +118,27 @@ Depends on R-03.
 
 ### F-02 — General metadata and media selection
 
-- [ ] Carry media ID, source URL, extractor identity, and platform with metadata and completed-file results.
-- [ ] Handle absent titles, uploader, duration, resolution, and size with useful fallbacks; avoid showing `0p` for unknown resolution.
+- [x] Carry media ID, source URL, extractor identity, and platform with metadata and completed-file results.
+- [x] Handle absent titles, uploader, duration, resolution, and size with useful fallbacks; avoid showing `0p` for unknown resolution.
 - [ ] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection.
 - [ ] Keep format selection and audio merging shared, including audio-less source clips where valid. Distinguish those from failed audio retrieval.
 - [ ] Include source identity in filenames or collision handling so identical IDs from different platforms cannot falsely reuse an unrelated completed file.
+
+October 24, 2026: inspection and completed results now retain a shared media
+identity for the implemented YouTube/TikTok routes. Download workers receive an
+identity snapshot, and the completion screen labels the saved source. Missing IDs
+or extractor metadata remain optional. This stays in memory for the current
+download; no persistent history is introduced. Parsing and UI handoff regressions,
+the default Rust suite (42 passed, 8 ignored), Clippy, and the local
+download/merge/cancel pipeline pass. Tests used a workspace temporary directory;
+the local pipeline required localhost socket access outside the sandbox.
+
+Missing-metadata follow-up: YouTube and TikTok fixtures now cover missing, null,
+and blank titles/creators, unknown or invalid duration, zero/missing dimensions,
+and unknown sizes. The UI uses explicit unknown labels, retains ID-based title
+fallbacks, distinguishes estimated sizes, and shows small files as less than 1 MB.
+Unknown audio bitrate and container also have clear labels. The Rust suite now
+passes 44 tests (8 opt-in tests ignored); Clippy and the local pipeline pass.
 
 ### F-03 — Per-platform sessions and errors
 
