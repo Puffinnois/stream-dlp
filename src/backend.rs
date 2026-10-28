@@ -425,21 +425,10 @@ pub fn is_tiktok_short(link: &str) -> bool {
     })
 }
 
-pub fn tools_dir() -> PathBuf {
-    crate::platform::tools_dir()
-}
-pub fn tools_ready() -> bool {
-    ["yt-dlp", "ffmpeg", "ffprobe", "deno"].iter().all(|name| {
-        tools_dir()
-            .join(crate::platform::executable(name))
-            .is_file()
-    })
-}
 fn command(
     session: Option<&SessionCookies>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), String> {
-    let tools = tools_dir();
-    let mut cmd = Command::new(tools.join(crate::platform::executable("yt-dlp")));
+    let mut cmd = Command::new(crate::tools::path("yt-dlp"));
     cmd.args([
         "--ignore-config",
         "--no-playlist",
@@ -452,12 +441,9 @@ fn command(
         "3",
         "--ffmpeg-location",
     ])
-    .arg(&tools)
+    .arg(crate::tools::dir())
     .arg("--js-runtimes")
-    .arg(format!(
-        "deno:{}",
-        tools.join(crate::platform::executable("deno")).display()
-    ));
+    .arg(format!("deno:{}", crate::tools::path("deno").display()));
     let session_file = session.map(SessionCookies::temporary_file).transpose()?;
     if let Some(file) = &session_file {
         cmd.arg("--cookies").arg(file.path());
@@ -951,7 +937,7 @@ mod tests {
             modified
         );
         let decoded = isolate(
-            Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
+            Command::new(crate::tools::path("ffmpeg"))
                 .args(["-v", "error", "-xerror", "-i"])
                 .arg(&path)
                 .args(["-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"]),
@@ -999,7 +985,7 @@ mod tests {
         std::fs::create_dir_all(&output).unwrap();
         let fixture = output.join("manifest.mpd");
         let generated = isolate(
-            Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
+            Command::new(crate::tools::path("ffmpeg"))
                 .current_dir(&output)
                 .args([
                     "-y",
@@ -1165,7 +1151,7 @@ mod tests {
         let saved = saved.expect("No completion event");
         assert!(had_progress, "No progress events were parsed");
         let probe = isolate(
-            Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
+            Command::new(crate::tools::path("ffprobe"))
                 .args([
                     "-v",
                     "error",
@@ -1281,7 +1267,7 @@ mod tests {
             }
         };
         let probe = isolate(
-            Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
+            Command::new(crate::tools::path("ffprobe"))
                 .args([
                     "-v",
                     "error",

@@ -21,7 +21,7 @@ pub fn resolve(link: &str, cancel: &AtomicBool) -> Result<Option<String>, String
         .write_all(include_bytes!("../scripts/tiktok-resolve.js"))
         .map_err(|_| "Could not prepare TikTok link resolver.")?;
     let output = match process::Helper::new(
-        Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
+        Command::new(crate::tools::path("deno"))
             .args(["run", "--no-config", "--no-lock", "--no-prompt", "--allow-net=tiktok.com:443,www.tiktok.com:443,m.tiktok.com:443,vm.tiktok.com:443,vt.tiktok.com:443"])
             .arg(script.path())
             .arg(link),
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn embedded_resolver_runs_without_network_for_direct_video() {
-        if !crate::backend::tools_ready() {
+        if !crate::tools::ready() {
             return;
         }
         let link = "https://www.tiktok.com/@creator/video/123";

@@ -243,7 +243,7 @@ fn run(path: &Path, cancel: &AtomicBool, mut emit: impl FnMut(Wire)) -> Result<(
         std::thread::sleep(Duration::from_millis(100));
     };
     let result = process::Helper::new(
-        Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
+        Command::new(crate::tools::path("deno"))
             .args(["run", "--no-prompt", "--no-config", "--no-remote"])
             .arg(format!("--allow-net=127.0.0.1:{port}"))
             .arg(script)

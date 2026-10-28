@@ -155,7 +155,7 @@ fn extract(path: &Path, seconds: Option<f64>, cancel: &AtomicBool) -> Result<Vec
     }
     let seek = format!("{:.1}", seconds.unwrap_or(0.));
     let output = process::Helper::new(
-        Command::new(crate::platform::tools_dir().join(crate::platform::executable("ffmpeg")))
+        Command::new(crate::tools::path("ffmpeg"))
             .args([
                 "-hide_banner",
                 "-loglevel",
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn ffmpeg_previews_seek_letterbox_and_handle_short_or_invalid_sources() {
-        let exe = crate::platform::tools_dir().join(crate::platform::executable("ffmpeg"));
+        let exe = crate::tools::path("ffmpeg");
         if !exe.exists() {
             return;
         }

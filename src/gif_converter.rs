@@ -410,8 +410,7 @@ fn convert(
         if cancel.load(Ordering::Relaxed) {
             return Err("Cancelled".into());
         }
-        let mut command =
-            Command::new(crate::platform::tools_dir().join(crate::platform::executable("ffmpeg")));
+        let mut command = Command::new(crate::tools::path("ffmpeg"));
         command
             .args([
                 "-hide_banner",
@@ -525,10 +524,9 @@ fn run(
             }
         })
         .map_err(|error| match error {
-            process::Error::Start(e) => format!(
-                "Cannot start FFmpeg: {e}. {}",
-                crate::platform::tools_help()
-            ),
+            process::Error::Start(e) => {
+                format!("Cannot start FFmpeg: {e}. {}", crate::tools::help())
+            }
             process::Error::Cancelled => "Cancelled".into(),
             process::Error::TimedOut => {
                 "Conversion timed out. Try a smaller or shorter clip.".into()
@@ -566,7 +564,7 @@ mod tests {
     }
     #[test]
     fn ffmpeg_conversion_and_no_clobber() {
-        let exe = crate::platform::tools_dir().join(crate::platform::executable("ffmpeg"));
+        let exe = crate::tools::path("ffmpeg");
         if !exe.exists() {
             return;
         }
