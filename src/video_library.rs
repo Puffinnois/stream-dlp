@@ -1,15 +1,16 @@
 //! User-selected local videos and a browser-assisted Streamable handoff.
+use crate::process;
 use eframe::egui;
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const STREAMABLE: &str = "https://streamable.com/";
@@ -509,8 +510,7 @@ pub(crate) fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
     if !meta.is_file() || meta.len() == 0 {
         return Err("Choose a nonempty video file.".into());
     }
-    let output = tempfile::tempfile().map_err(|_| "Cannot create the video-check working file.")?;
-    let mut child = crate::backend::hidden(
+    let output = process::Helper::new(
         Command::new(crate::backend::tools_dir().join(crate::platform::executable("ffprobe")))
             .args([
                 "-v",
@@ -527,55 +527,26 @@ pub(crate) fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
                 "json",
                 "-i",
             ])
-            .arg(&path)
-            .stdin(Stdio::null())
-            .stdout(output.try_clone().map_err(|_| "Cannot check this video.")?)
-            .stderr(Stdio::null()),
+            .arg(&path),
+        cancel,
     )
-    .spawn()
-    .map_err(|_| "Cannot start FFprobe. Install the download tools and try again.")?;
-    let start = Instant::now();
-    loop {
-        if output.metadata().is_ok_and(|meta| meta.len() > 65_536) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Video details were too large. Choose another file.".into());
+    .time_limit(Duration::from_secs(15))
+    .output_limit(65_536)
+    .ignore_stderr()
+    .output()
+    .map_err(|error| match error {
+        process::Error::Start(_) => {
+            "Cannot start FFprobe. Install the download tools and try again."
         }
-        if cancel.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(15) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(if cancel.load(Ordering::Relaxed) {
-                "Video check cancelled."
-            } else {
-                "Video check timed out. Choose another file."
-            }
-            .into());
-        }
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) => {
-                return Err("This file could not be read as a video. Choose another file.".into());
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(30)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("The video check failed.".into());
-            }
-        }
+        process::Error::Cancelled => "Video check cancelled.",
+        process::Error::TimedOut => "Video check timed out. Choose another file.",
+        process::Error::TooMuchOutput => "Video details were too large. Choose another file.",
+        process::Error::Wait(_) => "The video check failed.",
+    })?;
+    if !output.status.success() {
+        return Err("This file could not be read as a video. Choose another file.".into());
     }
-    use std::io::{Read, Seek};
-    let mut output = output;
-    output.rewind().map_err(|_| "Cannot read video details.")?;
-    let mut data = Vec::new();
-    output
-        .take(65_537)
-        .read_to_end(&mut data)
-        .map_err(|_| "Cannot read video details.")?;
-    if data.len() > 65_536 {
-        return Err("Video details were too large. Choose another file.".into());
-    }
-    parse_probe(path, meta.len(), &data)
+    parse_probe(path, meta.len(), &output.stdout)
 }
 
 pub(crate) fn open_target(target: &std::ffi::OsStr) -> Result<(), String> {
@@ -589,7 +560,7 @@ pub(crate) fn open_target(target: &std::ffi::OsStr) -> Result<(), String> {
     let mut command = Command::new("/usr/bin/open");
     #[cfg(not(any(windows, target_os = "macos")))]
     let mut command = Command::new("xdg-open");
-    crate::backend::hidden(command.arg(target))
+    process::isolate(command.arg(target))
         .spawn()
         .map(|_| ())
         .map_err(|_| {
@@ -619,7 +590,7 @@ fn reveal(path: &Path) -> Result<(), String> {
     return crate::platform::open_folder(path.parent().unwrap_or(Path::new(".")))
         .map_err(|_| "Could not open the video folder.".into());
     #[cfg(any(windows, target_os = "macos"))]
-    crate::backend::hidden(&mut command)
+    process::isolate(&mut command)
         .spawn()
         .map(|_| ())
         .map_err(|_| "Could not reveal the video. Open its folder manually.".into())
@@ -724,7 +695,7 @@ mod tests {
     fn local_library_probe_checks_real_video_and_invalid_files() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("clip #1 🐦.mp4");
-        let status = crate::backend::hidden(
+        let status = process::isolate(
             Command::new(crate::backend::tools_dir().join(crate::platform::executable("ffmpeg")))
                 .args([
                     "-v",

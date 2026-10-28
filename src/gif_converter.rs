@@ -1,9 +1,9 @@
 //! Local, bounded two-pass GIF encoding. Workers own all temporary files.
+use crate::process::{self, Stream};
 use eframe::egui::{self, RichText};
 use std::{
-    io::{Read, Seek},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -504,64 +504,46 @@ fn run(
     cancel: &AtomicBool,
     mut progress: impl FnMut(f64),
 ) -> Result<(), String> {
-    let progress_file = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
-    let mut output = progress_file.reopen().map_err(|e| e.to_string())?;
-    let mut errors = tempfile::tempfile().map_err(|e| e.to_string())?;
-    let mut child = crate::backend::hidden(command)
-        .stdin(Stdio::null())
-        .stdout(progress_file.reopen().map_err(|e| e.to_string())?)
-        .stderr(errors.try_clone().map_err(|e| e.to_string())?)
-        .spawn()
-        .map_err(|e| {
-            format!(
+    let mut errors = String::new();
+    let status = process::Helper::new(command, cancel)
+        .time_limit(Duration::from_secs(600))
+        .output_limit(2_000_000)
+        .lines(|stream, line| match stream {
+            Stream::Stdout => {
+                if let Some(time) = line
+                    .strip_prefix("out_time_us=")
+                    .and_then(|s| s.parse::<f64>().ok())
+                {
+                    progress(time / 1_000_000.);
+                }
+            }
+            Stream::Stderr => {
+                if errors.len() < 4000 {
+                    errors.push_str(line);
+                    errors.push('\n');
+                }
+            }
+        })
+        .map_err(|error| match error {
+            process::Error::Start(e) => format!(
                 "Cannot start FFmpeg: {e}. {}",
                 crate::platform::tools_help()
-            )
-        })?;
-    let start = Instant::now();
-    let result = loop {
-        if cancel.load(Ordering::Relaxed) {
-            break Err("Cancelled".into());
-        }
-        if start.elapsed() > Duration::from_secs(600) {
-            break Err("Conversion timed out. Try a smaller or shorter clip.".into());
-        }
-        if output.metadata().is_ok_and(|m| m.len() > 2_000_000)
-            || errors.metadata().is_ok_and(|m| m.len() > 2_000_000)
-        {
-            break Err("FFmpeg generated too much diagnostic output.".into());
-        }
-        let mut data = String::new();
-        let _ = output.rewind();
-        let _ = (&mut output).take(2_000_000).read_to_string(&mut data);
-        if let Some(time) = data
-            .lines()
-            .filter_map(|l| l.strip_prefix("out_time_us="))
-            .filter_map(|s| s.parse::<f64>().ok())
-            .next_back()
-        {
-            progress(time / 1_000_000.);
-        }
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break Ok(()),
-            Ok(Some(_)) => {
-                let _ = errors.rewind();
-                let mut text = String::new();
-                let _ = (&mut errors).take(4000).read_to_string(&mut text);
-                break Err(format!(
-                    "FFmpeg could not convert this clip. {}",
-                    text.trim()
-                ));
+            ),
+            process::Error::Cancelled => "Cancelled".into(),
+            process::Error::TimedOut => {
+                "Conversion timed out. Try a smaller or shorter clip.".into()
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-            Err(e) => break Err(format!("Could not monitor FFmpeg: {e}")),
-        }
-    };
-    if result.is_err() {
-        let _ = child.kill();
+            process::Error::TooMuchOutput => "FFmpeg generated too much diagnostic output.".into(),
+            process::Error::Wait(e) => format!("Could not monitor FFmpeg: {e}"),
+        })?;
+    if !status.success() {
+        let errors: String = errors.chars().take(4000).collect();
+        return Err(format!(
+            "FFmpeg could not convert this clip. {}",
+            errors.trim()
+        ));
     }
-    let _ = child.wait();
-    result
+    Ok(())
 }
 
 #[cfg(test)]
@@ -590,7 +572,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("test clip.mp4");
-        let status = crate::backend::hidden(
+        let status = process::isolate(
             Command::new(exe)
                 .args([
                     "-v",

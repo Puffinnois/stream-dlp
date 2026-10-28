@@ -40,7 +40,7 @@ pub fn open_folder(folder: &Path) -> std::io::Result<()> {
     let mut command = Command::new("explorer.exe");
     #[cfg(not(any(windows, target_os = "macos")))]
     let mut command = Command::new("xdg-open");
-    crate::backend::hidden(command.arg(folder))
+    crate::process::isolate(command.arg(folder))
         .spawn()
         .map(|_| ())
 }

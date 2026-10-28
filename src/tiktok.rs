@@ -1,11 +1,13 @@
 //! Bounded, anonymous short-link resolution using the bundled Deno runtime.
+use crate::process;
 use std::{
-    io::{Read, Write},
-    process::{Command, Stdio},
+    io::Write,
+    process::Command,
     sync::atomic::{AtomicBool, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+const NOT_RESOLVED: &str = "Could not resolve this TikTok share link. Open it in your browser and copy the full video link.";
 
 pub fn resolve(link: &str, cancel: &AtomicBool) -> Result<Option<String>, String> {
     if cancel.load(Ordering::Relaxed) {
@@ -18,41 +20,38 @@ pub fn resolve(link: &str, cancel: &AtomicBool) -> Result<Option<String>, String
     script
         .write_all(include_bytes!("../scripts/tiktok-resolve.js"))
         .map_err(|_| "Could not prepare TikTok link resolver.")?;
-    let mut child = crate::backend::hidden(Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
-        .args(["run", "--no-config", "--no-lock", "--no-prompt", "--allow-net=tiktok.com:443,www.tiktok.com:443,m.tiktok.com:443,vm.tiktok.com:443,vt.tiktok.com:443"])
-        .arg(script.path()).arg(link))
-        .stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| "Could not start TikTok link resolver. Check the download tools in Settings.")?;
-    let stdout = child.stdout.take().unwrap();
-    let reader = thread::spawn(move || {
-        let mut text = String::new();
-        stdout.take(8193).read_to_string(&mut text).map(|_| text)
-    });
-    let start = Instant::now();
-    let status = loop {
-        if cancel.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(20) {
-            crate::backend::stop(&mut child);
-            let _ = reader.join();
-            return if cancel.load(Ordering::Relaxed) {
-                Ok(None)
-            } else {
-                Err("TikTok share-link resolution timed out. Try the full video link.".into())
-            };
+    let output = match process::Helper::new(
+        Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
+            .args(["run", "--no-config", "--no-lock", "--no-prompt", "--allow-net=tiktok.com:443,www.tiktok.com:443,m.tiktok.com:443,vm.tiktok.com:443,vt.tiktok.com:443"])
+            .arg(script.path())
+            .arg(link),
+        cancel,
+    )
+    .time_limit(Duration::from_secs(20))
+    .output_limit(8192)
+    .ignore_stderr()
+    .output()
+    {
+        Ok(output) => output,
+        Err(process::Error::Cancelled) => return Ok(None),
+        Err(process::Error::TimedOut) => {
+            return Err("TikTok share-link resolution timed out. Try the full video link.".into());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => thread::sleep(Duration::from_millis(50)),
-            Err(_) => {
-                crate::backend::stop(&mut child);
-                let _ = reader.join();
-                return Err("Could not resolve the TikTok share link.".into());
-            }
+        Err(process::Error::Start(_)) => {
+            return Err(
+                "Could not start TikTok link resolver. Check the download tools in Settings."
+                    .into(),
+            );
+        }
+        Err(process::Error::TooMuchOutput) => return Err(NOT_RESOLVED.into()),
+        Err(process::Error::Wait(_)) => {
+            return Err("Could not resolve the TikTok share link.".into());
         }
     };
-    let output = reader.join().ok().and_then(Result::ok).unwrap_or_default();
-    if !status.success() || output.len() > 8192 {
-        return Err("Could not resolve this TikTok share link. Open it in your browser and copy the full video link.".into());
+    if !output.status.success() {
+        return Err(NOT_RESOLVED.into());
     }
-    let url = crate::backend::normalize_url(output.trim())?;
+    let url = crate::backend::normalize_url(String::from_utf8_lossy(&output.stdout).trim())?;
     if crate::backend::source(&url) != Some(crate::backend::Source::TikTok)
         || crate::backend::is_tiktok_short(&url)
     {

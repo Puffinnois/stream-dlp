@@ -1,17 +1,11 @@
-use crate::session::SessionCookies;
+use crate::{process, session::SessionCookies};
 use serde::Deserialize;
 use std::{
     collections::VecDeque,
-    io::{BufRead, BufReader, Read},
     path::PathBuf,
-    process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
-    },
-    thread,
-    time::{Duration, Instant},
+    process::Command,
+    sync::{Arc, atomic::AtomicBool, mpsc::Sender},
+    time::Duration,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -441,26 +435,11 @@ pub fn tools_ready() -> bool {
             .is_file()
     })
 }
-pub fn hidden(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Give each helper its own process group so cancellation also stops FFmpeg.
-        cmd.process_group(0);
-    }
-    cmd
-}
 fn command(
     session: Option<&SessionCookies>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), String> {
     let tools = tools_dir();
     let mut cmd = Command::new(tools.join(crate::platform::executable("yt-dlp")));
-    hidden(&mut cmd);
     cmd.args([
         "--ignore-config",
         "--no-playlist",
@@ -506,25 +485,6 @@ pub enum Event {
     Cancelled,
 }
 
-pub(crate) fn stop(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        // SAFETY: hidden() assigns the spawned helper a process group equal to
-        // its PID. This targets that group, never our application's group.
-        unsafe {
-            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ =
-            hidden(Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]))
-                .output();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
 pub fn inspect(
     link: String,
     session: Option<SessionCookies>,
@@ -542,48 +502,24 @@ pub fn inspect(
         };
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
         cmd.args(["--dump-single-json", "--skip-download", "--", &link]);
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Could not start yt-dlp: {e}"))?;
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let out = thread::spawn(move || {
-            let mut text = String::new();
-            let result = BufReader::new(stdout).read_to_string(&mut text);
-            result.map(|_| text)
-        });
-        let err = thread::spawn(move || {
-            let mut text = String::new();
-            let _ = BufReader::new(stderr).read_to_string(&mut text);
-            text
-        });
-        let start = Instant::now();
-        let status = loop {
-            if cancel.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(150) {
-                stop(&mut child);
-                if cancel.load(Ordering::Relaxed) {
-                    return Ok(None);
-                }
+        let output = match process::Helper::new(&mut cmd, &cancel)
+            .time_limit(Duration::from_secs(150))
+            .output()
+        {
+            Ok(output) => output,
+            Err(process::Error::Cancelled) => return Ok(None),
+            Err(process::Error::TimedOut) => {
                 return Err(
                     "The video service took too long to respond. Check your connection and try again.".into(),
                 );
             }
-            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-                break status;
-            }
-            thread::sleep(Duration::from_millis(100));
+            Err(process::Error::Start(e)) => return Err(format!("Could not start yt-dlp: {e}")),
+            Err(error) => return Err(error.to_string()),
         };
-        let output = out
-            .join()
-            .map_err(|_| "Could not read video data.")?
-            .map_err(|e| e.to_string())?;
-        let errors = err.join().unwrap_or_default();
-        if !status.success() {
-            return Err(error_for(&errors, &link));
+        if !output.status.success() {
+            return Err(error_for(&String::from_utf8_lossy(&output.stderr), &link));
         }
-        parse_video_for(&output, &link).map(Some)
+        parse_video_for(&String::from_utf8_lossy(&output.stdout), &link).map(Some)
     })();
     let _ = tx.send(match result {
         Ok(Some(v)) => Event::Loaded(v),
@@ -669,62 +605,29 @@ pub fn download(
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
             .args(["--output", template, "--", link]);
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Could not start download: {e}"))?;
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let (line_tx, line_rx) = std::sync::mpsc::channel();
-        let reader = |stream: Box<dyn Read + Send>, line_tx: std::sync::mpsc::Sender<String>| {
-            thread::spawn(move || {
-                for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                    if line_tx.send(line).is_err() {
-                        break;
-                    }
-                }
-            })
-        };
-        let out = reader(Box::new(stdout), line_tx.clone());
-        let err = reader(Box::new(stderr), line_tx);
+        // TikTok diagnostics can contain signed media URLs. Only send structured
+        // progress to the UI; errors are classified below.
+        let tiktok = media.source == Source::TikTok;
         let mut tail = VecDeque::new();
         let mut final_path = None;
-        let mut process_line = |line: String| {
+        let status = match process::Helper::new(&mut cmd, &cancel).lines(|_, line| {
             if let Some(path) = line.strip_prefix("__FILE__") {
                 final_path = Some(PathBuf::from(path));
             } else {
                 if tail.len() >= 20 {
                     tail.pop_front();
                 }
-                tail.push_back(line.clone());
-                // TikTok diagnostics can contain signed media URLs. Only send
-                // structured progress to the UI; errors are classified below.
-                if source(link) != Some(Source::TikTok) || line.starts_with("__PROGRESS__") {
-                    let _ = tx.send(Event::Line(line));
+                tail.push_back(line.to_owned());
+                if !tiktok || line.starts_with("__PROGRESS__") {
+                    let _ = tx.send(Event::Line(line.to_owned()));
                 }
             }
+        }) {
+            Ok(status) => status,
+            Err(process::Error::Cancelled) => return Ok(None),
+            Err(process::Error::Start(e)) => return Err(format!("Could not start download: {e}")),
+            Err(error) => return Err(error.to_string()),
         };
-        let status = loop {
-            if cancel.load(Ordering::Relaxed) {
-                stop(&mut child);
-                let _ = out.join();
-                let _ = err.join();
-                return Ok(None);
-            }
-            while let Ok(line) = line_rx.try_recv() {
-                process_line(line);
-            }
-            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-                break status;
-            }
-            thread::sleep(Duration::from_millis(80));
-        };
-        let _ = out.join();
-        let _ = err.join();
-        for line in line_rx {
-            process_line(line);
-        }
         if !status.success() {
             return Err(error_for(
                 &tail.into_iter().collect::<Vec<_>>().join("\n"),
@@ -766,6 +669,8 @@ pub fn progress(line: &str) -> Option<(f32, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::isolate;
+    use std::{io::Read, sync::atomic::Ordering, thread, time::Instant};
 
     #[test]
     fn tiktok_share_and_mobile_routes_keep_session_isolation() {
@@ -1045,7 +950,7 @@ mod tests {
             std::fs::metadata(&path).unwrap().modified().unwrap(),
             modified
         );
-        let decoded = hidden(
+        let decoded = isolate(
             Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
                 .args(["-v", "error", "-xerror", "-i"])
                 .arg(&path)
@@ -1083,34 +988,6 @@ mod tests {
             path.display()
         );
     }
-    #[cfg(unix)]
-    #[test]
-    fn cancellation_stops_descendants_in_the_helper_process_group() {
-        let directory = tempfile::tempdir().unwrap();
-        let survived = directory.path().join("survived");
-        let ready = directory.path().join("ready");
-        let mut child = hidden(
-            Command::new("/bin/sh")
-                .args([
-                    "-c",
-                    "(sleep 1; printf survived > \"$1\") & printf ready > \"$2\"; wait",
-                    "test",
-                ])
-                .arg(&survived)
-                .arg(&ready),
-        )
-        .spawn()
-        .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !ready.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
-        }
-        let started = ready.exists();
-        stop(&mut child);
-        assert!(started, "The synthetic helper did not start");
-        thread::sleep(Duration::from_millis(1200));
-        assert!(!survived.exists(), "A descendant survived cancellation");
-    }
 
     #[test]
     #[ignore = "requires installed FFmpeg and yt-dlp, plus localhost sockets"]
@@ -1121,7 +998,7 @@ mod tests {
             .join(format!("local-{}", std::process::id()));
         std::fs::create_dir_all(&output).unwrap();
         let fixture = output.join("manifest.mpd");
-        let generated = hidden(
+        let generated = isolate(
             Command::new(tools_dir().join(crate::platform::executable("ffmpeg")))
                 .current_dir(&output)
                 .args([
@@ -1287,7 +1164,7 @@ mod tests {
         }
         let saved = saved.expect("No completion event");
         assert!(had_progress, "No progress events were parsed");
-        let probe = hidden(
+        let probe = isolate(
             Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
                 .args([
                     "-v",
@@ -1403,7 +1280,7 @@ mod tests {
                 _ => panic!("Unexpected download event"),
             }
         };
-        let probe = hidden(
+        let probe = isolate(
             Command::new(tools_dir().join(crate::platform::executable("ffprobe")))
                 .args([
                     "-v",

@@ -107,7 +107,7 @@ fn powershell(script: &str, vars: &[(&str, &str)]) -> Result<String, String> {
     );
     command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
     command.envs(vars.iter().copied());
-    let output = crate::backend::hidden(&mut command)
+    let output = crate::process::isolate(&mut command)
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {

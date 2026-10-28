@@ -1,16 +1,16 @@
 //! Lazy, bounded frame previews. No decoding or file reads on the UI thread.
+use crate::process;
 use eframe::egui;
 use std::{
     collections::VecDeque,
-    io::{Read, Seek},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const WIDTH: usize = 480;
@@ -148,17 +148,13 @@ impl Previews {
 }
 
 fn extract(path: &Path, seconds: Option<f64>, cancel: &AtomicBool) -> Result<Vec<u8>, String> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err("Preview cancelled.".into());
-    }
     // Scale before sampling a representative poster, keeping the sample buffer small.
     let mut filter = "scale=w='max(1,min(480,270*dar))':h='max(1,min(270,480/dar))',setsar=1,pad=480:270:(ow-iw)/2:(oh-ih)/2".to_string();
     if seconds.is_none() {
         filter.push_str(",thumbnail=30");
     }
     let seek = format!("{:.1}", seconds.unwrap_or(0.));
-    let mut output = tempfile::tempfile().map_err(|e| e.to_string())?;
-    let mut child = crate::backend::hidden(
+    let output = process::Helper::new(
         Command::new(crate::platform::tools_dir().join(crate::platform::executable("ffmpeg")))
             .args([
                 "-hide_banner",
@@ -192,45 +188,24 @@ fn extract(path: &Path, seconds: Option<f64>, cancel: &AtomicBool) -> Result<Vec
                 "-f",
                 "rawvideo",
                 "pipe:1",
-            ])
-            .stdin(Stdio::null())
-            .stdout(output.try_clone().map_err(|e| e.to_string())?)
-            .stderr(Stdio::null()),
+            ]),
+        cancel,
     )
-    .spawn()
-    .map_err(|_| "Install the download tools to enable video previews.".to_string())?;
-    let start = Instant::now();
-    let status = loop {
-        if cancel.load(Ordering::Relaxed)
-            || start.elapsed() > Duration::from_secs(10)
-            || output
-                .metadata()
-                .is_ok_and(|m| m.len() > FRAME_BYTES as u64)
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Preview cancelled or timed out. You can still open the video.".into());
+    .time_limit(Duration::from_secs(10))
+    .output_limit(FRAME_BYTES as u64)
+    .ignore_stderr()
+    .output()
+    .map_err(|error| match error {
+        process::Error::Start(_) => "Install the download tools to enable video previews.".into(),
+        process::Error::Cancelled | process::Error::TimedOut | process::Error::TooMuchOutput => {
+            "Preview cancelled or timed out. You can still open the video.".into()
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error.to_string());
-            }
-        }
-    };
-    output.rewind().map_err(|e| e.to_string())?;
-    let mut rgb = Vec::with_capacity(FRAME_BYTES);
-    output
-        .take(FRAME_BYTES as u64 + 1)
-        .read_to_end(&mut rgb)
-        .map_err(|e| e.to_string())?;
-    if !status.success() || rgb.len() != FRAME_BYTES {
+        process::Error::Wait(error) => error.to_string(),
+    })?;
+    if !output.status.success() || output.stdout.len() != FRAME_BYTES {
         return Err("This frame could not be previewed. You can still open the video.".into());
     }
-    Ok(rgb)
+    Ok(output.stdout)
 }
 
 #[cfg(test)]
@@ -283,7 +258,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("portrait clip #1 🐦.mp4");
-        let status = crate::backend::hidden(
+        let status = process::isolate(
             Command::new(exe)
                 .args([
                     "-v",
