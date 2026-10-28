@@ -190,11 +190,16 @@ The optional anonymous live YouTube test is `cargo test --locked youtube_downloa
 
 ## Source layout
 
-- `src/main.rs`: native UI, worker coordination, Windows folder picker.
-- `src/backend.rs`: URL normalization, metadata and format parsing, yt-dlp invocation, progress, cancellation.
-- `src/session.rs`: explicit session import, YouTube-domain filtering, disposable cookie working files.
-- `src/browser_session.rs`: Firefox profile discovery and scoped native cookie import, cancellation and query deadline.
-- `src/export_help.rs`: Windows Downloads location and file-picker folder selection.
+- `src/main.rs`: arguments (`--check-tools`) and the window.
+- `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget.
+- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube and TikTok (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
+- `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
+- `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
+- `src/tools.rs`: where the bundled helpers are, whether they are all there, and `--check-tools`.
+- `src/session/`: session cookie validation, YouTube-domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
+- `src/update/`: the release channel, Windows update checks and installs, and the Mac's manual updates.
+- `src/streamable/`: the Streamable website handoff and experimental upload automation.
+- `src/platform.rs`: opening folders, files and links.
 - `Setup tools.ps1`: verified installation and update of external tools.
 - `build.ps1`: tests, release build, portable packaging, checksums.
 - `xtask/`: `cargo xtask check` and `cargo xtask release`.
