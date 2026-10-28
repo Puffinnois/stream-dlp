@@ -511,7 +511,7 @@ pub(crate) fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
         return Err("Choose a nonempty video file.".into());
     }
     let output = process::Helper::new(
-        Command::new(crate::backend::tools_dir().join(crate::platform::executable("ffprobe")))
+        Command::new(crate::tools::path("ffprobe"))
             .args([
                 "-v",
                 "error",
@@ -696,7 +696,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("clip #1 🐦.mp4");
         let status = process::isolate(
-            Command::new(crate::backend::tools_dir().join(crate::platform::executable("ffmpeg")))
+            Command::new(crate::tools::path("ffmpeg"))
                 .args([
                     "-v",
                     "error",

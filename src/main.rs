@@ -9,6 +9,7 @@ mod release_channel;
 mod session;
 mod streamable_upload;
 mod tiktok;
+mod tools;
 #[cfg(windows)]
 mod updater;
 #[cfg(not(windows))]
@@ -270,9 +271,7 @@ impl App {
                         {
                             self.retry_download = false;
                             self.start_download(self.destination.clone().unwrap());
-                        } else if backend::normalize_url(&self.link).is_ok()
-                            && backend::tools_ready()
-                        {
+                        } else if backend::normalize_url(&self.link).is_ok() && tools::ready() {
                             self.inspect();
                         }
                         self.refresh_used = refresh_used;
@@ -834,19 +833,19 @@ impl App {
         ui.add_space(16.);
         card(ui, |ui| {
             ui.label(RichText::new("Download tools").size(18.).strong());
-            ui.label(if backend::tools_ready() {
+            ui.label(if tools::ready() {
                 "All download tools are ready."
             } else {
                 "Download tools need setup."
             });
             ui.label(RichText::new("yt-dlp finds streams, FFmpeg combines video and audio, and Deno handles YouTube’s JavaScript challenges.").color(MUTED));
             egui::CollapsingHeader::new("Tool details & setup").show(ui, |ui| {
-                ui.label(format!("Location: {}", backend::tools_dir().display()));
-                ui.label(platform::tools_help());
+                ui.label(format!("Location: {}", tools::dir().display()));
+                ui.label(tools::help());
                 ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
             });
-            if !backend::tools_ready() {
-                ui.label(platform::tools_help());
+            if !tools::ready() {
+                ui.label(tools::help());
             }
         });
         ui.add_space(16.);
@@ -1027,10 +1026,10 @@ impl App {
                 if primary(
                     ui,
                     "Find video",
-                    !busy && !self.link.trim().is_empty() && backend::tools_ready(),
+                    !busy && !self.link.trim().is_empty() && tools::ready(),
                 )
                 .clicked()
-                    || (enter && !busy && backend::tools_ready())
+                    || (enter && !busy && tools::ready())
                 {
                     self.inspect();
                 }
@@ -1060,11 +1059,11 @@ impl App {
             });
         });
         self.session_panel(ui);
-        if !backend::tools_ready() {
+        if !tools::ready() {
             ui.add_space(12.);
             ui.colored_label(
                 Color32::from_rgb(174, 100, 20),
-                format!("Download tools are missing. {}", platform::tools_help()),
+                format!("Download tools are missing. {}", tools::help()),
             );
         }
         if self.browser_importing {
@@ -1527,22 +1526,9 @@ impl eframe::App for App {
 
 fn main() -> eframe::Result {
     if std::env::args().skip(1).any(|arg| arg == "--check-tools") {
-        // CI can exercise the installed app's actual bundle lookup without a
-        // desktop session, browser profile, or external video service.
-        for name in ["yt-dlp", "ffmpeg", "ffprobe", "deno"] {
-            let path = backend::tools_dir().join(platform::executable(name));
-            let result = process::isolate(std::process::Command::new(&path).arg(
-                if name == "yt-dlp" || name == "deno" {
-                    "--version"
-                } else {
-                    "-version"
-                },
-            ))
-            .status();
-            if !result.is_ok_and(|status| status.success()) {
-                eprintln!("Bundled tool check failed: {}", path.display());
-                std::process::exit(1);
-            }
+        if let Err(error) = tools::check() {
+            eprintln!("{error}");
+            std::process::exit(1);
         }
         println!("All bundled download tools are ready.");
         return Ok(());
