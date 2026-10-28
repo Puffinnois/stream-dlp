@@ -48,8 +48,8 @@ impl App {
                 self.progress = 0.;
                 self.log.clear();
                 self.phase = Phase::Inspecting;
-                self.cancel = Arc::new(AtomicBool::new(false));
-                let (tx, cancel) = (self.tx.clone(), self.cancel.clone());
+                self.download_cancel = Arc::new(AtomicBool::new(false));
+                let (tx, cancel) = (self.tx.clone(), self.download_cancel.clone());
                 let session = self.session.clone();
                 std::thread::spawn(move || engine::inspect(link, session, tx, cancel));
             }
@@ -136,12 +136,12 @@ impl App {
         );
         self.log.clear();
         self.phase = Phase::Downloading;
-        self.cancel = Arc::new(AtomicBool::new(false));
+        self.download_cancel = Arc::new(AtomicBool::new(false));
         let (media, format, tx, cancel) = (
             self.video.as_ref().unwrap().identity(),
             self.video.as_ref().unwrap().formats[self.selected].clone(),
             self.tx.clone(),
-            self.cancel.clone(),
+            self.download_cancel.clone(),
         );
         let session = self.session.clone();
         std::thread::spawn(move || engine::download(media, format, folder, session, tx, cancel));
@@ -183,7 +183,7 @@ impl App {
             ui.label(RichText::new("Video link").size(14.).color(INK).strong());
             ui.add_space(2.);
             ui.horizontal(|ui| {
-                let busy = self.busy();
+                let busy = self.download_busy();
                 let width = (ui.available_width() - 156.).max(100.);
                 let response = ui.add_enabled(
                     !busy,
@@ -214,7 +214,7 @@ impl App {
                 );
                 if ui
                     .add_enabled(
-                        !self.busy(),
+                        !self.download_busy(),
                         egui::Button::new(if self.session.is_some() {
                             "YouTube session loaded · Manage"
                         } else {
@@ -242,7 +242,7 @@ impl App {
                     ui.spinner();
                     ui.label("Importing your YouTube session from Firefox…");
                     if ui.button("Cancel import").clicked() {
-                        self.cancel.store(true, Ordering::Relaxed);
+                        self.import_cancel.store(true, Ordering::Relaxed);
                     }
                 });
             });
@@ -261,7 +261,7 @@ impl App {
                         .is_some_and(|link| link.source == engine::Source::YouTube)
                         && ui
                             .add_enabled(
-                                !self.busy(),
+                                !self.download_busy(),
                                 egui::Button::new("Connect browser / retry help"),
                             )
                             .clicked()
@@ -277,7 +277,7 @@ impl App {
                     ui.spinner();
                     ui.label("Finding your video and available formats…");
                     if ui.small_button("Cancel").clicked() {
-                        self.cancel.store(true, Ordering::Relaxed);
+                        self.download_cancel.store(true, Ordering::Relaxed);
                     }
                 });
             });
@@ -338,7 +338,7 @@ impl App {
                         .strong(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled_ui(!self.busy(), |ui| {
+                    ui.add_enabled_ui(!self.download_busy(), |ui| {
                         for (filter, name) in [
                             (FormatFilter::Audio, "Audio"),
                             (FormatFilter::Video, "Video"),
@@ -366,7 +366,7 @@ impl App {
                 .max_height(244.)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.add_enabled_ui(!self.busy(), |ui| {
+                    ui.add_enabled_ui(!self.download_busy(), |ui| {
                         for (index, format) in video.formats.iter().enumerate() {
                             if !self.filter.shows(format) {
                                 continue;
@@ -470,7 +470,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(&self.status);
                         if ui.small_button("Cancel").clicked() {
-                            self.cancel.store(true, Ordering::Relaxed);
+                            self.download_cancel.store(true, Ordering::Relaxed);
                             self.status = "Cancelling…".into();
                         }
                     });

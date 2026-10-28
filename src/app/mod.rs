@@ -55,7 +55,8 @@ pub struct App {
     rx: mpsc::Receiver<Event>,
     folder_tx: mpsc::Sender<Option<PathBuf>>,
     folder_rx: mpsc::Receiver<Option<PathBuf>>,
-    cancel: Arc<AtomicBool>,
+    download_cancel: Arc<AtomicBool>,
+    import_cancel: Arc<AtomicBool>,
     error: Option<String>,
     status: String,
     progress: f32,
@@ -116,7 +117,8 @@ impl App {
             rx,
             folder_tx,
             folder_rx,
-            cancel: Arc::new(AtomicBool::new(false)),
+            download_cancel: Arc::new(AtomicBool::new(false)),
+            import_cancel: Arc::new(AtomicBool::new(false)),
             error: None,
             status: String::new(),
             progress: 0.,
@@ -151,15 +153,27 @@ impl App {
         }
     }
 
-    fn busy(&self) -> bool {
-        self.gif.busy
-            || self.library.uploader.status.active
-            || self.updater.downloading
-            || self.session_loading
+    /// Whether the Download page is working: finding a video, choosing a folder, downloading,
+    /// or importing a session. GIF conversions and uploads do not block it.
+    fn download_busy(&self) -> bool {
+        self.session_loading
             || matches!(
                 self.phase,
                 Phase::Inspecting | Phase::Picking | Phase::Downloading
             )
+    }
+    /// Whether anything is running. Closing waits for it; installing an update needs it idle.
+    fn busy(&self) -> bool {
+        self.download_busy()
+            || self.gif.busy
+            || self.library.uploader.status.active
+            || self.updater.downloading
+    }
+    fn cancel_all(&self) {
+        self.library.uploader.cancel();
+        self.gif.cancel();
+        self.download_cancel.store(true, Ordering::Relaxed);
+        self.import_cancel.store(true, Ordering::Relaxed);
     }
     fn poll(&mut self) {
         self.poll_session();
@@ -294,16 +308,14 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
         if ctx.input(|i| i.viewport().close_requested()) {
-            self.library.uploader.cancel();
-            self.gif.cancel();
-            self.cancel.store(true, Ordering::Relaxed);
+            self.cancel_all();
             if self.busy() {
                 self.closing = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
         }
         if self.closing {
-            self.cancel.store(true, Ordering::Relaxed);
+            self.cancel_all();
             if !self.busy() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -319,7 +331,11 @@ impl eframe::App for App {
                 egui::ScrollArea::vertical()
                     .id_salt("page")
                     .show(ui, |ui| match self.page {
-                        Page::Download => self.content(ui),
+                        Page::Download => {
+                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                                self.content(ui)
+                            });
+                        }
                         Page::Settings => self.settings(ui),
                         Page::Gif => {
                             ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
@@ -337,9 +353,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.library.uploader.cancel();
-        self.gif.cancel();
-        self.cancel.store(true, Ordering::Relaxed);
+        self.cancel_all();
     }
 }
 
@@ -397,6 +411,17 @@ mod tests {
             app.video.as_ref().unwrap().formats[app.selected].format_id,
             "137"
         );
+    }
+
+    #[test]
+    fn gif_conversions_and_uploads_do_not_block_downloading() {
+        let mut app = App::with_profiles(Vec::new());
+        app.gif.busy = true;
+        app.library.uploader.status.active = true;
+        assert!(!app.download_busy());
+        assert!(app.busy(), "Closing and updates still wait for them");
+        app.phase = Phase::Downloading;
+        assert!(app.download_busy());
     }
 
     #[test]
@@ -477,7 +502,7 @@ mod tests {
             app.session_expanded = true;
             app.session_loading = true;
             app.browser_importing = true;
-            app.cancel.store(cancelled, Ordering::Relaxed);
+            app.import_cancel.store(cancelled, Ordering::Relaxed);
             app.session_tx
                 .send(Some(SessionImport {
                     path: None,

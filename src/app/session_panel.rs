@@ -103,7 +103,7 @@ impl App {
                 }
                 match import.cookies {
                     Ok(session) => {
-                        if self.cancel.load(Ordering::Relaxed) || self.closing {
+                        if self.import_cancel.load(Ordering::Relaxed) || self.closing {
                             self.session_error = Some("Browser import cancelled.".into());
                             return;
                         }
@@ -141,7 +141,7 @@ impl App {
     fn import_session(&mut self, folder: PathBuf) {
         self.refresh_used = false;
         self.session_loading = true;
-        self.cancel = Arc::new(AtomicBool::new(false));
+        self.import_cancel = Arc::new(AtomicBool::new(false));
         self.session_error = None;
         let tx = self.session_tx.clone();
         std::thread::spawn(move || {
@@ -163,8 +163,8 @@ impl App {
         self.session_loading = true;
         self.browser_importing = true;
         self.session_error = None;
-        self.cancel = Arc::new(AtomicBool::new(false));
-        let (tx, cancel) = (self.session_tx.clone(), self.cancel.clone());
+        self.import_cancel = Arc::new(AtomicBool::new(false));
+        let (tx, cancel) = (self.session_tx.clone(), self.import_cancel.clone());
         std::thread::spawn(move || {
             let cookies = session::firefox::import(&profile, &cancel);
             let _ = tx.send(Some(SessionImport {
@@ -178,7 +178,10 @@ impl App {
         if !cfg!(windows) {
             ui.label("On Mac, connect your YouTube session using an exported cookies.txt file. Automatic browser import is not available in this experimental release.");
             if ui
-                .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
+                .add_enabled(
+                    !self.download_busy(),
+                    egui::Button::new("Open export guide"),
+                )
                 .clicked()
             {
                 self.session_mode = SessionMode::ExportGuide;
@@ -187,7 +190,7 @@ impl App {
             return;
         }
         ui.label("Choose your browser. Firefox can import directly; Chrome and Edge currently need an exported file.");
-        ui.add_enabled_ui(!self.busy(), |ui| {
+        ui.add_enabled_ui(!self.download_busy(), |ui| {
             egui::ComboBox::from_id_salt("session_browser")
                 .selected_text(self.browser_choice.label())
                 .show_ui(ui, |ui| {
@@ -199,7 +202,10 @@ impl App {
         if self.browser_choice != ImportBrowser::Firefox {
             ui.label("Direct import for this browser is not available yet. The export guide will help you connect your session.");
             if ui
-                .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
+                .add_enabled(
+                    !self.download_busy(),
+                    egui::Button::new("Open export guide"),
+                )
                 .clicked()
             {
                 self.export_browser = ExportBrowser::ChromeOrEdge;
@@ -210,7 +216,7 @@ impl App {
         }
         ui.label("Import reads YouTube cookies from the Firefox profile you select. Cookies stay in memory; they are used only for YouTube and removed when you disconnect or close the app.");
         ui.label(RichText::new("Automatic import is experimental. Private windows and Firefox containers need the manual export option.").size(12.).color(MUTED));
-        ui.add_enabled_ui(!self.busy(), |ui| {
+        ui.add_enabled_ui(!self.download_busy(), |ui| {
             ui.checkbox(&mut self.auto_refresh, "Auto mode: refresh this profile once if YouTube asks to sign in");
             if self.browser_profiles.is_empty() {
                 ui.label("No Firefox cookie profiles found. Open Firefox, sign in to YouTube, then refresh this list.");
@@ -283,7 +289,7 @@ impl App {
                         "Choose your session export…"
                     });
                     if self.browser_importing && ui.button("Cancel import").clicked() {
-                        self.cancel.store(true, Ordering::Relaxed);
+                        self.import_cancel.store(true, Ordering::Relaxed);
                     }
                 });
             }
@@ -303,7 +309,7 @@ impl App {
                     ui.label(format!("Firefox · {}", profile.name));
                     if ui
                         .add_enabled(
-                            !self.busy(),
+                            !self.download_busy(),
                             egui::Button::new("Refresh from Firefox & retry"),
                         )
                         .clicked()
@@ -312,7 +318,7 @@ impl App {
                     }
                 }
                 if ui
-                    .add_enabled(!self.busy(), egui::Button::new("Remove session"))
+                    .add_enabled(!self.download_busy(), egui::Button::new("Remove session"))
                     .clicked()
                 {
                     self.session = None;
@@ -347,7 +353,7 @@ impl App {
             .size(12.)
             .color(MUTED),
         );
-        ui.add_enabled_ui(!self.busy(), |ui| {
+        ui.add_enabled_ui(!self.download_busy(), |ui| {
             if primary(ui, "Choose exported .txt file", true).clicked() {
                 self.import_session(folder);
             }
