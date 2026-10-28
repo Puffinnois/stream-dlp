@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod backend;
 mod browser_session;
+mod engine;
 mod export_help;
 mod gif_converter;
 mod platform;
@@ -8,7 +8,6 @@ mod process;
 mod release_channel;
 mod session;
 mod streamable_upload;
-mod tiktok;
 mod tools;
 #[cfg(windows)]
 mod updater;
@@ -18,8 +17,8 @@ mod updater;
 mod video_library;
 mod video_preview;
 
-use backend::{Event, Video};
 use eframe::egui::{self, Color32, RichText, Vec2};
+use engine::{Event, Video};
 use std::{
     path::PathBuf,
     sync::{
@@ -58,7 +57,7 @@ struct App {
     gif: gif_converter::Converter,
     updater: updater::Updater,
     link: String,
-    loaded_link: String,
+    loaded_link: Option<engine::Link>,
     video: Option<Video>,
     selected: usize,
     filter: usize,
@@ -72,7 +71,7 @@ struct App {
     status: String,
     progress: f32,
     destination: Option<PathBuf>,
-    saved: Option<backend::CompletedDownload>,
+    saved: Option<engine::CompletedDownload>,
     confirm_install: bool,
     closing: bool,
     session: Option<session::SessionCookies>,
@@ -168,7 +167,7 @@ impl App {
             gif: gif_converter::Converter::default(),
             updater: updater::Updater::default(),
             link: String::new(),
-            loaded_link: String::new(),
+            loaded_link: None,
             video: None,
             selected: 0,
             filter: 0,
@@ -219,12 +218,12 @@ impl App {
             )
     }
     fn inspect(&mut self) {
-        match backend::normalize_url(&self.link) {
-            Err(error) => self.error = Some(error),
+        match engine::parse_link(&self.link) {
+            Err(error) => self.error = Some(error.user_message()),
             Ok(link) => {
                 self.refresh_used = false;
                 self.retry_download = false;
-                self.loaded_link = link.clone();
+                self.loaded_link = Some(link.clone());
                 self.error = None;
                 self.video = None;
                 self.saved = None;
@@ -236,7 +235,7 @@ impl App {
                 self.cancel = Arc::new(AtomicBool::new(false));
                 let (tx, cancel) = (self.tx.clone(), self.cancel.clone());
                 let session = self.session.clone();
-                std::thread::spawn(move || backend::inspect(link, session, tx, cancel));
+                std::thread::spawn(move || engine::inspect(link, session, tx, cancel));
             }
         }
     }
@@ -266,12 +265,13 @@ impl App {
                         if self.retry_download
                             && self.video.is_some()
                             && self.destination.is_some()
-                            && backend::normalize_url(&self.link).as_deref()
-                                == Ok(self.loaded_link.as_str())
+                            && self.loaded_link.as_ref().is_some_and(|loaded| {
+                                engine::parse_link(&self.link).is_ok_and(|link| link == *loaded)
+                            })
                         {
                             self.retry_download = false;
                             self.start_download(self.destination.clone().unwrap());
-                        } else if backend::normalize_url(&self.link).is_ok() && tools::ready() {
+                        } else if engine::parse_link(&self.link).is_ok() && tools::ready() {
                             self.inspect();
                         }
                         self.refresh_used = refresh_used;
@@ -292,7 +292,7 @@ impl App {
                     self.phase = Phase::Choosing;
                 }
                 Event::Line(line) => {
-                    if let Some((fraction, status)) = backend::progress(&line) {
+                    if let Some((fraction, status)) = engine::progress(&line) {
                         self.progress = fraction;
                         self.status = status;
                     } else if line.contains("[Merger]") || line.contains("[Fixup") {
@@ -310,16 +310,15 @@ impl App {
                     self.status = "Your download is ready.".into();
                 }
                 Event::Failed(error) => {
-                    let needs_session = backend::needs_session(&error);
+                    let needs_session = error.needs_session();
                     self.retry_download = self.phase == Phase::Downloading;
-                    self.error = Some(error);
+                    self.error = Some(error.user_message());
                     self.phase = if self.video.is_some() {
                         Phase::Choosing
                     } else {
                         Phase::Idle
                     };
                     if needs_session
-                        && backend::source(&self.loaded_link) != Some(backend::Source::TikTok)
                         && self.auto_refresh
                         && !self.refresh_used
                         && !self.closing
@@ -372,7 +371,7 @@ impl App {
             self.cancel.clone(),
         );
         let session = self.session.clone();
-        std::thread::spawn(move || backend::download(media, format, folder, session, tx, cancel));
+        std::thread::spawn(move || engine::download(media, format, folder, session, tx, cancel));
     }
     /// Switches the format list (0 all, 1 video, 2 audio); a hidden selection moves to the
     /// first shown format so the download always matches a visible row.
@@ -1085,7 +1084,10 @@ impl App {
                 .inner_margin(14)
                 .show(ui, |ui| {
                     ui.colored_label(Color32::from_rgb(175, 46, 57), error);
-                    if backend::source(&self.loaded_link) == Some(backend::Source::YouTube)
+                    if self
+                        .loaded_link
+                        .as_ref()
+                        .is_some_and(|link| link.source == engine::Source::YouTube)
                         && ui
                             .add_enabled(
                                 !self.busy(),
@@ -1175,7 +1177,7 @@ impl App {
                 });
             });
             ui.label(
-                RichText::new(if video.source == backend::Source::TikTok {
+                RichText::new(if video.source == engine::Source::TikTok {
                     "Experimental TikTok support · these video formats include audio."
                 } else {
                     "Available streams · video-only choices are combined with matching audio."
@@ -1421,7 +1423,7 @@ fn icon_tile(ui: &mut egui::Ui, size: f32, background: Color32, foreground: Colo
     );
 }
 
-fn shown(filter: usize, format: &backend::Format) -> bool {
+fn shown(filter: usize, format: &engine::Format) -> bool {
     match filter {
         1 => format.video(),
         2 => !format.video(),
@@ -1559,8 +1561,8 @@ mod app_tests {
     #[test]
     fn completed_download_keeps_identity_when_input_changes() {
         let mut app = App::with_profiles(Vec::new());
-        let media = backend::MediaIdentity {
-            source: backend::Source::TikTok,
+        let media = engine::MediaIdentity {
+            source: engine::Source::TikTok,
             source_url: "https://www.tiktok.com/@creator/video/123".into(),
             id: Some("123".into()),
             extractor_key: Some("TikTok".into()),
@@ -1568,7 +1570,7 @@ mod app_tests {
         let path = PathBuf::from("download.mp4");
         app.link = "https://www.youtube.com/watch?v=abcdefghijk".into();
         app.tx
-            .send(Event::Complete(backend::CompletedDownload {
+            .send(Event::Complete(engine::CompletedDownload {
                 path: path.clone(),
                 media: media.clone(),
             }))
@@ -1581,14 +1583,14 @@ mod app_tests {
     }
 
     fn auth_error() -> Event {
-        Event::Failed(backend::YOUTUBE_SIGN_IN.into())
+        Event::Failed(engine::EngineError::SignInNeeded(engine::Source::YouTube))
     }
 
     #[test]
     fn format_filter_moves_a_hidden_selection_to_a_shown_format() {
         let mut app = App::with_profiles(Vec::new());
         app.video = Some(
-            backend::parse_video(
+            engine::parse_video(
                 r#"{"formats":[{"format_id":"137","vcodec":"avc1","acodec":"none","height":1080},
                 {"format_id":"140","vcodec":"none","acodec":"mp4a"}]}"#,
             )
@@ -1662,13 +1664,17 @@ mod app_tests {
     #[test]
     fn tiktok_errors_cannot_refresh_youtube_sessions() {
         let mut app = App::with_profiles(Vec::new());
-        app.loaded_link = "https://www.tiktok.com/@creator/video/123".into();
+        app.loaded_link = engine::parse_link("https://www.tiktok.com/@creator/video/123").ok();
         app.browser_source = Some(browser_session::Profile {
             name: "Unused".into(),
             path: PathBuf::from("unused"),
             default: false,
         });
-        app.tx.send(auth_error()).unwrap();
+        app.tx
+            .send(Event::Failed(engine::EngineError::SignInNeeded(
+                engine::Source::TikTok,
+            )))
+            .unwrap();
         app.poll();
         assert!(!app.session_loading);
         assert!(!app.refresh_used);
