@@ -1,5 +1,5 @@
 //! Channel-specific GitHub release checks. Downloading and launching always require a UI click.
-use crate::release_channel::Channel;
+use super::Channel;
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
@@ -107,7 +107,7 @@ fn powershell(script: &str, vars: &[(&str, &str)]) -> Result<String, String> {
     );
     command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
     command.envs(vars.iter().copied());
-    let output = crate::backend::hidden(&mut command)
+    let output = crate::process::isolate(&mut command)
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
