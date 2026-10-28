@@ -8,8 +8,10 @@ pub mod theme;
 mod videos;
 
 use crate::{engine, session, update};
+use download::FormatFilter;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use engine::{Event, Video};
+use session_panel::{ExportBrowser, ExportStep, ImportBrowser, SessionMode};
 use std::{
     path::PathBuf,
     sync::{
@@ -47,7 +49,7 @@ pub struct App {
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
     selected: usize,
-    filter: usize,
+    filter: FormatFilter,
     phase: Phase,
     tx: mpsc::Sender<Event>,
     rx: mpsc::Receiver<Event>,
@@ -69,8 +71,8 @@ pub struct App {
     session_rx: mpsc::Receiver<Option<SessionImport>>,
     session_folder: PathBuf,
     session_file: Option<PathBuf>,
-    session_mode: usize,
-    browser_choice: usize,
+    session_mode: SessionMode,
+    browser_choice: ImportBrowser,
     browser_profiles: Vec<session::firefox::Profile>,
     browser_profile: usize,
     browser_source: Option<session::firefox::Profile>,
@@ -78,8 +80,8 @@ pub struct App {
     retry_download: bool,
     auto_refresh: bool,
     refresh_used: bool,
-    export_browser: usize,
-    export_step: usize,
+    export_browser: ExportBrowser,
+    export_step: ExportStep,
     log: std::collections::VecDeque<String>,
 }
 
@@ -108,7 +110,7 @@ impl App {
             loaded_link: None,
             video: None,
             selected: 0,
-            filter: 0,
+            filter: FormatFilter::All,
             phase: Phase::Idle,
             tx,
             rx,
@@ -130,8 +132,12 @@ impl App {
             session_rx,
             session_folder: session::export::export_folder(),
             session_file: None,
-            session_mode: if cfg!(windows) { 0 } else { 1 },
-            browser_choice: 0,
+            session_mode: if cfg!(windows) {
+                SessionMode::Browser
+            } else {
+                SessionMode::CookieFile
+            },
+            browser_choice: ImportBrowser::Firefox,
             browser_profiles,
             browser_profile: 0,
             browser_source: None,
@@ -139,8 +145,8 @@ impl App {
             retry_download: false,
             auto_refresh: true,
             refresh_used: false,
-            export_browser: 0,
-            export_step: 0,
+            export_browser: ExportBrowser::ChromeOrEdge,
+            export_step: ExportStep::Browser,
             log: Default::default(),
         }
     }
@@ -379,14 +385,14 @@ mod tests {
             )
             .unwrap(),
         );
-        app.set_filter(2);
+        app.set_filter(FormatFilter::Audio);
         assert_eq!(
             app.video.as_ref().unwrap().formats[app.selected].format_id,
             "140"
         );
-        app.set_filter(0);
+        app.set_filter(FormatFilter::All);
         assert_eq!(app.selected, 1, "A shown selection is kept");
-        app.set_filter(1);
+        app.set_filter(FormatFilter::Video);
         assert_eq!(
             app.video.as_ref().unwrap().formats[app.selected].format_id,
             "137"

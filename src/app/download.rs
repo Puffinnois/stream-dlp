@@ -14,6 +14,24 @@ use std::{
     },
 };
 
+/// Which formats the list shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FormatFilter {
+    All,
+    Video,
+    Audio,
+}
+
+impl FormatFilter {
+    fn shows(self, format: &engine::Format) -> bool {
+        match self {
+            Self::All => true,
+            Self::Video => format.video(),
+            Self::Audio => !format.video(),
+        }
+    }
+}
+
 impl App {
     pub(super) fn inspect(&mut self) {
         match engine::parse_link(&self.link) {
@@ -43,7 +61,7 @@ impl App {
                 Event::Loaded(video) => {
                     self.video = Some(video);
                     self.selected = 0;
-                    self.filter = 0;
+                    self.filter = FormatFilter::All;
                     self.phase = Phase::Choosing;
                 }
                 Event::Line(line) => {
@@ -128,16 +146,16 @@ impl App {
         let session = self.session.clone();
         std::thread::spawn(move || engine::download(media, format, folder, session, tx, cancel));
     }
-    /// Switches the format list (0 all, 1 video, 2 audio); a hidden selection moves to the
-    /// first shown format so the download always matches a visible row.
-    pub(super) fn set_filter(&mut self, filter: usize) {
+    /// Switches the format list; a hidden selection moves to the first shown format so the
+    /// download always matches a visible row.
+    pub(super) fn set_filter(&mut self, filter: FormatFilter) {
         self.filter = filter;
         if let Some(video) = &self.video
             && !video
                 .formats
                 .get(self.selected)
-                .is_some_and(|f| shown(filter, f))
-            && let Some(first) = video.formats.iter().position(|f| shown(filter, f))
+                .is_some_and(|f| filter.shows(f))
+            && let Some(first) = video.formats.iter().position(|f| filter.shows(f))
         {
             self.selected = first;
         }
@@ -321,9 +339,13 @@ impl App {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!self.busy(), |ui| {
-                        for (index, name) in [(2, "Audio"), (1, "Video"), (0, "All")] {
-                            if ui.selectable_label(self.filter == index, name).clicked() {
-                                self.set_filter(index);
+                        for (filter, name) in [
+                            (FormatFilter::Audio, "Audio"),
+                            (FormatFilter::Video, "Video"),
+                            (FormatFilter::All, "All"),
+                        ] {
+                            if ui.selectable_label(self.filter == filter, name).clicked() {
+                                self.set_filter(filter);
                             }
                         }
                     });
@@ -346,7 +368,7 @@ impl App {
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!self.busy(), |ui| {
                         for (index, format) in video.formats.iter().enumerate() {
-                            if !shown(self.filter, format) {
+                            if !self.filter.shows(format) {
                                 continue;
                             }
                             let selected = self.selected == index;
@@ -545,13 +567,5 @@ impl App {
                 }
             });
         }
-    }
-}
-
-fn shown(filter: usize, format: &engine::Format) -> bool {
-    match filter {
-        1 => format.video(),
-        2 => !format.video(),
-        _ => true,
     }
 }
