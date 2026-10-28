@@ -1,5 +1,5 @@
 //! The experimental Mac release uses manual updates; no PowerShell or installer.
-use crate::release_channel::Channel;
+use super::Channel;
 
 pub const RELEASES: &str = "https://github.com/Puffinnois/stream-dlp/releases";
 

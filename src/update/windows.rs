@@ -1,5 +1,5 @@
 //! Channel-specific GitHub release checks. Downloading and launching always require a UI click.
-use crate::release_channel::Channel;
+use super::Channel;
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
