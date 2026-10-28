@@ -114,6 +114,7 @@ If the existing portable executable is open, use `-PortableDirectory 'dist\strea
 - Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds the installer, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), and attaches the installer, ZIP, and checksums to the run.
 - Release: on a clean `main`, `cargo xtask release <patch|minor|major|dev>` (or an explicit `X.Y.Z` / `X.Y.Z-dev.N`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks the installer, and uploads the installer, ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes (a prerelease for `-dev.N`). Edit the notes and press **Publish**; installed apps only see published releases.
 - Changelog: the GitHub release notes.
+- Restructure and update-rework plan: [docs/plans/2026-10-27-ffc-alignment.md](docs/plans/2026-10-27-ffc-alignment.md).
 
 ## GIF converter
 
