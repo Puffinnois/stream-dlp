@@ -1,15 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod engine;
-mod gif_converter;
+mod media;
 mod platform;
 mod process;
 mod session;
-mod streamable_upload;
+mod streamable;
 mod tools;
 mod update;
-mod video_library;
-mod video_preview;
 
 use eframe::egui;
 

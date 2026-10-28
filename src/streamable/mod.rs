@@ -1,4 +1,5 @@
-//! Experimental website automation; never uses private Streamable API endpoints.
+//! Sharing on Streamable: the manual website handoff, and experimental website automation
+//! that never uses private Streamable API endpoints.
 use crate::process;
 use eframe::egui;
 use serde::Deserialize;
@@ -13,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DRIVER: &str = include_str!("../scripts/streamable-upload.js");
+const DRIVER: &str = include_str!("../../scripts/streamable-upload.js");
 
 #[derive(Debug, Default)]
 pub struct Status {
@@ -277,9 +278,52 @@ fn stopped() -> String {
         .into()
 }
 
+pub const STREAMABLE: &str = "https://streamable.com/";
+
+/// Reveals the video and opens Streamable, so the user can drag it into the website.
+pub fn handoff(
+    path: &Path,
+    reveal_file: impl FnOnce(&Path) -> Result<(), String>,
+    open_browser: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if !path.is_file() {
+        return Err("This video was moved or deleted. Choose it again.".into());
+    }
+    reveal_file(path)?;
+    open_browser()
+        .map_err(|e| format!("The file was revealed, but Streamable could not be opened. {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_handoff_preserves_file_and_never_claims_upload() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"original").unwrap();
+        assert!(
+            handoff(
+                file.path(),
+                |_| Err("reveal failed".into()),
+                || panic!("must not open browser")
+            )
+            .is_err()
+        );
+        assert!(
+            handoff(file.path(), |_| Ok(()), || Err("browser failed".into()))
+                .unwrap_err()
+                .contains("file was revealed")
+        );
+        assert_eq!(std::fs::read(file.path()).unwrap(), b"original");
+        assert!(
+            handoff(
+                &file.path().with_extension("missing"),
+                |_| panic!(),
+                || panic!()
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn failure_preserves_specific_reason_and_unverified_link() {
         let mut uploader = Uploader::default();
