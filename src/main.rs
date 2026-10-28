@@ -4,6 +4,7 @@ mod browser_session;
 mod export_help;
 mod gif_converter;
 mod platform;
+mod process;
 mod release_channel;
 mod session;
 mod streamable_upload;
@@ -1530,7 +1531,7 @@ fn main() -> eframe::Result {
         // desktop session, browser profile, or external video service.
         for name in ["yt-dlp", "ffmpeg", "ffprobe", "deno"] {
             let path = backend::tools_dir().join(platform::executable(name));
-            let result = backend::hidden(std::process::Command::new(&path).arg(
+            let result = process::isolate(std::process::Command::new(&path).arg(
                 if name == "yt-dlp" || name == "deno" {
                     "--version"
                 } else {

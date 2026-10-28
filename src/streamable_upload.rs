@@ -1,10 +1,10 @@
 //! Experimental website automation; never uses private Streamable API endpoints.
+use crate::process;
 use eframe::egui;
 use serde::Deserialize;
 use std::{
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -178,14 +178,6 @@ fn browser() -> Option<PathBuf> {
     ];
     candidates.into_iter().find(|p| p.is_file())
 }
-struct OwnedProcess(Child);
-impl Drop for OwnedProcess {
-    fn drop(&mut self) {
-        if !matches!(self.0.try_wait(), Ok(Some(_))) {
-            crate::backend::stop(&mut self.0);
-        }
-    }
-}
 fn run(path: &Path, cancel: &AtomicBool, mut emit: impl FnMut(Wire)) -> Result<(), String> {
     let path = std::path::absolute(path).map_err(|_| "Cannot locate the selected video.")?;
     if !path.is_file() {
@@ -223,8 +215,8 @@ fn run(path: &Path, cancel: &AtomicBool, mut emit: impl FnMut(Wire)) -> Result<(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let mut browser = OwnedProcess(
-        crate::backend::hidden(&mut command)
+    let mut browser = process::Owned(
+        process::isolate(&mut command)
             .spawn()
             .map_err(|_| "Could not start the private upload browser.")?,
     );
@@ -250,65 +242,35 @@ fn run(path: &Path, cancel: &AtomicBool, mut emit: impl FnMut(Wire)) -> Result<(
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    let mut helper = OwnedProcess(
-        crate::backend::hidden(
-            Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
-                .args(["run", "--no-prompt", "--no-config", "--no-remote"])
-                .arg(format!("--allow-net=127.0.0.1:{port}"))
-                .arg(script)
-                .arg(format!("http://127.0.0.1:{port}"))
-                .arg(path)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null()),
-        )
-        .spawn()
-        .map_err(|_| "Cannot start Deno. Install the download tools and try again.")?,
-    );
-    let stdout = helper.0.stdout.take().unwrap();
-    let (tx, rx) = mpsc::sync_channel(32);
-    let reader = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.len() <= 2048
-                && let Ok(wire) = serde_json::from_str::<Wire>(&line)
-                && tx.send(wire).is_err()
-            {
-                break;
-            }
-        }
-    });
-    let result = loop {
-        while let Ok(wire) = rx.try_recv() {
+    let result = process::Helper::new(
+        Command::new(crate::backend::tools_dir().join(crate::platform::executable("deno")))
+            .args(["run", "--no-prompt", "--no-config", "--no-remote"])
+            .arg(format!("--allow-net=127.0.0.1:{port}"))
+            .arg(script)
+            .arg(format!("http://127.0.0.1:{port}"))
+            .arg(path),
+        cancel,
+    )
+    .time_limit(Duration::from_secs(20 * 60).saturating_sub(start.elapsed()))
+    .ignore_stderr()
+    .lines(|_, line| {
+        if line.len() <= 2048
+            && let Ok(wire) = serde_json::from_str::<Wire>(line)
+        {
             emit(wire);
         }
-        if cancel.load(Ordering::Relaxed) {
-            break Err(stopped());
-        }
-        if start.elapsed() > Duration::from_secs(20 * 60) {
-            break Err("Upload timed out. The video may already exist on Streamable; no automatic retry was made.".into());
-        }
-        match helper.0.try_wait() {
-            Ok(Some(status)) => {
-                break if status.success() {
-                    Ok(())
-                } else {
-                    Err("Automatic uploading could not finish. Check the reported stage or use the manual website option. The video may already be uploaded; no retry was made.".into())
-                };
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(80)),
-            Err(_) => break Err("The upload helper stopped unexpectedly.".into()),
-        }
-    };
-    drop(helper);
+    });
     drop(browser);
-    // Drain before joining so a full bounded channel cannot strand the reader.
-    while let Ok(wire) = rx.recv_timeout(Duration::from_millis(100)) {
-        emit(wire);
-    }
-    let _ = reader.join();
     // Owned processes have stopped before the temporary profile is removed.
     drop(work);
-    result
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err("Automatic uploading could not finish. Check the reported stage or use the manual website option. The video may already be uploaded; no retry was made.".into()),
+        Err(process::Error::Cancelled) => Err(stopped()),
+        Err(process::Error::TimedOut) => Err("Upload timed out. The video may already exist on Streamable; no automatic retry was made.".into()),
+        Err(process::Error::Start(_)) => Err("Cannot start Deno. Install the download tools and try again.".into()),
+        Err(_) => Err("The upload helper stopped unexpectedly.".into()),
+    }
 }
 fn stopped() -> String {
     "Upload stopped. Streamable may already have received the video. No automatic retry was made."
