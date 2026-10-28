@@ -1,9 +1,8 @@
-//! Local, bounded two-pass GIF encoding. Workers own all temporary files.
-use crate::process::{self, Stream};
+//! The GIF converter page. Workers own all temporary files.
+use crate::media::gif::{self, Settings};
 use eframe::egui::{self, RichText};
 use std::{
-    path::{Path, PathBuf},
-    process::Command,
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -12,59 +11,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug)]
-struct Settings {
-    start: f64,
-    length: f64,
-    width: u32,
-    fps: u32,
-    colors: u32,
-    smooth: bool,
-    repeat: bool,
-}
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            start: 0.,
-            length: 5.,
-            width: 480,
-            fps: 15,
-            colors: 128,
-            smooth: false,
-            repeat: true,
-        }
-    }
-}
-impl Settings {
-    fn validate(&self, duration: f64) -> Result<(), String> {
-        if !duration.is_finite()
-            || !self.start.is_finite()
-            || !self.length.is_finite()
-            || self.start < 0.
-            || self.length < 0.1
-            || self.length > 60.
-            || self.start + self.length > duration + 0.001
-        {
-            return Err(
-                "Choose a clip between 0.1 and 60 seconds, within the source video.".into(),
-            );
-        }
-        if !(160..=960).contains(&self.width)
-            || !(5..=30).contains(&self.fps)
-            || !(32..=256).contains(&self.colors)
-        {
-            return Err("GIF settings are outside the supported range.".into());
-        }
-        Ok(())
-    }
-    fn filter(&self) -> String {
-        // Fit both dimensions, preserve aspect ratio, and never upscale.
-        format!(
-            "fps={},scale=w='min({},iw)':h='min({},ih)':force_original_aspect_ratio=decrease:flags=lanczos",
-            self.fps, self.width, self.width
-        )
-    }
-}
 enum Event {
     Dismissed,
     Source(PathBuf, f64),
@@ -73,7 +19,7 @@ enum Event {
     Finished(Result<(), String>),
 }
 pub struct Converter {
-    previews: crate::video_preview::Previews,
+    previews: super::preview::Previews,
     preview_time: f64,
     preview_change: (f64, Instant),
     source: Option<(PathBuf, f64)>,
@@ -91,7 +37,7 @@ impl Default for Converter {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
-            previews: crate::video_preview::Previews::default(),
+            previews: super::preview::Previews::default(),
             preview_time: 0.,
             preview_change: (0., Instant::now()),
             source: None,
@@ -180,16 +126,16 @@ impl Converter {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        crate::app::theme::page_header(
+        super::theme::page_header(
             ui,
             "GIF converter",
             "Turn a favorite moment into a GIF. Made locally, on your device.",
         );
-        crate::app::theme::card(ui, |ui| {
+        super::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Source video")
                     .size(14.)
-                    .color(crate::app::theme::INK)
+                    .color(super::theme::INK)
                     .strong(),
             );
             if let Some((path, duration)) = &self.source {
@@ -225,7 +171,7 @@ impl Converter {
                     self.preview_time
                 ));
                 if ui.button("Play source video").clicked() {
-                    self.error = crate::video_library::open_target(path.as_os_str()).err();
+                    self.error = crate::platform::open_target(path.as_os_str()).err();
                 }
                 ui.label(
                     RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).strong(),
@@ -256,11 +202,11 @@ impl Converter {
             }
         });
         ui.add_space(16.);
-        crate::app::theme::card(ui, |ui| {
+        super::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Clip & quality")
                     .size(14.)
-                    .color(crate::app::theme::INK)
+                    .color(super::theme::INK)
                     .strong(),
             );
             ui.add_enabled_ui(!self.busy, |ui| {
@@ -297,11 +243,11 @@ impl Converter {
             });
         });
         ui.add_space(16.);
-        crate::app::theme::card(ui, |ui| {
+        super::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Export")
                     .size(14.)
-                    .color(crate::app::theme::INK)
+                    .color(super::theme::INK)
                     .strong(),
             );
             let valid = self
@@ -309,14 +255,10 @@ impl Converter {
                 .as_ref()
                 .map(|(_, duration)| self.settings.validate(*duration));
             if let Some(Err(error)) = &valid {
-                ui.colored_label(crate::app::theme::MUTED, error);
+                ui.colored_label(super::theme::MUTED, error);
             }
-            if crate::app::theme::primary(
-                ui,
-                "Save GIF…",
-                !self.busy && matches!(valid, Some(Ok(()))),
-            )
-            .clicked()
+            if super::theme::primary(ui, "Save GIF…", !self.busy && matches!(valid, Some(Ok(()))))
+                .clicked()
             {
                 let (source, duration) = self.source.clone().unwrap();
                 let settings = self.settings.clone();
@@ -333,7 +275,16 @@ impl Converter {
                         .save_file()
                     {
                         let path = path.with_extension("gif");
-                        let size = convert(&source, &path, &settings, duration, cancel, tx)?;
+                        let size = gif::convert(
+                            &source,
+                            &path,
+                            &settings,
+                            duration,
+                            cancel,
+                            |progress| {
+                                let _ = tx.send(Event::Progress(progress));
+                            },
+                        )?;
                         let _ = tx.send(Event::Saved(path, size));
                     } else {
                         let _ = tx.send(Event::Dismissed);
@@ -364,7 +315,7 @@ impl Converter {
             }
             if let Some((path, size)) = &self.saved {
                 if ui.button("Preview GIF").clicked()
-                    && let Err(error) = crate::video_library::open_target(path.as_os_str())
+                    && let Err(error) = crate::platform::open_target(path.as_os_str())
                 {
                     self.error = Some(error);
                 }
@@ -384,7 +335,7 @@ impl Converter {
     }
 }
 fn load_source(tx: &mpsc::Sender<Event>, cancel: &AtomicBool, path: PathBuf) -> Result<(), String> {
-    let video = crate::video_library::probe(&path, cancel)?;
+    let video = crate::media::local::probe(&path, cancel)?;
     let duration = video
         .duration
         .filter(|d| *d >= 0.1)
@@ -394,227 +345,4 @@ fn load_source(tx: &mpsc::Sender<Event>, cancel: &AtomicBool, path: PathBuf) -> 
     }
     let _ = tx.send(Event::Source(path, duration));
     Ok(())
-}
-fn convert(
-    source: &Path,
-    destination: &Path,
-    settings: &Settings,
-    duration: f64,
-    cancel: &AtomicBool,
-    tx: &mpsc::Sender<Event>,
-) -> Result<u64, String> {
-    settings.validate(duration)?;
-    if destination.exists() {
-        return Err(
-            "That filename already exists. Choose a new name; existing files are never replaced."
-                .into(),
-        );
-    }
-    let folder = destination.parent().ok_or("Choose a destination folder.")?;
-    let work =
-        tempfile::tempdir_in(folder).map_err(|e| format!("Cannot write to this folder: {e}"))?;
-    let palette = work.path().join("palette.png");
-    let output = work.path().join("output.gif");
-    for pass in 0..2 {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("Cancelled".into());
-        }
-        let mut command = Command::new(crate::tools::path("ffmpeg"));
-        command
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-y",
-                "-filter_threads",
-                "1",
-                "-filter_complex_threads",
-                "1",
-                "-threads",
-                "2",
-                "-protocol_whitelist",
-                "file",
-                "-ss",
-                &settings.start.to_string(),
-                "-t",
-                &settings.length.to_string(),
-                "-i",
-            ])
-            .arg(source);
-        if pass == 0 {
-            command
-                .args([
-                    "-map",
-                    "0:V:0",
-                    "-vf",
-                    &format!(
-                        "{},palettegen=max_colors={}:stats_mode=diff",
-                        settings.filter(),
-                        settings.colors
-                    ),
-                    "-frames:v",
-                    "1",
-                ])
-                .arg(&palette);
-        } else {
-            let dither = if settings.smooth {
-                "sierra2_4a"
-            } else {
-                "bayer:bayer_scale=3"
-            };
-            command
-                .arg("-i")
-                .arg(&palette)
-                .args([
-                    "-filter_complex",
-                    &format!(
-                        "[0:V:0]{}[v];[v][1:v]paletteuse=dither={dither}:diff_mode=rectangle[out]",
-                        settings.filter()
-                    ),
-                    "-map",
-                    "[out]",
-                    "-an",
-                    "-loop",
-                    if settings.repeat { "0" } else { "-1" },
-                    "-threads",
-                    "2",
-                ])
-                .arg(&output);
-        }
-        command.args(["-progress", "pipe:1", "-nostats"]);
-        run(&mut command, cancel, |seconds| {
-            let fraction = (seconds / settings.length).clamp(0., 1.) as f32;
-            let progress = if pass == 0 {
-                fraction * 0.35
-            } else {
-                0.35 + fraction * 0.64
-            };
-            let _ = tx.send(Event::Progress(progress));
-        })?;
-    }
-    if cancel.load(Ordering::Relaxed) {
-        return Err("Cancelled".into());
-    }
-    let size = std::fs::metadata(&output).map_err(|e| e.to_string())?.len();
-    if size == 0 {
-        return Err("FFmpeg produced an empty GIF.".into());
-    }
-    // Atomic no-clobber publication on the same filesystem, with no partial destination.
-    tempfile::TempPath::try_from_path(output)
-        .map_err(|e| e.to_string())?
-        .persist_noclobber(destination)
-        .map_err(|e| format!("Could not save GIF (choose a new filename): {e}"))?;
-    Ok(size)
-}
-fn run(
-    command: &mut Command,
-    cancel: &AtomicBool,
-    mut progress: impl FnMut(f64),
-) -> Result<(), String> {
-    let mut errors = String::new();
-    let status = process::Helper::new(command, cancel)
-        .time_limit(Duration::from_secs(600))
-        .output_limit(2_000_000)
-        .lines(|stream, line| match stream {
-            Stream::Stdout => {
-                if let Some(time) = line
-                    .strip_prefix("out_time_us=")
-                    .and_then(|s| s.parse::<f64>().ok())
-                {
-                    progress(time / 1_000_000.);
-                }
-            }
-            Stream::Stderr => {
-                if errors.len() < 4000 {
-                    errors.push_str(line);
-                    errors.push('\n');
-                }
-            }
-        })
-        .map_err(|error| match error {
-            process::Error::Start(e) => {
-                format!("Cannot start FFmpeg: {e}. {}", crate::tools::help())
-            }
-            process::Error::Cancelled => "Cancelled".into(),
-            process::Error::TimedOut => {
-                "Conversion timed out. Try a smaller or shorter clip.".into()
-            }
-            process::Error::TooMuchOutput => "FFmpeg generated too much diagnostic output.".into(),
-            process::Error::Wait(e) => format!("Could not monitor FFmpeg: {e}"),
-        })?;
-    if !status.success() {
-        let errors: String = errors.chars().take(4000).collect();
-        return Err(format!(
-            "FFmpeg could not convert this clip. {}",
-            errors.trim()
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn validates_clip_and_resource_limits() {
-        let mut s = Settings::default();
-        assert!(s.validate(10.).is_ok());
-        s.start = 8.;
-        assert!(s.validate(10.).is_err());
-        s.start = f64::NAN;
-        assert!(s.validate(10.).is_err());
-        s.start = 0.;
-        s.length = 61.;
-        assert!(s.validate(100.).is_err());
-        s.length = 5.;
-        s.width = 4000;
-        assert!(s.validate(10.).is_err());
-    }
-    #[test]
-    fn ffmpeg_conversion_and_no_clobber() {
-        let exe = crate::tools::path("ffmpeg");
-        if !exe.exists() {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let source = dir.path().join("test clip.mp4");
-        let status = process::isolate(
-            Command::new(exe)
-                .args([
-                    "-v",
-                    "error",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "testsrc2=size=320x180:rate=10",
-                    "-t",
-                    "1",
-                    "-pix_fmt",
-                    "yuv420p",
-                ])
-                .arg(&source),
-        )
-        .status()
-        .unwrap();
-        assert!(status.success());
-        let destination = dir.path().join("clip.gif");
-        let (tx, _) = mpsc::channel();
-        let cancel = AtomicBool::new(false);
-        let settings = Settings {
-            length: 0.8,
-            start: 0.1,
-            ..Settings::default()
-        };
-        assert!(convert(&source, &destination, &settings, 1., &cancel, &tx).unwrap() > 0);
-        let original = std::fs::read(&destination).unwrap();
-        assert!(original.starts_with(b"GIF89a"));
-        assert!(convert(&source, &destination, &settings, 1., &cancel, &tx).is_err());
-        assert_eq!(std::fs::read(&destination).unwrap(), original);
-        cancel.store(true, Ordering::Relaxed);
-        let cancelled = dir.path().join("cancelled.gif");
-        assert!(convert(&source, &cancelled, &settings, 1., &cancel, &tx).is_err());
-        assert!(!cancelled.exists());
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
-    }
 }

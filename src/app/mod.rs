@@ -1,10 +1,13 @@
 //! The window: shared state, the sidebar, and the frame loop. Each page is its own module.
 mod download;
+mod gif;
+mod preview;
 mod session_panel;
 mod settings;
 pub mod theme;
+mod videos;
 
-use crate::{engine, gif_converter, session, update, video_library};
+use crate::{engine, session, update};
 use eframe::egui::{self, Color32, RichText, Vec2};
 use engine::{Event, Video};
 use std::{
@@ -37,8 +40,8 @@ enum Page {
 
 pub struct App {
     page: Page,
-    library: video_library::Library,
-    gif: gif_converter::Converter,
+    library: videos::Library,
+    gif: gif::Converter,
     updater: update::Updater,
     link: String,
     loaded_link: Option<engine::Link>,
@@ -98,8 +101,8 @@ impl App {
         let (session_tx, session_rx) = mpsc::channel();
         Self {
             page: Page::Download,
-            library: video_library::Library::default(),
-            gif: gif_converter::Converter::default(),
+            library: videos::Library::default(),
+            gif: gif::Converter::default(),
             updater: update::Updater::default(),
             link: String::new(),
             loaded_link: None,
