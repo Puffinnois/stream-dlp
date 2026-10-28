@@ -10,7 +10,7 @@ This file holds the plan and its status. Feature work stays in [ROADMAP.md](../.
 - **v0.3.9 is a draft release, not published.** Its notes are only a changelog link; they must cover 0.3.8 (never published: local video previews) and 0.3.9 (TikTok share links, periodic update checks, fixes). Publishing moves the assets to `/releases/download/v0.3.9/…`, the URL installed apps require.
 - Installs on 0.3.5-dev.1 run the old updater, which only looks for Dev prereleases: they switch to Public once in Settings.
 - Push from WSL: its `gh` login has the `workflow` scope (needed for `.github/workflows`); Windows `gh` is not logged in. The first tag pushed together with a new workflow file did not start the Release run; re-pushing the tag fixed it.
-- **Phase 2 — done on branch `refactor/backend` (2026-10-27), not pushed or merged.** `cargo xtask check` passes on Windows, Clippy passes for `aarch64-apple-darwin`, and the localhost download pipeline test passes; the Mac build and the live YouTube/TikTok tests have not run on it.
+- **Phase 2 — done (2026-10-27).** Merged to `main` (`merge: refactor/backend (phase 2)`). Checks pass on Windows and Mac, and the localhost download pipeline test passes; the live YouTube/TikTok tests have not run on it.
 
 ## Open decisions
 
@@ -18,7 +18,7 @@ This file holds the plan and its status. Feature work stays in [ROADMAP.md](../.
 2. **Where to develop.** The repo sits in OneDrive with ~6.4 GB of build output (`target/`, `dist/`). Either move it to WSL (`~/project/stream-dlp`, like FFC: `cargo run` under WSLg for UI and engine work, Windows-only parts — Firefox import, installer updates — verified through `check/**` Package check runs; the Linux build is not verified yet), or keep Windows-native outside OneDrive (e.g. `C:\dev\stream-dlp`).
 3. **Update size.** Publish a slim update installer without the tools (the app is ~3 MB of the ~180 MB installer) for in-app updates.
 
-## Phase 2 — backend restructure (done on `refactor/backend`)
+## Phase 2 — backend restructure (done)
 
 Behaviour-preserving except the last item. The README's "Source layout" lists every module.
 
