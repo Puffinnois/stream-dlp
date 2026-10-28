@@ -159,7 +159,7 @@ impl Library {
                     let start = self
                         .folder
                         .clone()
-                        .unwrap_or_else(crate::export_help::downloads_folder);
+                        .unwrap_or_else(crate::session::export::downloads_folder);
                     self.job(ctx, move |cancel| {
                         let Some(folder) =
                             rfd::FileDialog::new().set_directory(start).pick_folder()
@@ -178,7 +178,7 @@ impl Library {
                     let start = self
                         .folder
                         .clone()
-                        .unwrap_or_else(crate::export_help::downloads_folder);
+                        .unwrap_or_else(crate::session::export::downloads_folder);
                     self.job(ctx, move |cancel| {
                         let Some(path) = rfd::FileDialog::new()
                             .set_directory(start)

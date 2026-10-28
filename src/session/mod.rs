@@ -1,3 +1,8 @@
+//! The signed-in YouTube session: validated cookie imports, Firefox profiles, and the
+//! manual export guide.
+pub mod export;
+pub mod firefox;
+
 use std::{
     io::{Read, Write},
     path::Path,

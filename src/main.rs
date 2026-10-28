@@ -1,19 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod browser_session;
 mod engine;
-mod export_help;
 mod gif_converter;
 mod platform;
 mod process;
-mod release_channel;
 mod session;
 mod streamable_upload;
 mod tools;
-#[cfg(windows)]
-mod updater;
-#[cfg(not(windows))]
-#[path = "updater_manual.rs"]
-mod updater;
+mod update;
 mod video_library;
 mod video_preview;
 
@@ -55,7 +48,7 @@ struct App {
     page: Page,
     library: video_library::Library,
     gif: gif_converter::Converter,
-    updater: updater::Updater,
+    updater: update::Updater,
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
@@ -84,9 +77,9 @@ struct App {
     session_file: Option<PathBuf>,
     session_mode: usize,
     browser_choice: usize,
-    browser_profiles: Vec<browser_session::Profile>,
+    browser_profiles: Vec<session::firefox::Profile>,
     browser_profile: usize,
-    browser_source: Option<browser_session::Profile>,
+    browser_source: Option<session::firefox::Profile>,
     browser_importing: bool,
     retry_download: bool,
     auto_refresh: bool,
@@ -98,7 +91,7 @@ struct App {
 
 struct SessionImport {
     path: Option<PathBuf>,
-    browser: Option<browser_session::Profile>,
+    browser: Option<session::firefox::Profile>,
     cookies: Result<session::SessionCookies, String>,
 }
 
@@ -154,10 +147,10 @@ impl App {
             .text_styles
             .insert(egui::TextStyle::Small, egui::FontId::proportional(12.));
         ctx.set_style(style);
-        Self::with_profiles(browser_session::profiles())
+        Self::with_profiles(session::firefox::profiles())
     }
 
-    fn with_profiles(browser_profiles: Vec<browser_session::Profile>) -> Self {
+    fn with_profiles(browser_profiles: Vec<session::firefox::Profile>) -> Self {
         let (tx, rx) = mpsc::channel();
         let (folder_tx, folder_rx) = mpsc::channel();
         let (session_tx, session_rx) = mpsc::channel();
@@ -165,7 +158,7 @@ impl App {
             page: Page::Download,
             library: video_library::Library::default(),
             gif: gif_converter::Converter::default(),
-            updater: updater::Updater::default(),
+            updater: update::Updater::default(),
             link: String::new(),
             loaded_link: None,
             video: None,
@@ -190,7 +183,7 @@ impl App {
             session_error: None,
             session_tx,
             session_rx,
-            session_folder: export_help::export_folder(),
+            session_folder: session::export::export_folder(),
             session_file: None,
             session_mode: if cfg!(windows) { 0 } else { 1 },
             browser_choice: 0,
@@ -410,7 +403,7 @@ impl App {
             let result = rfd::FileDialog::new()
                 .set_title("Choose your YouTube cookies.txt export")
                 .add_filter("Netscape cookie export", &["txt"])
-                .set_directory(export_help::picker_folder(&folder))
+                .set_directory(session::export::picker_folder(&folder))
                 .pick_file()
                 .map(|path| SessionImport {
                     cookies: session::SessionCookies::load(&path),
@@ -420,7 +413,7 @@ impl App {
             let _ = tx.send(result);
         });
     }
-    fn import_browser(&mut self, profile: browser_session::Profile, automatic: bool) {
+    fn import_browser(&mut self, profile: session::firefox::Profile, automatic: bool) {
         self.refresh_used = automatic;
         self.session_loading = true;
         self.browser_importing = true;
@@ -428,7 +421,7 @@ impl App {
         self.cancel = Arc::new(AtomicBool::new(false));
         let (tx, cancel) = (self.session_tx.clone(), self.cancel.clone());
         std::thread::spawn(move || {
-            let cookies = browser_session::import(&profile, &cancel);
+            let cookies = session::firefox::import(&profile, &cancel);
             let _ = tx.send(Some(SessionImport {
                 path: None,
                 browser: Some(profile),
@@ -491,7 +484,7 @@ impl App {
             if self.browser_profiles.is_empty() {
                 ui.label("No Firefox cookie profiles found. Open Firefox, sign in to YouTube, then refresh this list.");
             } else {
-                let label = |p: &browser_session::Profile| format!("{}{}", p.name, if p.default { " (default)" } else { "" });
+                let label = |p: &session::firefox::Profile| format!("{}{}", p.name, if p.default { " (default)" } else { "" });
                 egui::ComboBox::from_id_salt("firefox_profile")
                     .selected_text(label(&self.browser_profiles[self.browser_profile]))
                     .show_ui(ui, |ui| {
@@ -504,7 +497,7 @@ impl App {
                 }
             }
             if ui.button("Refresh profile list").clicked() {
-                self.browser_profiles = browser_session::profiles();
+                self.browser_profiles = session::firefox::profiles();
                 self.browser_profile = 0;
             }
         });
@@ -612,14 +605,14 @@ impl App {
 
     fn session_file_controls(&mut self, ui: &mut egui::Ui, guided: bool) {
         let folder = if guided {
-            export_help::export_folder()
+            session::export::export_folder()
         } else {
             self.session_folder.clone()
         };
         ui.label(
             RichText::new(format!(
                 "Look in: {}",
-                export_help::picker_folder(&folder).display()
+                session::export::picker_folder(&folder).display()
             ))
             .size(12.)
             .color(MUTED),
@@ -629,7 +622,7 @@ impl App {
                 self.import_session(folder);
             }
             if ui.button("Look in Downloads instead").clicked() {
-                self.import_session(export_help::downloads_folder());
+                self.import_session(session::export::downloads_folder());
             }
         });
         ui.label(RichText::new("If the browser saved it automatically, open its Downloads list and reveal the file in your file manager. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports.").size(12.).color(MUTED));
@@ -661,13 +654,13 @@ impl App {
                 if self.export_browser == 0 {
                     ui.hyperlink_to(
                         "Get cookies.txt LOCALLY · Chrome Web Store",
-                        export_help::CHROME_EXPORTER,
+                        session::export::CHROME_EXPORTER,
                     );
                     ui.label("Edge users: if the Chrome extension cannot be installed, use Firefox and its exporter instead.");
                 } else {
                     ui.hyperlink_to(
                         "cookies.txt by Lennon Hill · Firefox Add-ons",
-                        export_help::FIREFOX_EXPORTER,
+                        session::export::FIREFOX_EXPORTER,
                     );
                 }
                 ui.label("For the private-window export below, allow the exporter in private / incognito windows from your browser’s extension settings.");
@@ -685,11 +678,11 @@ impl App {
                 );
                 ui.label(if self.export_browser == 0 { "3. Open Get cookies.txt LOCALLY and export cookies for youtube.com / this site in Netscape format." } else { "3. Open cookies.txt from the browser toolbar and export the current YouTube site in Netscape format." });
                 ui.label("4. Save the file below, then close the private window. Use Open export folder to create and open the suggested folder first.");
-                let folder = export_help::export_folder();
+                let folder = session::export::export_folder();
                 ui.label(
                     RichText::new(format!(
                         "Save as: {}",
-                        folder.join(export_help::EXPORT_NAME).display()
+                        folder.join(session::export::EXPORT_NAME).display()
                     ))
                     .strong(),
                 );
@@ -738,7 +731,7 @@ impl App {
                 RichText::new(format!(
                     "Installed: {} · {}",
                     env!("CARGO_PKG_VERSION"),
-                    release_channel::Channel::installed().label()
+                    update::Channel::installed().label()
                 ))
                 .color(MUTED),
             );
@@ -749,12 +742,12 @@ impl App {
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             &mut channel,
-                            release_channel::Channel::Public,
+                            update::Channel::Public,
                             "Public · stable releases",
                         );
                         ui.selectable_value(
                             &mut channel,
-                            release_channel::Channel::Dev,
+                            update::Channel::Dev,
                             "Dev · experimental prereleases",
                         );
                     });
@@ -762,14 +755,14 @@ impl App {
             if channel != self.updater.channel {
                 self.updater.set_channel(channel, ui.ctx());
             }
-            if self.updater.channel == release_channel::Channel::Dev {
+            if self.updater.channel == update::Channel::Dev {
                 ui.label(
                     RichText::new("Dev builds are experimental and may have unfinished features.")
                         .size(12.)
                         .color(MUTED),
                 );
             }
-            if self.updater.channel != release_channel::Channel::installed() {
+            if self.updater.channel != update::Channel::installed() {
                 ui.label("Switching channels can install an older version. Your videos stay in their folders.");
             }
             if let Some(update) = &self.updater.available {
@@ -790,7 +783,7 @@ impl App {
                         self.confirm_install = true;
                     }
                 } else {
-                    ui.hyperlink_to("Download Mac package", updater::RELEASES);
+                    ui.hyperlink_to("Download Mac package", update::RELEASES);
                     ui.label("Close the app and replace it with the downloaded Mac package.");
                 }
                 if busy && !self.updater.downloading {
@@ -817,9 +810,9 @@ impl App {
                         self.updater.check(ui.ctx());
                     }
                 } else {
-                    ui.hyperlink_to("Get Mac updates", updater::RELEASES);
+                    ui.hyperlink_to("Get Mac updates", update::RELEASES);
                 }
-                ui.hyperlink_to("Release notes", updater::RELEASES);
+                ui.hyperlink_to("Release notes", update::RELEASES);
             });
             ui.label(
                 RichText::new(
@@ -951,7 +944,7 @@ impl App {
                     ui.label(
                         RichText::new(format!(
                             "{} · v{}",
-                            release_channel::Channel::installed().label(),
+                            update::Channel::installed().label(),
                             env!("CARGO_PKG_VERSION")
                         ))
                         .size(11.)
@@ -1535,7 +1528,7 @@ fn main() -> eframe::Result {
         println!("All bundled download tools are ready.");
         return Ok(());
     }
-    std::thread::spawn(updater::remove_stale_installers);
+    std::thread::spawn(update::remove_stale_installers);
     eframe::run_native(
         "stream-dlp",
         eframe::NativeOptions {
@@ -1629,7 +1622,7 @@ mod app_tests {
         for enabled in [false, true] {
             let mut app = App::with_profiles(Vec::new());
             app.auto_refresh = enabled;
-            app.browser_source = Some(browser_session::Profile {
+            app.browser_source = Some(session::firefox::Profile {
                 name: "Synthetic missing profile".into(),
                 path: dir.path().join("missing"),
                 default: false,
@@ -1665,7 +1658,7 @@ mod app_tests {
     fn tiktok_errors_cannot_refresh_youtube_sessions() {
         let mut app = App::with_profiles(Vec::new());
         app.loaded_link = engine::parse_link("https://www.tiktok.com/@creator/video/123").ok();
-        app.browser_source = Some(browser_session::Profile {
+        app.browser_source = Some(session::firefox::Profile {
             name: "Unused".into(),
             path: PathBuf::from("unused"),
             default: false,
