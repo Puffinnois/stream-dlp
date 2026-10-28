@@ -13,6 +13,85 @@ use std::{
     },
 };
 
+/// What the YouTube connection panel shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SessionMode {
+    Browser,
+    CookieFile,
+    ExportGuide,
+}
+
+/// The browser to import a session from; only Firefox imports directly.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ImportBrowser {
+    Firefox,
+    Chrome,
+    Edge,
+}
+
+impl ImportBrowser {
+    const ALL: [Self; 3] = [Self::Firefox, Self::Chrome, Self::Edge];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Firefox => "Firefox · automatic",
+            Self::Chrome => "Chrome · guided export",
+            Self::Edge => "Edge · guided export",
+        }
+    }
+}
+
+/// The browser the export guide is written for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExportBrowser {
+    ChromeOrEdge,
+    Firefox,
+}
+
+impl ExportBrowser {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ChromeOrEdge => "Chrome / Edge",
+            Self::Firefox => "Firefox",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExportStep {
+    Browser,
+    Export,
+    SelectFile,
+}
+
+impl ExportStep {
+    const ALL: [Self; 3] = [Self::Browser, Self::Export, Self::SelectFile];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Browser => "1  Browser",
+            Self::Export => "2  Export",
+            Self::SelectFile => "3  Select file",
+        }
+    }
+
+    fn previous(self) -> Option<Self> {
+        match self {
+            Self::Browser => None,
+            Self::Export => Some(Self::Browser),
+            Self::SelectFile => Some(Self::Export),
+        }
+    }
+
+    fn next(self) -> Option<Self> {
+        match self {
+            Self::Browser => Some(Self::Export),
+            Self::Export => Some(Self::SelectFile),
+            Self::SelectFile => None,
+        }
+    }
+}
+
 impl App {
     pub(super) fn poll_session(&mut self) {
         if let Ok(result) = self.session_rx.try_recv() {
@@ -102,43 +181,30 @@ impl App {
                 .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
                 .clicked()
             {
-                self.session_mode = 2;
-                self.export_step = 0;
+                self.session_mode = SessionMode::ExportGuide;
+                self.export_step = ExportStep::Browser;
             }
             return;
         }
         ui.label("Choose your browser. Firefox can import directly; Chrome and Edge currently need an exported file.");
         ui.add_enabled_ui(!self.busy(), |ui| {
             egui::ComboBox::from_id_salt("session_browser")
-                .selected_text(
-                    [
-                        "Firefox · automatic",
-                        "Chrome · guided export",
-                        "Edge · guided export",
-                    ][self.browser_choice],
-                )
+                .selected_text(self.browser_choice.label())
                 .show_ui(ui, |ui| {
-                    for (index, name) in [
-                        "Firefox · automatic",
-                        "Chrome · guided export",
-                        "Edge · guided export",
-                    ]
-                    .iter()
-                    .enumerate()
-                    {
-                        ui.selectable_value(&mut self.browser_choice, index, *name);
+                    for browser in ImportBrowser::ALL {
+                        ui.selectable_value(&mut self.browser_choice, browser, browser.label());
                     }
                 });
         });
-        if self.browser_choice != 0 {
+        if self.browser_choice != ImportBrowser::Firefox {
             ui.label("Direct import for this browser is not available yet. The export guide will help you connect your session.");
             if ui
                 .add_enabled(!self.busy(), egui::Button::new("Open export guide"))
                 .clicked()
             {
-                self.export_browser = 0;
-                self.export_step = 0;
-                self.session_mode = 2;
+                self.export_browser = ExportBrowser::ChromeOrEdge;
+                self.export_step = ExportStep::Browser;
+                self.session_mode = SessionMode::ExportGuide;
             }
             return;
         }
@@ -185,21 +251,21 @@ impl App {
                 RichText::new("Connect only when a video needs your signed-in session.")
                     .color(MUTED),
             );
-            if self.session_mode == 0 {
+            if self.session_mode == SessionMode::Browser {
                 self.browser_controls(ui);
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Import a cookies file…").clicked() {
-                        self.session_mode = 1;
+                        self.session_mode = SessionMode::CookieFile;
                     }
                     if ui.button("Export guide").clicked() {
-                        self.session_mode = 2;
+                        self.session_mode = SessionMode::ExportGuide;
                     }
                 });
             } else {
                 if ui.button("← Browser connection").clicked() {
-                    self.session_mode = 0;
+                    self.session_mode = SessionMode::Browser;
                 }
-                if self.session_mode == 2 {
+                if self.session_mode == SessionMode::ExportGuide {
                     self.export_instructions(ui);
                 } else {
                     ui.label("Choose a Netscape-format .txt export of your YouTube cookies.");
@@ -293,28 +359,22 @@ impl App {
     }
     fn export_instructions(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (step, label) in ["1  Browser", "2  Export", "3  Select file"]
-                .iter()
-                .enumerate()
-            {
-                ui.selectable_value(&mut self.export_step, step, *label);
+            for step in ExportStep::ALL {
+                ui.selectable_value(&mut self.export_step, step, step.label());
             }
         });
         match self.export_step {
-            0 => {
+            ExportStep::Browser => {
                 ui.label(RichText::new("Choose the browser you use for YouTube").strong());
                 egui::ComboBox::from_id_salt("export_browser")
-                    .selected_text(if self.export_browser == 0 {
-                        "Chrome / Edge"
-                    } else {
-                        "Firefox"
-                    })
+                    .selected_text(self.export_browser.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.export_browser, 0, "Chrome / Edge");
-                        ui.selectable_value(&mut self.export_browser, 1, "Firefox");
+                        for browser in [ExportBrowser::ChromeOrEdge, ExportBrowser::Firefox] {
+                            ui.selectable_value(&mut self.export_browser, browser, browser.label());
+                        }
                     });
                 ui.label("Open this official store page in the selected browser. If needed, install the exporter yourself:");
-                if self.export_browser == 0 {
+                if self.export_browser == ExportBrowser::ChromeOrEdge {
                     ui.hyperlink_to(
                         "Get cookies.txt LOCALLY · Chrome Web Store",
                         session::export::CHROME_EXPORTER,
@@ -328,7 +388,7 @@ impl App {
                 }
                 ui.label("For the private-window export below, allow the exporter in private / incognito windows from your browser’s extension settings.");
             }
-            1 => {
+            ExportStep::Export => {
                 ui.label(RichText::new("Export only your YouTube session").strong());
                 ui.label("1. Open a new private / incognito window, sign in to YouTube, and complete any verification yourself.");
                 ui.hyperlink_to("YouTube sign-in page", "https://www.youtube.com/");
@@ -339,7 +399,7 @@ impl App {
                     "youtube.com/robots.txt",
                     "https://www.youtube.com/robots.txt",
                 );
-                ui.label(if self.export_browser == 0 { "3. Open Get cookies.txt LOCALLY and export cookies for youtube.com / this site in Netscape format." } else { "3. Open cookies.txt from the browser toolbar and export the current YouTube site in Netscape format." });
+                ui.label(if self.export_browser == ExportBrowser::ChromeOrEdge { "3. Open Get cookies.txt LOCALLY and export cookies for youtube.com / this site in Netscape format." } else { "3. Open cookies.txt from the browser toolbar and export the current YouTube site in Netscape format." });
                 ui.label("4. Save the file below, then close the private window. Use Open export folder to create and open the suggested folder first.");
                 let folder = session::export::export_folder();
                 ui.label(
@@ -358,7 +418,7 @@ impl App {
                 });
                 ui.label(RichText::new("If no Save As window appears, the file probably went into Downloads. Open the browser Downloads list to find its location.").size(12.).color(MUTED));
             }
-            _ => {
+            ExportStep::SelectFile => {
                 ui.label(RichText::new("Select the file you just exported").strong());
                 ui.label("Look for youtube-cookies.txt, cookies.txt, or a YouTube-named .txt export. Use the latest export if several files have similar names.");
                 self.session_file_controls(ui, true);
@@ -367,13 +427,19 @@ impl App {
         ui.add_space(6.);
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(self.export_step > 0, egui::Button::new("Back"))
+                .add_enabled(
+                    self.export_step.previous().is_some(),
+                    egui::Button::new("Back"),
+                )
                 .clicked()
+                && let Some(previous) = self.export_step.previous()
             {
-                self.export_step -= 1;
+                self.export_step = previous;
             }
-            if self.export_step < 2 && primary(ui, "Next", true).clicked() {
-                self.export_step += 1;
+            if let Some(next) = self.export_step.next()
+                && primary(ui, "Next", true).clicked()
+            {
+                self.export_step = next;
             }
         });
         ui.hyperlink_to(
