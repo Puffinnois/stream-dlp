@@ -141,21 +141,21 @@ impl Library {
         use egui::RichText;
         let ctx = &ui.ctx().clone();
         let busy = self.busy || self.uploader.status.active;
-        crate::page_header(
+        crate::app::theme::page_header(
             ui,
             "My videos",
             "Your local videos, ready to play or share.",
         );
-        crate::card(ui, |ui| {
+        crate::app::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Video folder")
                     .size(14.)
-                    .color(crate::INK)
+                    .color(crate::app::theme::INK)
                     .strong(),
             );
             ui.label("Choose a folder to see your videos here.");
             ui.horizontal_wrapped(|ui| {
-                if crate::primary(ui, "Add video folder…", !busy).clicked() {
+                if crate::app::theme::primary(ui, "Add video folder…", !busy).clicked() {
                     let start = self
                         .folder
                         .clone()
@@ -201,7 +201,7 @@ impl Library {
                 ui.label(
                     RichText::new(folder.display().to_string())
                         .size(12.)
-                        .color(crate::MUTED),
+                        .color(crate::app::theme::MUTED),
                 );
                 ui.small(
                     "Folder selection lasts for this app session. Subfolders are not scanned.",
@@ -209,18 +209,18 @@ impl Library {
             }
         });
         ui.add_space(18.);
-        crate::card(ui, |ui| {
+        crate::app::theme::card(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Your videos")
                         .size(14.)
-                        .color(crate::INK)
+                        .color(crate::app::theme::INK)
                         .strong(),
                 );
                 ui.label(
                     RichText::new(format!("{} videos", self.entries.len()))
                         .size(12.)
-                        .color(crate::MUTED),
+                        .color(crate::app::theme::MUTED),
                 );
             });
             if self.entries.is_empty() {
@@ -233,7 +233,7 @@ impl Library {
                 ui.label(
                     RichText::new("Add a video folder or choose an existing video to get started.")
                         .size(13.)
-                        .color(crate::MUTED),
+                        .color(crate::app::theme::MUTED),
                 );
                 ui.add_space(12.);
             }
@@ -267,7 +267,11 @@ impl Library {
                             })
                             .stroke(egui::Stroke::new(
                                 1.,
-                                if selected { crate::BLUE } else { crate::BORDER },
+                                if selected {
+                                    crate::app::theme::BLUE
+                                } else {
+                                    crate::app::theme::BORDER
+                                },
                             ))
                             .corner_radius(8.)
                             .min_size(egui::vec2(ui.available_width(), 76.5))
@@ -294,11 +298,11 @@ impl Library {
         });
         if let Some(video) = &self.selected {
             ui.add_space(18.);
-            crate::card(ui, |ui| {
+            crate::app::theme::card(ui, |ui| {
                 ui.label(
                     RichText::new("Selected video")
                         .size(14.)
-                        .color(crate::INK)
+                        .color(crate::app::theme::INK)
                         .strong(),
                 );
                 ui.strong(video.path.file_name().unwrap_or_default().to_string_lossy());
@@ -331,12 +335,14 @@ impl Library {
                 ui.separator();
                 ui.strong("Upload on Streamable");
                 ui.label("Automatic upload uses a separate private Edge or Chrome window. The app selects your video and returns the share link. Complete any sign-in or verification in that window.");
-                ui.label(RichText::new("Uploading sends this video to Streamable. Anyone with its link may be able to watch it. Guest links are temporary.").size(12.).color(crate::MUTED));
+                ui.label(RichText::new("Uploading sends this video to Streamable. Anyone with its link may be able to watch it. Guest links are temporary.").size(12.).color(crate::app::theme::MUTED));
                 ui.horizontal_wrapped(|ui| {
                     ui.small("By choosing Upload automatically, you accept Streamable’s");
                     ui.hyperlink_to("Terms of Service", "https://streamable-support.zendesk.com/hc/en-us/articles/44623209368468-Terms-of-Service");
                 });
-                if crate::primary(ui, "Upload automatically (experimental)", !busy).clicked() {
+                if crate::app::theme::primary(ui, "Upload automatically (experimental)", !busy)
+                    .clicked()
+                {
                     self.uploader.start(video.path.clone(), ctx);
                 }
                 if ui
@@ -360,11 +366,11 @@ impl Library {
         }
         if self.uploader.status.active || !self.uploader.status.message.is_empty() {
             ui.add_space(18.);
-            crate::card(ui, |ui| {
+            crate::app::theme::card(ui, |ui| {
                 ui.label(
                     RichText::new("Streamable upload")
                         .size(14.)
-                        .color(crate::INK)
+                        .color(crate::app::theme::INK)
                         .strong(),
                 );
                 let status = &self.uploader.status;
