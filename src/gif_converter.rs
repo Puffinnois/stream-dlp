@@ -180,16 +180,16 @@ impl Converter {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        crate::page_header(
+        crate::app::theme::page_header(
             ui,
             "GIF converter",
             "Turn a favorite moment into a GIF. Made locally, on your device.",
         );
-        crate::card(ui, |ui| {
+        crate::app::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Source video")
                     .size(14.)
-                    .color(crate::INK)
+                    .color(crate::app::theme::INK)
                     .strong(),
             );
             if let Some((path, duration)) = &self.source {
@@ -256,11 +256,11 @@ impl Converter {
             }
         });
         ui.add_space(16.);
-        crate::card(ui, |ui| {
+        crate::app::theme::card(ui, |ui| {
             ui.label(
                 RichText::new("Clip & quality")
                     .size(14.)
-                    .color(crate::INK)
+                    .color(crate::app::theme::INK)
                     .strong(),
             );
             ui.add_enabled_ui(!self.busy, |ui| {
@@ -297,17 +297,26 @@ impl Converter {
             });
         });
         ui.add_space(16.);
-        crate::card(ui, |ui| {
-            ui.label(RichText::new("Export").size(14.).color(crate::INK).strong());
+        crate::app::theme::card(ui, |ui| {
+            ui.label(
+                RichText::new("Export")
+                    .size(14.)
+                    .color(crate::app::theme::INK)
+                    .strong(),
+            );
             let valid = self
                 .source
                 .as_ref()
                 .map(|(_, duration)| self.settings.validate(*duration));
             if let Some(Err(error)) = &valid {
-                ui.colored_label(crate::MUTED, error);
+                ui.colored_label(crate::app::theme::MUTED, error);
             }
-            if crate::primary(ui, "Save GIF…", !self.busy && matches!(valid, Some(Ok(()))))
-                .clicked()
+            if crate::app::theme::primary(
+                ui,
+                "Save GIF…",
+                !self.busy && matches!(valid, Some(Ok(()))),
+            )
+            .clicked()
             {
                 let (source, duration) = self.source.clone().unwrap();
                 let settings = self.settings.clone();
