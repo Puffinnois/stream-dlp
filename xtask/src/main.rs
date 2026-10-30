@@ -1,7 +1,7 @@
 //! Project commands, the counterpart of npm scripts:
 //!
 //! - `cargo xtask check`: formatting, Clippy, the Rust tests and the Deno script tests — what CI runs.
-//! - `cargo xtask release <patch|minor|major|dev|X.Y.Z[-dev.N]>`: bumps Cargo.toml and Cargo.lock,
+//! - `cargo xtask release <patch|minor|major|X.Y.Z>`: bumps Cargo.toml and Cargo.lock,
 //!   commits `build: bump version to X`, and tags `vX`. `git push --follow-tags` then starts the
 //!   Release workflow, which uploads the build to a draft GitHub release.
 use std::{
@@ -20,10 +20,7 @@ fn main() -> ExitCode {
     {
         ["check"] => check(),
         ["release", bump] => release(bump),
-        _ => Err(
-            "usage: cargo xtask check | cargo xtask release <patch|minor|major|dev|X.Y.Z[-dev.N]>"
-                .into(),
-        ),
+        _ => Err("usage: cargo xtask check | cargo xtask release <patch|minor|major|X.Y.Z>".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -193,30 +190,18 @@ fn set_package_version(manifest: &str, current: &str, next: &str) -> Result<Stri
     ))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd)]
 struct Version {
     major: u64,
     minor: u64,
     patch: u64,
-    dev: Option<u64>,
 }
 
 impl Version {
-    /// `X.Y.Z` or `X.Y.Z-dev.N`; build.ps1 and the updater accept no other prerelease.
+    /// `X.Y.Z`; there are no prereleases (the updater offers only stable releases).
     fn parse(text: &str) -> Result<Self, String> {
-        let invalid = || format!("{text} is not X.Y.Z or X.Y.Z-dev.N");
-        let (core, dev) = match text.split_once('-') {
-            Some((core, pre)) => (
-                core,
-                Some(
-                    pre.strip_prefix("dev.")
-                        .and_then(|n| n.parse().ok())
-                        .ok_or_else(invalid)?,
-                ),
-            ),
-            None => (text, None),
-        };
-        let parts: Vec<u64> = core
+        let invalid = || format!("{text} is not X.Y.Z");
+        let parts: Vec<u64> = text
             .split('.')
             .map(|p| p.parse().map_err(|_| invalid()))
             .collect::<Result<_, _>>()?;
@@ -227,61 +212,38 @@ impl Version {
             major,
             minor,
             patch,
-            dev,
         })
     }
 }
 
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
-        if let Some(dev) = self.dev {
-            write!(f, "-dev.{dev}")?;
-        }
-        Ok(())
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
-/// `npm version` semantics: a bump from a dev build first releases that dev build's version.
+/// `npm version` semantics. An explicit version must be newer, since updates never downgrade.
 fn next_version(current: &str, bump: &str) -> Result<String, String> {
     let v = Version::parse(current)?;
-    let pre = v.dev.is_some();
     let next = match bump {
-        "patch" if pre => Version { dev: None, ..v },
         "patch" => Version {
             patch: v.patch + 1,
-            dev: None,
             ..v
         },
-        "minor" if pre && v.patch == 0 => Version { dev: None, ..v },
         "minor" => Version {
             minor: v.minor + 1,
             patch: 0,
-            dev: None,
             ..v
         },
-        "major" if pre && v.minor == 0 && v.patch == 0 => Version { dev: None, ..v },
         "major" => Version {
             major: v.major + 1,
             minor: 0,
             patch: 0,
-            dev: None,
-        },
-        "dev" => match v.dev {
-            Some(n) => Version {
-                dev: Some(n + 1),
-                ..v
-            },
-            None => Version {
-                patch: v.patch + 1,
-                dev: Some(1),
-                ..v
-            },
         },
         explicit => Version::parse(explicit)?,
     };
-    if next == v {
-        return Err(format!("{current} is already the current version"));
+    if next <= v {
+        return Err(format!("{next} is not newer than {current}"));
     }
     Ok(next.to_string())
 }
@@ -296,12 +258,8 @@ mod tests {
             ("0.3.8", "patch", "0.3.9"),
             ("0.3.8", "minor", "0.4.0"),
             ("0.3.8", "major", "1.0.0"),
-            ("0.3.8", "dev", "0.3.9-dev.1"),
-            ("0.3.9-dev.1", "dev", "0.3.9-dev.2"),
-            ("0.3.9-dev.2", "patch", "0.3.9"),
-            ("0.4.0-dev.1", "minor", "0.4.0"),
-            ("0.3.9-dev.1", "minor", "0.4.0"),
-            ("0.3.8", "0.5.0-dev.3", "0.5.0-dev.3"),
+            ("0.3.9", "0.3.10", "0.3.10"),
+            ("0.3.9", "0.5.0", "0.5.0"),
         ] {
             assert_eq!(
                 next_version(current, bump).unwrap(),
@@ -311,7 +269,9 @@ mod tests {
         }
         for (current, bump) in [
             ("0.3.8", "0.3.8"),
-            ("0.3.8", "0.4.0-beta.1"),
+            ("0.3.8", "0.3.7"),
+            ("0.3.8", "dev"),
+            ("0.3.8", "0.4.0-dev.1"),
             ("0.3.8", "0.4"),
             ("0.3.8", "next"),
         ] {
