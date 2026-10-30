@@ -11,7 +11,7 @@ This file holds the plan and its status. Feature work stays in [ROADMAP.md](../.
 - Before 0.3.9, an install set to the Dev channel only looks for Dev prereleases, and there will be none: it switches to Public once in Settings.
 - Push from WSL: its `gh` login has the `workflow` scope (needed for `.github/workflows`); Windows `gh` is not logged in. The first tag pushed together with a new workflow file did not start the Release run; re-pushing the tag fixed it.
 - **Phase 2 — done (2026-10-27).** Merged to `main` (`merge: refactor/backend (phase 2)`). Checks pass on Windows and Mac, and the localhost download pipeline test passes; the live YouTube/TikTok tests have not run on it.
-- **Phase 3 — implemented on `feat/update-rework` (2026-10-30), not merged.** `cargo xtask check` passes on Windows; the live GitHub release check and a live install of all tools into an empty folder pass; both installers compile with the bundled Inno Setup 7.1. Not yet verified: the Mac build with the new HTTP client (`ring` needs the Mac runner), the Package check's update-installer test, and a real in-app update, which needs two published releases that both have this updater.
+- **Phase 3 — done (2026-10-30).** Merged to `main` (`merge: feat/update-rework (phase 3)`). Checks pass on Windows and Mac (the Mac builds the new HTTP client). The Package check's update installer refuses a first installation, then updates an installation in place and keeps its tools. The live GitHub release check and a live install of all tools into an empty folder pass. Not yet verified: a real in-app update, which needs two published releases that both have this updater.
 
 ## Decisions
 
@@ -32,7 +32,7 @@ Behaviour-preserving except the last item. The README's "Source layout" lists ev
 - **Behaviour change:** the inspection/download and the session import have separate cancel tokens, and a GIF conversion or upload no longer disables the Download page (`download_busy()`); closing and installing an update still wait for everything (`busy()`).
 - Left for later: `--dev-mode` (phase 4).
 
-## Phase 3 — update rework (implemented)
+## Phase 3 — update rework (done)
 
 | | FFC | stream-dlp before | stream-dlp now |
 | --- | --- | --- | --- |
