@@ -85,6 +85,7 @@ impl App {
                 Event::Failed(error) => {
                     let needs_session = error.needs_session();
                     self.retry_download = self.phase == Phase::Downloading;
+                    crate::dev::errors::record("download", format!("{error:?}"));
                     self.error = Some(error.user_message());
                     self.phase = if self.video.is_some() {
                         Phase::Choosing
