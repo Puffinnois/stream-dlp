@@ -50,8 +50,8 @@ DisableProgramGroupPage=yes
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [InstallDelete]
-; Removed together with the Dev channel.
-Type: files; Name: "{app}\docs\release-channels.md"
+; The docs are replaced as a whole, so moved or removed ones do not stay behind.
+Type: filesandordirs; Name: "{app}\docs"
 
 [Files]
 Source: "{#PortableDir}\stream-dlp.exe"; DestDir: "{app}"; Flags: ignoreversion

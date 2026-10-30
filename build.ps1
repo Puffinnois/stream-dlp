@@ -21,8 +21,9 @@ try {
     Copy-Item -LiteralPath 'target\release\stream-dlp.exe' -Destination (Join-Path $portable 'stream-dlp.exe') -Force
     foreach ($file in @('Setup tools.ps1', 'README.md', 'LICENSE', 'THIRD-PARTY.md')) { Copy-Item -LiteralPath $file -Destination $portable -Force }
     $docs = Join-Path $portable 'docs'
+    if (Test-Path -LiteralPath $docs) { Remove-Item -LiteralPath $docs -Recurse -Force }
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
-    # Every Markdown document ships, so a release never needs this script edited.
+    # The user documents sit directly in docs/ and ship; its subfolders are for development.
     Get-ChildItem -LiteralPath 'docs' -Filter '*.md' -File | Copy-Item -Destination $docs -Force
     if (-not $SkipTools) { & '.\Setup tools.ps1' -Destination (Join-Path $portable 'tools') }
     # The distributable installs third-party tools directly from their official releases.

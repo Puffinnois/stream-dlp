@@ -58,7 +58,7 @@ Ship a browser-assisted workflow if this remains unchanged: choose a downloaded 
 
 ### R-01 — Browser session feasibility spike
 
-Progress October 21, 2026: [offline probe and decision record](docs/browser-session-spike.md).
+Progress October 21, 2026: [offline probe and decision record](docs/research/browser-session-spike.md).
 The installed helper passed nine synthetic-profile cases. A native, scoped Firefox
 importer was subsequently implemented and tested against the user's explicitly
 authorized profile while Firefox was open. Full authenticated-download acceptance,
@@ -74,7 +74,7 @@ candidate comparison, and the real-browser/Windows matrix remain open.
 
 ### R-02 — Streamable feasibility spike
 
-Decision October 21, 2026: [Streamable feasibility record](docs/streamable-feasibility.md).
+Decision October 21, 2026: [Streamable feasibility record](docs/research/streamable-feasibility.md).
 Select browser-assisted sharing. With explicit user approval, guest website
 uploads of a synthetic H.264 clip and an existing AV1/AAC download both processed
 and played from their share links. The signed-in account case remains untested.
@@ -91,7 +91,7 @@ Direct upload remains blocked by the documented read-only API.
 
 ### R-03 — Platform feasibility spike
 
-October 24, 2026: [TikTok investigation](docs/tiktok-feasibility.md) compares the
+October 24, 2026: [TikTok investigation](docs/research/tiktok-feasibility.md) compares the
 bundled and latest stable helpers using 20 anonymous metadata probes. Direct
 individual-video metadata succeeded. A user-supplied sample passed helper-level
 download, full audio/video decode, and no-overwrite checks. Short/mobile links and
@@ -184,7 +184,7 @@ connected profile after an authentication error. No all-site database copy is ma
 ### A-03 — Conditional extension investigation
 
 Deferred Chrome automatic-mode options and the recommended extension prototype
-are saved in [Chrome auto-mode options](docs/chrome-auto-mode-options.md), including
+are saved in [Chrome auto-mode options](docs/research/chrome-auto-mode-options.md), including
 dedicated-profile and assisted-export alternatives, constraints, and resume steps.
 No Chrome automatic integration has been implemented or selected yet.
 
@@ -200,7 +200,7 @@ Depends on F-01 through F-03. Ship each platform independently after live valida
 ### P-01 — TikTok
 
 Initial scope and implementation requirements are recorded in the
-[TikTok feasibility decision](docs/tiktok-feasibility.md). Full direct video links
+[TikTok feasibility decision](docs/research/tiktok-feasibility.md). Full direct video links
 are implemented experimentally, with production-backend download, decode,
 no-overwrite, session isolation, and startup-cancellation validation. Short/mobile
 links and wider acceptance remain open; no other platform was added.
@@ -273,7 +273,7 @@ Depends on R-02 and S-01; recommended initial sharing release under the current 
 
 ### S-02A — Experimental automatic website uploads
 
-Implemented at the user's request; [design and validation](docs/automatic-streamable-upload.md).
+Implemented at the user's request; [design and validation](docs/reference/automatic-streamable-upload.md).
 This automates the website rather than using an upload API. The manual S-02
 handoff remains available. S-03/S-04's direct-API blockers are unchanged.
 
