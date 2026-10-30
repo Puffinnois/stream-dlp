@@ -184,6 +184,7 @@ impl Updater {
                             self.ready = None;
                         }
                         Err(error) => {
+                            crate::dev::errors::record("update", &error);
                             self.message = format!("Could not check for updates: {error}")
                         }
                     }
@@ -197,6 +198,7 @@ impl Updater {
                             self.message = "The update is ready to install.".into();
                         }
                         Err(error) => {
+                            crate::dev::errors::record("update", &error);
                             self.message = format!("Could not download the update: {error}")
                         }
                     }
