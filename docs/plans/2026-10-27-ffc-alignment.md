@@ -2,7 +2,7 @@
 
 **Started:** 2026-10-27 · **Goal:** restructure the backend, make the repository easier to work on with Claude, and align the release/update workflow and dev environment with the fantasy-football-companion project (FFC, in WSL at `~/project/fantasy-football-companion`: `.github/workflows/`, `src/main/updater.ts`, `docs/reference/dev-notes.md`).
 
-This file holds the plan and its status. Feature work stays in [ROADMAP.md](../../ROADMAP.md); how to build and release is in the README's "Develop and release".
+This file holds the plan and its status. Feature work stays in [ROADMAP.md](../../ROADMAP.md); how to build and release is in [docs/reference/development.md](../reference/development.md).
 
 ## Status
 
@@ -12,16 +12,17 @@ This file holds the plan and its status. Feature work stays in [ROADMAP.md](../.
 - Push from WSL: its `gh` login has the `workflow` scope (needed for `.github/workflows`); Windows `gh` is not logged in. The first tag pushed together with a new workflow file did not start the Release run; re-pushing the tag fixed it.
 - **Phase 2 — done (2026-10-27).** Merged to `main` (`merge: refactor/backend (phase 2)`). Checks pass on Windows and Mac, and the localhost download pipeline test passes; the live YouTube/TikTok tests have not run on it.
 - **Phase 3 — done (2026-10-30).** Merged to `main` (`merge: feat/update-rework (phase 3)`). Checks pass on Windows and Mac (the Mac builds the new HTTP client). The Package check's update installer refuses a first installation, then updates an installation in place and keeps its tools. The live GitHub release check and a live install of all tools into an empty folder pass. Not yet verified: a real in-app update, which needs two published releases that both have this updater.
+- **Phase 4 — implemented on `feat/dev-environment` (2026-10-30), not merged**, in the new working copy `C:\dev\stream-dlp` (decision 2). `cargo xtask check` passes on Windows; in the running debug app, Ctrl+Shift+N opens the panel, a screenshot attaches without the panel in it, and the DEV chip and + Note button show; a headless test saves a note with a screenshot. Not yet verified: CI with the pinned toolchain and the new action versions, the Mac build with `chrono`, and the shipped docs in a Package check.
 
 ## Decisions
 
 1. **Release channels — one stable channel** (decided 2026-10-30). Dev builds and the Public/Dev setting are gone; phase 4's Dev mode holds the developer tools.
-2. **Where to develop — open.** The repo sits in OneDrive with ~6.4 GB of build output (`target/`, `dist/`). Either move it to WSL (`~/project/stream-dlp`, like FFC: `cargo run` under WSLg for UI and engine work, Windows-only parts — Firefox import, installer updates — verified through `check/**` Package check runs; the Linux build is not verified yet), or keep Windows-native outside OneDrive (e.g. `C:\dev\stream-dlp`).
+2. **Where to develop — Windows-native in `C:\dev\stream-dlp`** (decided 2026-10-30). A fresh clone with the gitignored `tools/` copied over replaces the OneDrive copy, which synced ~6.4 GB of build output. WSL was set aside: the Firefox import, installers and updater are Windows-only, and the app has no Linux helpers or Linux build.
 3. **Update size — slim update installer** (decided 2026-10-30), about 4 MB against 165 MB for the full installer.
 
 ## Phase 2 — backend restructure (done)
 
-Behaviour-preserving except the last item. The README's "Source layout" lists every module.
+Behaviour-preserving except the last item. The "Source layout" in [docs/reference/development.md](../reference/development.md) lists every module.
 
 - **`src/process.rs`** runs every helper: `isolate` (no console window, own Unix process group; was `backend::hidden`), `stop` (whole tree), `Owned` (stops on drop), and `Helper` (time limit, per-stream output limit, cancellation; `output()` collects, `lines()` streams). The seven hand-written loops are gone; probe and preview now stop the tree too.
 - **`src/tools.rs`**: location, `ready()` cached for two seconds, `check()` for `--check-tools`.
@@ -49,13 +50,13 @@ Behaviour-preserving except the last item. The README's "Source layout" lists ev
 - **Channels removed**: the setting (its `update-channel.json` is ignored), `-dev.N` versions in `xtask` and `build.ps1`, the Release workflow's prerelease flag, and `docs/release-channels.md` (the installer deletes the installed copy).
 - Not done: installing on quit (FFC does), resuming an interrupted download, and Mac downloads.
 
-## Phase 4 — environment and Dev mode
+## Phase 4 — environment and Dev mode (implemented)
 
-- Short README index like FFC's; move the user guide to `docs/`; split docs into `specs/`, `plans/`, `research/` (the feasibility files), `reference/`.
-- Dev mode (Ctrl+Shift+D, `--dev-mode`) and dev notes (Ctrl+Shift+N; screenshots through egui's `ViewportCommand::Screenshot`; `notes.md` in the app data folder; **Copy for Claude**), ported from FFC's `docs/reference/dev-notes.md`.
-- Pin Rust in `rust-toolchain.toml` (CI uses 1.93.1), as `.nvmrc` does for FFC.
-- Settle the name: folder `streamsave`, crate and app `stream-dlp`, an old `dist/StreamSave/StreamSave.exe`.
-- The Mac job still uses Node 20 actions (`checkout@v4`, `setup-python@v5`, `cache@v4`, `upload-artifact@v4`); move to current major versions.
+- **Working copy**: `C:\dev\stream-dlp` (decision 2), which also settles the name: folder, crate and app are all `stream-dlp`; the old `dist/StreamSave/StreamSave.exe` stayed behind in the OneDrive copy.
+- **Docs**: the README is a short index like FFC's. The user guide is `docs/guide.md`; `docs/` keeps only what ships with the app (the guide, `macos.md`), and `build.ps1` and the installer ship just those (the installer replaces `{app}\docs` as a whole; the Mac bundle adds `User guide.md`). Then `reference/` (development, dev notes, the Streamable upload automation), `plans/`, `research/` (the feasibility and spike records) and `releases/` (notes of 0.3.4–0.3.8). No `specs/` until there is a design to keep.
+- **Dev mode and dev notes** ([reference](../reference/dev-notes.md)): Ctrl+Shift+D and `--dev-mode`; the DEV chip and + Note button; the panel with tag, screenshots (`ViewportCommand::Screenshot`, panel hidden), context, recent errors; the list with Mark done, Copy for Claude, Delete, Change folder. `notes.md` is FFC's format in `%LOCALAPPDATA%\stream-dlp\dev-notes\`. Not ported: FFC's snip (crop) tool and Go there.
+- **Toolchain**: `rust-toolchain.toml` pins 1.93.1 with rustfmt and Clippy; CI installs it with `rustup toolchain install` instead of naming the version.
+- **Actions**: all workflows use `checkout@v7`, `setup-python@v7`, `cache@v6` and `upload-artifact@v7` (Node 24).
 
 ## Done in phase 1 (do not redo)
 
