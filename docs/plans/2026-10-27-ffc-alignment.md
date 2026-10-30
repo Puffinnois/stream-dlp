@@ -8,15 +8,16 @@ This file holds the plan and its status. Feature work stays in [ROADMAP.md](../.
 
 - **Phase 1 — done (2026-10-27).** Merged to `main` (`merge: feat/release-pipeline (phase 1)`, then `merge: fix/mac-ffmpeg-encoders`). Includes the TikTok share-link work, quick fixes (below), `cargo xtask check|release`, the Checks / Package check / Release workflows, `build.ps1` checksums and paths, and the Mac FFmpeg encoders for GIFs and previews. Checks pass on Windows and Mac.
 - **v0.3.9 is a draft release, not published.** Its notes are only a changelog link; they must cover 0.3.8 (never published: local video previews) and 0.3.9 (TikTok share links, periodic update checks, fixes). Publishing moves the assets to `/releases/download/v0.3.9/…`, the URL installed apps require.
-- Installs on 0.3.5-dev.1 run the old updater, which only looks for Dev prereleases: they switch to Public once in Settings.
+- Before 0.3.9, an install set to the Dev channel only looks for Dev prereleases, and there will be none: it switches to Public once in Settings.
 - Push from WSL: its `gh` login has the `workflow` scope (needed for `.github/workflows`); Windows `gh` is not logged in. The first tag pushed together with a new workflow file did not start the Release run; re-pushing the tag fixed it.
 - **Phase 2 — done (2026-10-27).** Merged to `main` (`merge: refactor/backend (phase 2)`). Checks pass on Windows and Mac, and the localhost download pipeline test passes; the live YouTube/TikTok tests have not run on it.
+- **Phase 3 — implemented on `feat/update-rework` (2026-10-30), not merged.** `cargo xtask check` passes on Windows; the live GitHub release check and a live install of all tools into an empty folder pass; both installers compile with the bundled Inno Setup 7.1. Not yet verified: the Mac build with the new HTTP client (`ring` needs the Mac runner), the Package check's update-installer test, and a real in-app update, which needs two published releases that both have this updater.
 
-## Open decisions
+## Decisions
 
-1. **Release channels.** Drop separate Dev builds for an FFC-style Dev mode inside the one build (phase 4), or keep the Dev channel (it now also receives newer stable releases).
-2. **Where to develop.** The repo sits in OneDrive with ~6.4 GB of build output (`target/`, `dist/`). Either move it to WSL (`~/project/stream-dlp`, like FFC: `cargo run` under WSLg for UI and engine work, Windows-only parts — Firefox import, installer updates — verified through `check/**` Package check runs; the Linux build is not verified yet), or keep Windows-native outside OneDrive (e.g. `C:\dev\stream-dlp`).
-3. **Update size.** Publish a slim update installer without the tools (the app is ~3 MB of the ~180 MB installer) for in-app updates.
+1. **Release channels — one stable channel** (decided 2026-10-30). Dev builds and the Public/Dev setting are gone; phase 4's Dev mode holds the developer tools.
+2. **Where to develop — open.** The repo sits in OneDrive with ~6.4 GB of build output (`target/`, `dist/`). Either move it to WSL (`~/project/stream-dlp`, like FFC: `cargo run` under WSLg for UI and engine work, Windows-only parts — Firefox import, installer updates — verified through `check/**` Package check runs; the Linux build is not verified yet), or keep Windows-native outside OneDrive (e.g. `C:\dev\stream-dlp`).
+3. **Update size — slim update installer** (decided 2026-10-30), about 4 MB against 165 MB for the full installer.
 
 ## Phase 2 — backend restructure (done)
 
@@ -31,21 +32,22 @@ Behaviour-preserving except the last item. The README's "Source layout" lists ev
 - **Behaviour change:** the inspection/download and the session import have separate cancel tokens, and a GIF conversion or upload no longer disables the Download page (`download_busy()`); closing and installing an update still wait for everything (`busy()`).
 - Left for later: `--dev-mode` (phase 4).
 
-## Phase 3 — update rework (FFC parity)
+## Phase 3 — update rework (implemented)
 
-| | FFC | stream-dlp now |
-| --- | --- | --- |
-| Check | launch + hourly | launch + every 4 h, through PowerShell |
-| Download | background, delta | after confirmation, full installer via PowerShell |
-| Install | silent, relaunch | Inno wizard, app closes |
-| Notes | release notes in a popup | not shown |
+| | FFC | stream-dlp before | stream-dlp now |
+| --- | --- | --- | --- |
+| Check | launch + hourly | launch + every 4 h, through PowerShell | launch + hourly, Rust HTTP |
+| Download | background, delta | after confirmation, full installer | background, slim installer (installed copies) |
+| Install | silent, relaunch | Inno wizard, app closes | silent, relaunch |
+| Notes | release notes in a popup | not shown | release notes in the update dialog |
 
-- Replace the PowerShell calls in `updater.rs` with a Rust HTTP client (e.g. `ureq` with rustls): check and download with progress; Mac can at least show that an update exists.
-- Check at launch and hourly. Download in the background once found; an "Update to X" button opens a modal with the release notes (the GitHub release body), progress, and **Update & restart**.
-- Silent install: run the installer with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` and add an Inno `[Run]` entry that relaunches after a silent install (the current one has `skipifsilent`). Portable copies keep the interactive flow. Keep the SHA-256 digest and exact asset URL checks.
-- If decision 3 is yes: a slim update installer for in-app updates, while the full installer keeps the name `stream-dlp-Setup-Windows-x64.exe` (installed versions up to 0.3.9 accept only that URL).
-- Tools: yt-dlp breaks most often and updates only by reinstalling or running `Setup tools.ps1`. Port that script's digest-verified fetch to Rust and add **Update download tools**.
-- Channels as decided (decision 1).
+- **`src/net.rs`**: `ureq` with rustls, the system's certificate verifier and the Windows proxy setting (what the PowerShell calls used); a 30-second stall timeout instead of a total one; downloads hash while streaming and are deleted unless they match the SHA-256.
+- **`src/update/`**: `release.rs` reads `/releases/latest` (so drafts and prereleases never show) and picks the installer: an installed copy (setup's `unins000.exe` beside the app) prefers `stream-dlp-Update-Windows-x64.exe` and falls back to the full installer, a portable copy takes the full one, the Mac none. The exact asset URL and digest checks are kept. `mod.rs` checks at launch and hourly and starts an installed copy's download as soon as an update is found; a failed download is retried at the next check or by hand. The sidebar's **Update to X** opens a dialog with the release notes (headings, bullets, bold), the progress and **Update & restart** (only while nothing else runs). A background download no longer blocks the pages or closing.
+- **Silent install**: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /RELAUNCH=1`; a `[Run]` entry reopens the app only with `/RELAUNCH=1`, so CI's silent installs do not. Portable copies download the full installer on request and open the wizard.
+- **Slim installer**: the same `installer/stream-dlp.iss` with `/DUpdateOnly` (no tools, no folder page); it refuses to run without the uninstall entry. Package check and Release check that refusal, then an in-place update that keeps the tools. The full installer keeps its name for new installs and for 0.3.9 and older.
+- **Tools**: `src/tools/update.rs` ports `Setup tools.ps1`; **Settings → Download tools → Update download tools** downloads only helpers whose release digest differs from `versions.json`, moves a running helper aside instead of failing, and disables the pages that use the tools meanwhile. Windows only: the Mac's tools are inside its signed app bundle.
+- **Channels removed**: the setting (its `update-channel.json` is ignored), `-dev.N` versions in `xtask` and `build.ps1`, the Release workflow's prerelease flag, and `docs/release-channels.md` (the installer deletes the installed copy).
+- Not done: installing on quit (FFC does), resuming an interrupted download, and Mac downloads.
 
 ## Phase 4 — environment and Dev mode
 
