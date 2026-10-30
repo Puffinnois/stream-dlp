@@ -16,22 +16,6 @@ implementation. For a short link, open it in your browser and copy the full vide
 URL. Website restrictions can still prevent a public video from downloading.
 See [TikTok validation and remaining work](docs/tiktok-feasibility.md).
 
-## Public and Dev versions
-
-Use **Settings → Updates → Update channel** to choose **Public** (stable releases) or
-**Dev** (experimental prereleases, plus every newer stable release). Selection is
-remembered; installing a build requires **Install selected build** and completing
-setup. The sidebar shows the build currently running. Dev builds do not update
-Public users.
-
-Public `0.3.5` and Dev `0.3.5-dev.1` both include the channel selector. Install
-either build to start switching inside the app. The older Public v0.3.4 has no
-selector, so switching from that version requires installing a newer build
-first. Mac updates remain manual.
-
-See [release channels and promotion](docs/release-channels.md). Windows Dev build
-artifacts are written under `dist/dev/<version>/` by `build.ps1`.
-
 ## Experimental Mac version
 
 The first Mac target is Apple Silicon (M1 or newer), macOS 15 or newer. The Mac
@@ -81,17 +65,23 @@ Private, age-restricted, or members-only videos require an account with access, 
 
 The Windows installer is `dist/stream-dlp-Setup-Windows-x64.exe`. It includes the download tools, installs for the current user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Uninstall through Windows Settings. The app has an embedded blue download-arrow icon for Explorer, shortcuts, and the taskbar.
 
-On Windows, the app checks your selected channel in the background each time it opens and every four hours while it stays open. An available build appears as a small dot and **Update available** marker in the sidebar. Failed checks retry at the next interval and keep any previously discovered update visible. Select it to open Settings; it never interrupts startup with a popup. Use **Settings → Updates → Update channel** to change channels or **Check for updates** to check again. Choose **Install selected build…**, then confirm **Download & open setup** in the centered confirmation. Cancel, Escape, or clicking outside the confirmation dismisses it without downloading. Finish or cancel an active operation first. The Windows installer is verified against GitHub's SHA-256 digest, then setup opens for you to review. You may cancel setup. Network errors do not block downloading videos. Portable users can select their existing app folder in setup, or download a fresh ZIP from Releases.
+### App updates
 
-Updates require a matching semantic version tag and an asset named `stream-dlp-Setup-Windows-x64.exe` with GitHub's SHA-256 digest. Public uses stable releases; Dev uses `vX.Y.Z-dev.N` prereleases and newer stable releases. Drafts and unverified installers are rejected. Checks never downgrade, except that switching from Dev to Public can offer an older stable build. Releases are built by CI and published by hand (see [Develop and release](#develop-and-release) and [release channels](docs/release-channels.md)).
+The app checks GitHub for a newer stable release when it opens and every hour while it stays open; it never interrupts you with a popup. An installed copy then downloads the small update installer in the background (`stream-dlp-Update-Windows-x64.exe`: the app without the tools, about 4 MB) and the sidebar shows **Update to X**. It opens the release notes and the download progress. **Update & restart** installs silently and reopens the app; it is available once the download is verified and nothing else is running. **Later**, Escape, or clicking outside closes the dialog. **Settings → Updates** has the same button and **Check for updates**.
 
-The ready-to-run local portable folder includes tools. The small distributable ZIP contains the app and setup script; extract the ZIP into a writable folder, then run:
+A portable copy downloads the full installer only when you choose **Download setup**; **Open setup** then runs the setup wizard, where you choose the portable folder (or download a fresh ZIP from Releases instead). Failed checks retry at the next hourly check and keep a previously found update; a failed download is retried then too, or with **Retry download**. Network errors never block downloading videos. Mac updates are manual: the Mac version shows that a release exists and links to its page.
+
+An update must be a published release (not a draft or prerelease) whose version tag is newer than the running app, with its installer at this repository's release URL and GitHub's SHA-256 digest. The download must match that digest before anything runs. Updates never downgrade. Every release still publishes the full installer, `stream-dlp-Setup-Windows-x64.exe`, as versions up to 0.3.9 update only through it. Before 0.3.9, a copy set to the former Dev channel sees only Dev prereleases, and there will be no more of them: choose **Public** in its Settings once. Releases are built by CI and published by hand (see [Develop and release](#develop-and-release)).
+
+### Download tools
+
+The installer and the ready-to-run local portable folder include the tools. **Settings → Download tools → Update download tools** downloads only the tools with a new release, each checked against GitHub's SHA-256 digest; a new yt-dlp is the usual fix when a site stops working. The small distributable ZIP contains the app and setup script: extract it into a writable folder, then use **Install download tools** in Settings, or run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\Setup tools.ps1"
 ```
 
-Setup downloads yt-dlp, FFmpeg/ffprobe, and Deno directly from their official GitHub releases. Each binary archive is verified against its GitHub release SHA-256 digest before installation. Setup fails closed if the upstream digest is unavailable. It installs only into the app's `tools` directory, needs no administrator access, and does not modify PATH. Close the app before updating. Internet access is needed for setup and YouTube access.
+Both download yt-dlp, FFmpeg/ffprobe, and Deno directly from their official GitHub releases and record them in `tools/versions.json`. Each binary archive is verified against its GitHub release SHA-256 digest before installation. Setup fails closed if the upstream digest is unavailable. It installs only into the app's `tools` directory, needs no administrator access, and does not modify PATH. Close the app before running the script; the Settings button waits until nothing is running. Internet access is needed for setup and YouTube access.
 
 ## Build from source
 
@@ -104,15 +94,15 @@ cargo xtask check
 
 `cargo xtask check` runs formatting, Clippy, the Rust tests, and the Deno script tests (`scripts/*.test.js`, using `tools/deno` or `deno` on PATH), exactly as CI does. `build.ps1` runs the Rust tests, then creates a ready-to-run portable folder, an app/setup ZIP, and `SHA256SUMS.txt` in `dist`. `-SkipTools` builds the app without downloading helpers; `-SkipTests` skips the tests. The UI and orchestration are Rust (`eframe`/`egui`); extraction is delegated to yt-dlp, media merging to FFmpeg, and JavaScript challenges to Deno. No web server or Electron runtime is used.
 
-To also build the Windows installer, install Inno Setup and run `./build.ps1 -Installer -IsccPath 'C:\path\to\ISCC.exe'`. Installer builds require all helpers in the portable folder; `-SkipTools -Installer` reuses helpers already present there. The installer version comes from `Cargo.toml`. `scripts/make-icon.ps1` regenerates the multi-size app icon and PNG preview. `build.rs` embeds that icon and the app version into the Windows executable.
+To also build the Windows installers, install Inno Setup and run `./build.ps1 -Installer -IsccPath 'C:\path\to\ISCC.exe'`. This builds the full installer and, from the same `installer/stream-dlp.iss` with `/DUpdateOnly`, the update installer without the tools, which refuses to install where stream-dlp is not installed yet. Installer builds require all helpers in the portable folder; `-SkipTools -Installer` reuses helpers already present there. The installer version comes from `Cargo.toml`. `scripts/make-icon.ps1` regenerates the multi-size app icon and PNG preview. `build.rs` embeds that icon and the app version into the Windows executable.
 
 If the existing portable executable is open, use `-PortableDirectory 'dist\stream-dlp-0.3.4'` to build a separate folder. Without `-SkipTools`, setup populates that folder's helpers as usual. The generated installer and ZIP use the selected portable folder.
 
 ## Develop and release
 
 - Checks: `cargo xtask check`. The **Checks** workflow runs it (and the Mac build) on every pushed branch and pull request.
-- Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds the installer, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), and attaches the installer, ZIP, and checksums to the run.
-- Release: on a clean `main`, `cargo xtask release <patch|minor|major|dev>` (or an explicit `X.Y.Z` / `X.Y.Z-dev.N`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks the installer, and uploads the installer, ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes (a prerelease for `-dev.N`). Edit the notes and press **Publish**; installed apps only see published releases.
+- Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds both installers, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), that the update installer refuses a first installation and then updates that installation in place, and attaches the installers, ZIP, and checksums to the run.
+- Release: on a clean `main`, `cargo xtask release <patch|minor|major>` (or an explicit newer `X.Y.Z`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks both installers, and uploads them, the ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes. Edit the notes (the app shows them in its update dialog) and press **Publish**; installed apps only see published releases. There are no prereleases: try changes through Package check instead.
 - Changelog: the GitHub release notes.
 - Restructure and update-rework plan: [docs/plans/2026-10-27-ffc-alignment.md](docs/plans/2026-10-27-ffc-alignment.md).
 
@@ -195,9 +185,10 @@ The optional anonymous live YouTube test is `cargo test --locked youtube_downloa
 - `src/engine/` (no egui): `sources/` has the per-site rules for YouTube and TikTok (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
-- `src/tools.rs`: where the bundled helpers are, whether they are all there, and `--check-tools`.
+- `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.
 - `src/session/`: session cookie validation, YouTube-domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
-- `src/update/`: the release channel, Windows update checks and installs, and the Mac's manual updates.
+- `src/update/`: app updates. `release.rs` reads the latest GitHub release and picks the installer; `installer.rs` downloads and starts it; `mod.rs` holds the hourly check and background download.
+- `src/net.rs`: HTTPS with the system's certificates and proxy, and SHA-256-verified downloads.
 - `src/streamable/`: the Streamable website handoff and experimental upload automation.
 - `src/platform.rs`: opening folders, files and links.
 - `Setup tools.ps1`: verified installation and update of external tools.

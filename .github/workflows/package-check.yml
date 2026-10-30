@@ -1,7 +1,8 @@
 name: Package check
 
-# Builds the Windows installer without releasing it, checks the packaged and the installed app
-# can run their bundled tools, and attaches the installer to the run. Push any branch named
+# Builds the Windows installers without releasing them, checks the packaged and the installed
+# app can run their bundled tools and that the update installer updates an installation, and
+# attaches the installers to the run. Push any branch named
 # check/** (or run it by hand) to try a change on Windows before tagging a release.
 on:
   workflow_dispatch:
@@ -39,26 +40,39 @@ jobs:
 
       # The release build is a GUI app: Start-Process -Wait is what waits for its exit code.
       # Silent install only on the runner: locally it would replace your real installation.
-      - name: Check the packaged and installed app find their tools
+      - name: Check the packaged, installed and updated app find their tools
         run: |
           function Test-Tools([string]$folder) {
             $run = Start-Process -FilePath (Join-Path $folder 'stream-dlp.exe') -ArgumentList '--check-tools' -Wait -PassThru -NoNewWindow
             if ($run.ExitCode -ne 0) { throw "stream-dlp.exe in $folder could not run its bundled tools (exit $($run.ExitCode))." }
           }
+          function Update-Silently {
+            $run = Start-Process -FilePath $env:UPDATE -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+            $run.ExitCode
+          }
           Test-Tools $env:PORTABLE
+          # The update installer has no tools, so it refuses a first installation.
+          if ((Update-Silently) -eq 0) { throw 'The update installer installed without an existing installation.' }
           $target = Join-Path $env:RUNNER_TEMP 'installed'
           $setup = Start-Process -FilePath $env:INSTALLER -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target" -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Silent install failed (exit $($setup.ExitCode))." }
           Test-Tools $target
+          # It updates that installation in place (the app is put back) and keeps its tools.
+          Remove-Item -LiteralPath (Join-Path $target 'stream-dlp.exe')
+          $exit = Update-Silently
+          if ($exit -ne 0) { throw "Silent update failed (exit $exit)." }
+          Test-Tools $target
         env:
           PORTABLE: ${{ steps.build.outputs.portable }}
           INSTALLER: ${{ steps.build.outputs.installer }}
+          UPDATE: ${{ steps.build.outputs.update }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: stream-dlp-windows-${{ steps.build.outputs.version }}
           path: |
             ${{ steps.build.outputs.installer }}
+            ${{ steps.build.outputs.update }}
             ${{ steps.build.outputs.zip }}
             ${{ steps.build.outputs.sums }}
           if-no-files-found: error

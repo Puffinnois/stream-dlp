@@ -5,11 +5,9 @@ try {
     $manifest = Get-Content -LiteralPath 'Cargo.toml' -Raw
     if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cannot find app version in Cargo.toml.' }
     $appVersion = $Matches[1]
-    $devBuild = $appVersion -match '-dev\.\d+$'
-    if ($appVersion.Contains('-') -and -not $devBuild) { throw 'Prerelease versions must use -dev.N.' }
-    $releaseDirectory = if ($devBuild) { "dist\dev\$appVersion" } else { 'dist' }
-    $releaseOutput = Join-Path $PSScriptRoot $releaseDirectory
-    if (-not $PortableDirectory) { $PortableDirectory = Join-Path $releaseDirectory 'stream-dlp' }
+    if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Releases use X.Y.Z versions, not $appVersion." }
+    $releaseOutput = Join-Path $PSScriptRoot 'dist'
+    if (-not $PortableDirectory) { $PortableDirectory = 'dist\stream-dlp' }
     New-Item -ItemType Directory -Path $releaseOutput -Force | Out-Null
     # CI runs `cargo xtask check` first and passes -SkipTests.
     if (-not $SkipTests) {
@@ -34,6 +32,7 @@ try {
     Write-Host "App + setup zip: $zip"
     $assets = @($zip)
     $setup = Join-Path $releaseOutput 'stream-dlp-Setup-Windows-x64.exe'
+    $update = Join-Path $releaseOutput 'stream-dlp-Update-Windows-x64.exe'
     if ($Installer) {
         foreach ($helper in @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe', 'deno.exe', 'versions.json')) {
             if (-not (Test-Path -LiteralPath (Join-Path $portable "tools\$helper"))) {
@@ -51,12 +50,15 @@ try {
             }
         }
         if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup or pass -IsccPath to its ISCC.exe.' }
-        $appLabel = if ($devBuild) { 'stream-dlp Dev' } else { 'stream-dlp' }
-        $numericVersion = ($appVersion -split '-')[0] + '.0'
-        & $IsccPath "/DAppVersion=$appVersion" "/DAppLabel=$appLabel" "/DNumericVersion=$numericVersion" "/DReleaseOutput=$releaseOutput" "/DPortableDir=$portable" 'installer\stream-dlp.iss'
+        $defines = @("/DAppVersion=$appVersion", "/DNumericVersion=$appVersion.0", "/DReleaseOutput=$releaseOutput", "/DPortableDir=$portable")
+        & $IsccPath @defines 'installer\stream-dlp.iss'
         if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation failed.' }
+        # The slim update installer: the same script without the tools, for in-app updates.
+        & $IsccPath @defines '/DUpdateOnly' 'installer\stream-dlp.iss'
+        if ($LASTEXITCODE -ne 0) { throw 'Update installer compilation failed.' }
         Write-Host "Windows installer: $setup"
-        $assets = @($setup) + $assets
+        Write-Host "Update installer: $update"
+        $assets = @($setup, $update) + $assets
     }
     # sha256sum format (lowercase hash, two spaces, name, LF) for the release's SHA256SUMS.txt.
     $sums = Join-Path $releaseOutput 'SHA256SUMS.txt'
@@ -68,8 +70,8 @@ try {
     if ($env:GITHUB_OUTPUT) {
         # Paths for the GitHub workflows (package check, release).
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8 -Value @(
-            "version=$appVersion", "prerelease=$($devBuild.ToString().ToLowerInvariant())",
-            "portable=$portable", "zip=$zip", "sums=$sums", "installer=$(if ($Installer) { $setup })"
+            "version=$appVersion", "portable=$portable", "zip=$zip", "sums=$sums",
+            "installer=$(if ($Installer) { $setup })", "update=$(if ($Installer) { $update })"
         )
     }
 } finally { Pop-Location }

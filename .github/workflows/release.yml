@@ -2,7 +2,7 @@ name: Release
 
 # `cargo xtask release <bump>` then `git push --follow-tags`: this builds the tagged version on
 # Windows and uploads it to a draft GitHub release. Add notes there and press Publish; the in-app
-# updater never sees drafts. A vX.Y.Z-dev.N tag becomes a prerelease (the Dev channel).
+# updater never sees drafts, and shows the notes in its update dialog.
 on:
   push:
     tags: ['v*']
@@ -46,33 +46,44 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       # Same check as the Package check workflow.
-      - name: Check the packaged and installed app find their tools
+      - name: Check the packaged, installed and updated app find their tools
         run: |
           function Test-Tools([string]$folder) {
             $run = Start-Process -FilePath (Join-Path $folder 'stream-dlp.exe') -ArgumentList '--check-tools' -Wait -PassThru -NoNewWindow
             if ($run.ExitCode -ne 0) { throw "stream-dlp.exe in $folder could not run its bundled tools (exit $($run.ExitCode))." }
           }
+          function Update-Silently {
+            $run = Start-Process -FilePath $env:UPDATE -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+            $run.ExitCode
+          }
           Test-Tools $env:PORTABLE
+          # The update installer has no tools, so it refuses a first installation.
+          if ((Update-Silently) -eq 0) { throw 'The update installer installed without an existing installation.' }
           $target = Join-Path $env:RUNNER_TEMP 'installed'
           $setup = Start-Process -FilePath $env:INSTALLER -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target" -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Silent install failed (exit $($setup.ExitCode))." }
           Test-Tools $target
+          # It updates that installation in place (the app is put back) and keeps its tools.
+          Remove-Item -LiteralPath (Join-Path $target 'stream-dlp.exe')
+          $exit = Update-Silently
+          if ($exit -ne 0) { throw "Silent update failed (exit $exit)." }
+          Test-Tools $target
         env:
           PORTABLE: ${{ steps.build.outputs.portable }}
           INSTALLER: ${{ steps.build.outputs.installer }}
+          UPDATE: ${{ steps.build.outputs.update }}
 
-      # Installed apps (0.3.4 and later) only accept stream-dlp-Setup-Windows-x64.exe at this
-      # repository's release URL, with GitHub's SHA-256 digest, which gh's upload provides.
+      # Installed apps download their installer only from this repository's release URL, with
+      # GitHub's SHA-256 digest, which gh's upload provides. Up to 0.3.9 they accept only
+      # stream-dlp-Setup-Windows-x64.exe; later ones prefer stream-dlp-Update-Windows-x64.exe.
       - name: Create draft release
         run: |
-          Get-Item -LiteralPath $env:INSTALLER, $env:ZIP, $env:SUMS | Format-Table Name, Length
-          $options = @('--draft', '--title', $env:GITHUB_REF_NAME, '--generate-notes')
-          if ($env:PRERELEASE -eq 'true') { $options += '--prerelease' }
-          gh release create $env:GITHUB_REF_NAME @options $env:INSTALLER $env:ZIP $env:SUMS
+          Get-Item -LiteralPath $env:INSTALLER, $env:UPDATE, $env:ZIP, $env:SUMS | Format-Table Name, Length
+          gh release create $env:GITHUB_REF_NAME --draft --title $env:GITHUB_REF_NAME --generate-notes $env:INSTALLER $env:UPDATE $env:ZIP $env:SUMS
           if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLER: ${{ steps.build.outputs.installer }}
+          UPDATE: ${{ steps.build.outputs.update }}
           ZIP: ${{ steps.build.outputs.zip }}
           SUMS: ${{ steps.build.outputs.sums }}
-          PRERELEASE: ${{ steps.build.outputs.prerelease }}
