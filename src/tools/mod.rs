@@ -1,5 +1,9 @@
-//! The bundled helpers in `tools/`: where they are, whether they are all there, and the
-//! `--check-tools` self-test.
+//! The bundled helpers in `tools/`: where they are, whether they are all there, the
+//! `--check-tools` self-test, and updating them.
+mod update;
+
+pub use update::ToolUpdate;
+
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -61,7 +65,7 @@ pub fn help() -> &'static str {
     if cfg!(target_os = "macos") {
         "Download a fresh Mac app package from Releases to install or update the bundled tools."
     } else {
-        "Close stream-dlp and run Setup tools.ps1 from the app folder to install or update tools."
+        "Use Settings → Download tools to install or update them, or close stream-dlp and run Setup tools.ps1 from the app folder."
     }
 }
 

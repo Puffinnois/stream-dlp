@@ -2,6 +2,7 @@
 mod app;
 mod engine;
 mod media;
+mod net;
 mod platform;
 mod process;
 mod session;

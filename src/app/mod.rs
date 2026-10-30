@@ -7,7 +7,7 @@ mod settings;
 pub mod theme;
 mod videos;
 
-use crate::{engine, session, update};
+use crate::{engine, session, tools, update};
 use download::FormatFilter;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use engine::{Event, Video};
@@ -45,6 +45,7 @@ pub struct App {
     library: videos::Library,
     gif: gif::Converter,
     updater: update::Updater,
+    tool_update: tools::ToolUpdate,
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
@@ -62,7 +63,7 @@ pub struct App {
     progress: f32,
     destination: Option<PathBuf>,
     saved: Option<engine::CompletedDownload>,
-    confirm_install: bool,
+    show_update: bool,
     closing: bool,
     session: Option<session::SessionCookies>,
     session_expanded: bool,
@@ -107,6 +108,7 @@ impl App {
             library: videos::Library::default(),
             gif: gif::Converter::default(),
             updater: update::Updater::default(),
+            tool_update: tools::ToolUpdate::default(),
             link: String::new(),
             loaded_link: None,
             video: None,
@@ -124,7 +126,7 @@ impl App {
             progress: 0.,
             destination: None,
             saved: None,
-            confirm_install: false,
+            show_update: false,
             closing: false,
             session: None,
             session_expanded: false,
@@ -163,14 +165,16 @@ impl App {
             )
     }
     /// Whether anything is running. Closing waits for it; installing an update needs it idle.
+    /// An update downloading in the background does not count.
     fn busy(&self) -> bool {
         self.download_busy()
             || self.gif.busy
             || self.library.uploader.status.active
-            || self.updater.downloading
+            || self.tool_update.active
     }
     fn cancel_all(&self) {
         self.library.uploader.cancel();
+        self.tool_update.cancel();
         self.gif.cancel();
         self.download_cancel.store(true, Ordering::Relaxed);
         self.import_cancel.store(true, Ordering::Relaxed);
@@ -237,13 +241,9 @@ impl App {
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.add_space(8.);
                     ui.label(
-                        RichText::new(format!(
-                            "{} · v{}",
-                            update::Channel::installed().label(),
-                            env!("CARGO_PKG_VERSION")
-                        ))
-                        .size(11.)
-                        .color(quiet),
+                        RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                            .size(11.)
+                            .color(quiet),
                     );
                     if ui
                         .add(
@@ -266,26 +266,22 @@ impl App {
                     {
                         self.page = Page::Settings;
                     }
-                    if self.updater.available.is_some()
+                    if let Some(update) = &self.updater.available
                         && ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new(if self.updater.downloading {
-                                        "Installing update…"
-                                    } else {
-                                        "●  Update available"
-                                    })
-                                    .size(12.)
-                                    .color(quiet),
+                                    RichText::new(format!("●  Update to {}", update.version))
+                                        .size(12.)
+                                        .color(Color32::WHITE),
                                 )
                                 .fill(rail)
                                 .stroke(egui::Stroke::NONE)
                                 .min_size(Vec2::new(ui.available_width(), 28.)),
                             )
-                            .on_hover_text("Open Settings to review the available update")
+                            .on_hover_text("See what’s new and install the update")
                             .clicked()
                     {
-                        self.page = Page::Settings;
+                        self.show_update = true;
                     }
                 });
             });
@@ -294,16 +290,13 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.updater.poll() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
-        }
         if !self.closing {
-            self.updater.check_automatically(ctx);
+            self.updater.update(ctx);
         }
         self.poll();
         self.library.poll();
         self.gif.poll();
+        self.tool_update.poll();
         if self.busy() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
@@ -332,24 +325,24 @@ impl eframe::App for App {
                     .id_salt("page")
                     .show(ui, |ui| match self.page {
                         Page::Download => {
-                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
                                 self.content(ui)
                             });
                         }
                         Page::Settings => self.settings(ui),
                         Page::Gif => {
-                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
                                 self.gif.show(ui)
                             });
                         }
                         Page::Videos => {
-                            ui.add_enabled_ui(!self.updater.downloading && !self.closing, |ui| {
+                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
                                 self.library.show(ui);
                             });
                         }
                     });
             });
-        self.install_confirmation(ctx);
+        self.update_dialog(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
