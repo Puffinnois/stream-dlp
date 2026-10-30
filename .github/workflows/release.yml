@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # build.ps1, the installer and the updater take the version from Cargo.toml, not the tag.
       - name: Check tag matches Cargo.toml version
@@ -25,10 +25,8 @@ jobs:
           $expected = "v$($Matches[1])"
           if ($env:GITHUB_REF_NAME -ne $expected) { throw "Tag $env:GITHUB_REF_NAME does not match the Cargo.toml version ($expected)." }
 
-      - name: Install Rust
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
-          rustup default 1.93.1
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: denoland/setup-deno@v2
         with:
