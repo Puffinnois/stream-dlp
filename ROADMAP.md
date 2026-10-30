@@ -348,3 +348,5 @@ Future scope decisions include which browsers to advertise, whether to build an 
 - [x] Package Dev artifacts separately with clear installer branding and the same app identity.
 - [x] Include the selector in Public v0.3.5; v0.3.4 requires a newer installer to regain it.
 - [x] Windows acceptance confirmed by the user on October 22, 2026, including channel installation and representative Streamable uploads.
+
+Replaced on October 30, 2026 by a single stable channel with background updates; see the [update rework](docs/plans/2026-10-27-ffc-alignment.md).
