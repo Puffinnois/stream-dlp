@@ -28,9 +28,10 @@ refresh are Windows-only for now. Chrome/Firefox cookie export works through the
 existing manual import workflow; Safari cookie integration is not provided.
 
 Mac app and tool updates are manual: close the app, download the latest complete
-Mac package, and replace the old app. **About & tools → Get Mac updates** links to
-Releases. There is no automatic Mac version check or installation yet. Downloads
-saved outside the app remain in their selected destination.
+Mac package, and replace the old app. The app checks for a newer release when it
+opens and every hour; **Update to X** in the sidebar shows the release notes and
+links to the release page. Nothing is downloaded or installed automatically.
+Downloads saved outside the app remain in their selected destination.
 
 The bundled FFmpeg is built for local stream copying and merging, the GIF
 converter, and video previews. It has no external codec libraries; besides the
