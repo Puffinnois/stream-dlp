@@ -96,6 +96,28 @@ impl Library {
                 .map(|(entries, truncated)| ResultData::Folder(folder, entries, truncated))
         });
     }
+    /// What a dev note records about this page: summary parts and details.
+    pub fn note_context(&self) -> (Vec<String>, serde_json::Value) {
+        let file = self
+            .selected
+            .as_ref()
+            .and_then(|video| video.path.file_name());
+        let parts = file
+            .map(|name| name.to_string_lossy().into_owned())
+            .into_iter()
+            .chain(self.uploader.status.active.then(|| "uploading".to_string()))
+            .chain(self.error.as_ref().map(|_| "error".to_string()))
+            .collect();
+        let details = serde_json::json!({
+            "folder": self.folder,
+            "videos": self.entries.len(),
+            "selected": self.selected.as_ref().map(|video| &video.path),
+            "message": self.message,
+            "error": self.error,
+            "upload": self.uploader.status.active.then_some(&self.uploader.status.message),
+        });
+        (parts, details)
+    }
     pub fn poll(&mut self) {
         self.uploader.poll();
         while let Ok((id, result)) = self.rx.try_recv() {
@@ -113,7 +135,10 @@ impl Library {
                 }
                 Ok(ResultData::Video(video)) => self.selected = Some(video),
                 Ok(ResultData::Cancelled) => {}
-                Err(error) => self.error = Some(error),
+                Err(error) => {
+                    crate::dev::errors::record("videos", &error);
+                    self.error = Some(error);
+                }
             }
         }
     }

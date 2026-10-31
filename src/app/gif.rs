@@ -85,6 +85,27 @@ impl Converter {
         self.message = "Reading video…".into();
         self.job(ctx, move |tx, cancel| load_source(tx, cancel, path));
     }
+    /// What a dev note records about this page: summary parts and details.
+    pub fn note_context(&self) -> (Vec<String>, serde_json::Value) {
+        let file = self.source.as_ref().and_then(|(path, _)| path.file_name());
+        let parts = file
+            .map(|name| name.to_string_lossy().into_owned())
+            .into_iter()
+            .chain(self.error.as_ref().map(|_| "error".to_string()))
+            .collect();
+        let details = serde_json::json!({
+            "source": self.source.as_ref().map(|(path, _)| path),
+            "duration": self.source.as_ref().map(|(_, seconds)| seconds),
+            "start": self.settings.start,
+            "length": self.settings.length,
+            "width": self.settings.width,
+            "fps": self.settings.fps,
+            "busy": self.busy,
+            "message": self.message,
+            "error": self.error,
+        });
+        (parts, details)
+    }
     pub fn poll(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
@@ -118,6 +139,7 @@ impl Converter {
                     if self.cancel.load(Ordering::Relaxed) {
                         self.message = "Cancelled".into();
                     } else if let Err(error) = result {
+                        crate::dev::errors::record("gif", &error);
                         self.error = Some(error);
                         self.message = "Could not complete conversion".into();
                     }

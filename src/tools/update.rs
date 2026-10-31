@@ -374,6 +374,7 @@ impl ToolUpdate {
                     self.active = false;
                     self.progress = None;
                     self.status = result.unwrap_or_else(|error| {
+                        crate::dev::errors::record("tools", &error);
                         format!("Could not update the download tools: {error}")
                     });
                     self.versions = describe(&installed(super::dir()));

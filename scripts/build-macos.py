@@ -45,6 +45,7 @@ def build(skip_tools=False):
         for name in ("README.md", "LICENSE", "THIRD-PARTY.md"):
             shutil.copy2(ROOT / name, resources / name)
         shutil.copy2(ROOT / "docs/macos.md", resources / "Mac instructions.md")
+        shutil.copy2(ROOT / "docs/guide.md", resources / "User guide.md")
         # Produce the native icon with Apple's own image tools.
         iconset = Path(staging) / "app.iconset"
         iconset.mkdir()
