@@ -1,4 +1,5 @@
 //! The window: shared state, the sidebar, and the frame loop. Each page is its own module.
+mod dev;
 mod download;
 mod gif;
 mod preview;
@@ -46,6 +47,7 @@ pub struct App {
     gif: gif::Converter,
     updater: update::Updater,
     tool_update: tools::ToolUpdate,
+    dev: dev::DevTools,
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
@@ -94,9 +96,13 @@ struct SessionImport {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    /// `dev_mode` is the `--dev-mode` flag.
+    pub fn new(cc: &eframe::CreationContext<'_>, dev_mode: bool) -> Self {
         theme::apply(&cc.egui_ctx);
-        Self::with_profiles(session::firefox::profiles())
+        Self {
+            dev: dev::DevTools::new(crate::dev::Settings::load(), dev_mode),
+            ..Self::with_profiles(session::firefox::profiles())
+        }
     }
 
     fn with_profiles(browser_profiles: Vec<session::firefox::Profile>) -> Self {
@@ -109,6 +115,7 @@ impl App {
             gif: gif::Converter::default(),
             updater: update::Updater::default(),
             tool_update: tools::ToolUpdate::default(),
+            dev: dev::DevTools::new(crate::dev::Settings::default(), false),
             link: String::new(),
             loaded_link: None,
             video: None,
@@ -240,11 +247,14 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.add_space(8.);
-                    ui.label(
-                        RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                            .size(11.)
-                            .color(quiet),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                                .size(11.)
+                                .color(quiet),
+                        );
+                        self.dev_chip(ui);
+                    });
                     if ui
                         .add(
                             egui::Button::new(RichText::new("Settings").color(
@@ -293,6 +303,7 @@ impl eframe::App for App {
         if !self.closing {
             self.updater.update(ctx);
         }
+        self.dev_input(ctx);
         self.poll();
         self.library.poll();
         self.gif.poll();
@@ -343,6 +354,7 @@ impl eframe::App for App {
                     });
             });
         self.update_dialog(ctx);
+        self.dev_windows(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

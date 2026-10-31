@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
+mod dev;
 mod engine;
 mod media;
 mod net;
@@ -21,6 +22,8 @@ fn main() -> eframe::Result {
         println!("All bundled download tools are ready.");
         return Ok(());
     }
+    dev::errors::record_panics();
+    let dev_mode = std::env::args().skip(1).any(|arg| arg == "--dev-mode");
     std::thread::spawn(update::remove_stale_installers);
     eframe::run_native(
         "stream-dlp",
@@ -31,7 +34,7 @@ fn main() -> eframe::Result {
                 .with_icon(app_icon()),
             ..Default::default()
         },
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, dev_mode)))),
     )
 }
 

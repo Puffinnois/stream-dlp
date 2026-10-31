@@ -131,6 +131,7 @@ impl App {
                         self.refresh_used = refresh_used;
                     }
                     Err(error) => {
+                        crate::dev::errors::record("session", &error);
                         self.session_error = Some(error);
                         self.session_expanded = true;
                     }

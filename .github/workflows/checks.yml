@@ -15,11 +15,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - name: Install Rust
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
-          rustup default 1.93.1
+      - uses: actions/checkout@v7
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: denoland/setup-deno@v2
         with:
@@ -32,22 +30,21 @@ jobs:
     timeout-minutes: 60
     env:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
-      RUSTUP_TOOLCHAIN: 1.93.1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Install Rust
-        run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup toolchain install
       - name: Cache Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-arm64-rust193-${{ hashFiles('Cargo.lock') }}
+          key: macos-arm64-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
       - name: Build verified Mac helpers
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -67,7 +64,7 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/stream-dlp" --check-tools
       - name: Upload experimental package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stream-dlp-macOS-arm64-experimental
           path: |
@@ -76,7 +73,7 @@ jobs:
           if-no-files-found: error
       - name: Upload local pipeline diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-pipeline-diagnostics
           path: test-output/
