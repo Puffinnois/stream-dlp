@@ -6,6 +6,7 @@ A native Windows video downloader for YouTube, with experimental TikTok links an
 - User guide (downloading, YouTube verification, updates, download tools, GIFs, My videos and Streamable): [docs/guide.md](docs/guide.md)
 - Changelog: GitHub Releases. Each release's notes are what the in-app update dialog shows.
 - Dev (Windows, outside OneDrive; Rust pinned in `rust-toolchain.toml`): `cargo xtask check` (format, Clippy, Rust and Deno tests, as CI) and `cargo run`. Setup, builds, tests and source layout: [docs/reference/development.md](docs/reference/development.md)
+- Coding agents (Claude Code, the ChatGPT desktop app, …): [AGENTS.md](AGENTS.md); what to work on next: [ROADMAP.md](ROADMAP.md) → Next up.
 - Try a Windows package: push a `check/<anything>` branch; the Package check builds and tests both installers.
 - Release: `cargo xtask release <patch|minor|major>` on a clean `main` → `git push --follow-tags` → the Release workflow uploads a **draft** GitHub release → write its notes, press **Publish**.
 - Dev mode (Ctrl+Shift+D) and dev notes (Ctrl+Shift+N): [docs/reference/dev-notes.md](docs/reference/dev-notes.md)

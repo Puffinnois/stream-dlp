@@ -1,8 +1,16 @@
 # stream-dlp feature roadmap
 
-Prepared October 21, 2026, against stream-dlp 0.3.3.
+Prepared October 21, 2026, against stream-dlp 0.3.3; "What already exists" updated November 1, 2026 (v0.3.9 and the restructure).
 
 Task checkboxes track implementation. Firefox automatic session import is now implemented experimentally; see R-01 and A-01/A-02 for its validation limits. Remaining research findings are based on source inspection and upstream documentation unless a live test is explicitly recorded.
+
+The phases below group features. They are not the phases 1–4 of the [restructure plan](docs/plans/2026-10-27-ffc-alignment.md), which is finished; refer to work by item ID (F-03, P-02).
+
+## Next up
+
+The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
+
+- _(empty)_
 
 ## Direction and priorities
 
@@ -24,13 +32,14 @@ The Streamable investigation belongs first so its external dependency is discove
 
 ## What already exists
 
-- `src/main.rs`: egui interface, background workers, a single active download, manual cookie import, and the latest completed file path.
-- `src/backend.rs`: YouTube-only URL normalization, metadata parsing, format selection, yt-dlp execution, progress, cancellation, and final-path detection.
-- `src/session.rs`: Netscape cookie validation, YouTube-only domain filtering, in-memory session storage, and disposable per-operation cookie files.
-- `src/export_help.rs`: guided manual export and Windows Downloads folder handling.
-- `Setup tools.ps1` and `build.ps1`: verified helper installation and portable release packaging.
+Module by module in the [Source layout](docs/reference/development.md#source-layout).
 
-Reusable strengths include shell-free process arguments, audio/video merging, no-overwrite behavior, cancellation, and local pipeline tests. Changes are needed around URL routing, platform metadata, site-specific errors, authentication, and selecting media when a post contains multiple videos. The app currently has no persistent download library or upload subsystem.
+- Downloads (`src/engine/`): YouTube, and experimental TikTok (P-01): link routing, format list, audio/video merging, progress, cancellation, no-overwrite.
+- Sessions (`src/session/`): manual cookie import and experimental Firefox import, YouTube only (F-03 is open).
+- My videos and previews (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
+- Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
+
+Still missing: other platforms (P-02 onwards), multi-video posts, per-platform sessions and errors (F-03), a persistent download history, and direct Streamable uploads (blocked, S-03/S-04).
 
 ## Feasibility findings
 
@@ -202,11 +211,13 @@ Depends on F-01 through F-03. Ship each platform independently after live valida
 Initial scope and implementation requirements are recorded in the
 [TikTok feasibility decision](docs/research/tiktok-feasibility.md). Full direct video links
 are implemented experimentally, with production-backend download, decode,
-no-overwrite, session isolation, and startup-cancellation validation. Short/mobile
-links and wider acceptance remain open; no other platform was added.
+no-overwrite, session isolation, and startup-cancellation validation. Since v0.3.9,
+short share links (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/…`) resolve to the
+video first; automated tests cover that, fresh real share links do not yet. Wider
+acceptance remains open; no other platform was added.
 
 - [ ] Support individual public video URLs and verified short/share links.
-- [ ] Handle vertical video, missing creator metadata, and available format variations.
+- [x] Handle vertical video, missing creator metadata, and available format variations.
 - [ ] Explain photo slideshows, live links, unavailable content, and authentication requirements explicitly.
 
 ### P-02 — X / Twitter
@@ -317,7 +328,7 @@ Do not embed a shared stream-dlp Streamable account or secret in the executable 
 
 - [ ] Add deterministic tests for URL handling, metadata variants, collection selection, platform-specific errors, cookie isolation, and any new persistent records.
 - [ ] Keep live platform tests opt-in and separate from deterministic tests. Record environmental failures instead of weakening assertions to hide them.
-- [ ] Run `cargo test --locked`, `cargo clippy --all-targets --locked -- -D warnings`, and the existing local pipeline test for relevant engine changes.
+- [ ] Run `cargo xtask check`, and the existing local pipeline test (`cargo test --locked local_download_pipeline -- --ignored`) for relevant engine changes.
 - [ ] Verify clean Windows operation, long/Unicode paths, redirected Downloads, cancellation, and portable packaging for each shipped capability.
 - [ ] Update the README, in-app help, package description, third-party notices where needed, and supported-platform/browser list.
 - [ ] Validate helper updates through the existing verified setup process; record the tested yt-dlp version for each release and provide a helpful update path when extraction breaks.
@@ -340,7 +351,9 @@ Recommended defaults are: one pasted URL with automatic platform detection; indi
 
 Future scope decisions include which browsers to advertise, whether to build an extension, whether to persist optional history, and whether multi-video posts later gain a download-all action. Additional feature ideas can be appended as separate tasks with dependencies and acceptance criteria.
 
-## Dev release channel (October 21, 2026)
+## Dev release channel (October 21, 2026; removed October 30, 2026)
+
+History only: the app has one stable channel now. Do not rebuild this.
 
 - [x] Add persistent Public/Dev selection in About & tools and show the installed build channel.
 - [x] Isolate stable releases from explicitly tagged Dev prereleases; install only on request.
