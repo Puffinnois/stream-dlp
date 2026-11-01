@@ -45,10 +45,16 @@ jobs:
             ~/.cargo/git
             target
           key: macos-arm64-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+      # Skips downloading FFmpeg's source and building it while the script, which pins both, is unchanged.
+      - name: Cache FFmpeg build
+        uses: actions/cache@v6
+        with:
+          path: ~/ffmpeg-cache
+          key: macos-arm64-ffmpeg-${{ hashFiles('scripts/setup-macos.py') }}
       - name: Build verified Mac helpers
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python scripts/setup-macos.py
+        run: python scripts/setup-macos.py --ffmpeg-cache ~/ffmpeg-cache
       - name: Test and package Mac app
         run: python scripts/build-macos.py --skip-tools
       - name: Lint
