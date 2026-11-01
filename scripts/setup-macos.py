@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -31,14 +33,25 @@ FFMPEG_FLAGS = [
 ]
 
 
-def fetch(url, destination):
+def fetch(url, destination, attempts=4):
     headers = {"User-Agent": "stream-dlp-macos-build"}
     if url.startswith("https://api.github.com/") and os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=120) as response:
-        with Path(destination).open("wb") as output:
-            shutil.copyfileobj(response, output)
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                with Path(destination).open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            return
+        except OSError as error:
+            # Timeouts, resets and server errors are retried; another client error would repeat.
+            client_error = isinstance(error, urllib.error.HTTPError) and error.code < 500 and error.code != 429
+            if client_error or attempt == attempts:
+                raise
+            delay = 10 * 3 ** (attempt - 1)
+            print(f"Downloading {url} failed ({error}); retrying in {delay} s", flush=True)
+            time.sleep(delay)
 
 
 def verify(path, expected):
@@ -66,7 +79,35 @@ def release_asset(repo, name, staging):
     return archive, {"repository": repo, "version": release["tag_name"], "url": url, "sha256": expected}
 
 
-def install(destination):
+def build_ffmpeg(cache, staging):
+    """Return a folder with ffmpeg, ffprobe, the COPYING files and the source archive.
+
+    With a cache folder, a build made there earlier with the same source and flags is reused.
+    """
+    key = hashlib.sha256(json.dumps([FFMPEG_URL, FFMPEG_SHA256, FFMPEG_FLAGS]).encode()).hexdigest()[:12]
+    built = (cache or staging) / f"ffmpeg-{FFMPEG_VERSION}-{key}"
+    if built.is_dir():
+        print(f"Reusing the FFmpeg build in {built}", flush=True)
+        return built
+    archive = staging / f"ffmpeg-{FFMPEG_VERSION}.tar.xz"
+    fetch(FFMPEG_URL, archive)
+    verify(archive, FFMPEG_SHA256)
+    with tarfile.open(archive) as source:
+        source.extractall(staging, filter="data")
+    source = staging / f"ffmpeg-{FFMPEG_VERSION}"
+    subprocess.run(["./configure", *FFMPEG_FLAGS], cwd=source, check=True)
+    subprocess.run(["make", f"-j{min(os.cpu_count() or 2, 8)}"], cwd=source, check=True)
+    # Filled beside the final folder and renamed, so an interrupted run leaves no partial build.
+    partial = built.with_name(built.name + ".partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
+    for path in (archive, source / "ffmpeg", source / "ffprobe", *source.glob("COPYING*")):
+        shutil.copy2(path, partial / path.name)
+    partial.rename(built)
+    return built
+
+
+def install(destination, cache=None):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise SystemExit("The experimental Mac build currently requires an Apple Silicon Mac.")
     subprocess.run(["xcrun", "--find", "clang"], check=True)
@@ -75,22 +116,18 @@ def install(destination):
         staging = Path(temporary)
         yt, yt_info = release_asset("yt-dlp/yt-dlp", "yt-dlp_macos", staging)
         deno, deno_info = release_asset("denoland/deno", "deno-aarch64-apple-darwin.zip", staging)
-        archive = staging / f"ffmpeg-{FFMPEG_VERSION}.tar.xz"
-        fetch(FFMPEG_URL, archive)
+        ffmpeg = build_ffmpeg(cache, staging)
+        archive = ffmpeg / f"ffmpeg-{FFMPEG_VERSION}.tar.xz"
+        # The shipped source must still be the pinned archive, also when the build is reused.
         verify(archive, FFMPEG_SHA256)
-        with tarfile.open(archive) as source:
-            source.extractall(staging, filter="data")
-        source = staging / f"ffmpeg-{FFMPEG_VERSION}"
-        subprocess.run(["./configure", *FFMPEG_FLAGS], cwd=source, check=True)
-        subprocess.run(["make", f"-j{min(os.cpu_count() or 2, 8)}"], cwd=source, check=True)
         shutil.copy2(yt, destination / "yt-dlp")
         with zipfile.ZipFile(deno) as package:
             (destination / "deno").write_bytes(package.read("deno"))
         for name in ("ffmpeg", "ffprobe"):
-            shutil.copy2(source / name, destination / name)
+            shutil.copy2(ffmpeg / name, destination / name)
         notices = destination / "licenses"
         notices.mkdir(exist_ok=True)
-        for license_file in source.glob("COPYING*"):
+        for license_file in ffmpeg.glob("COPYING*"):
             shutil.copy2(license_file, notices / ("ffmpeg-" + license_file.name))
         # Ship the exact corresponding FFmpeg source and build flags with the app.
         sources = destination / "sources"
@@ -117,4 +154,6 @@ def install(destination):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", type=Path, default=Path(__file__).resolve().parents[1] / "tools")
-    install(parser.parse_args().destination.resolve())
+    parser.add_argument("--ffmpeg-cache", type=Path, help="keep the FFmpeg build here and reuse it while the source and flags stay the same")
+    arguments = parser.parse_args()
+    install(arguments.destination.resolve(), arguments.ffmpeg_cache and arguments.ffmpeg_cache.resolve())

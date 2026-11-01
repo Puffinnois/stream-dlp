@@ -25,7 +25,7 @@ If the existing portable executable is open, use `-PortableDirectory 'dist\strea
 
 ## Develop and release
 
-- Checks: `cargo xtask check`. The **Checks** workflow runs it (and the Mac build) on every pushed branch and pull request.
+- Checks: `cargo xtask check`. The **Checks** workflow runs it (and the Mac build) on every pushed branch and pull request. The Mac build keeps its FFmpeg build in the Actions cache until `scripts/setup-macos.py` changes, and retries failed helper downloads.
 - Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds both installers, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), that the update installer refuses a first installation and then updates that installation in place, and attaches the installers, ZIP, and checksums to the run.
 - Release: on a clean `main`, `cargo xtask release <patch|minor|major>` (or an explicit newer `X.Y.Z`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks both installers, and uploads them, the ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes. Edit the notes (the app shows them in its update dialog) and press **Publish**; installed apps only see published releases. There are no prereleases: try changes through Package check instead.
 - Changelog: the GitHub release notes, kept as `docs/releases/release-X.Y.Z.md` (0.3.4 onwards in [docs/releases/](../releases/)); publish them with `gh release edit vX.Y.Z --notes-file docs/releases/release-X.Y.Z.md --draft=false --latest`.
