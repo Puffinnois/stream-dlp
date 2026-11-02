@@ -18,9 +18,53 @@ def run(*args):
     subprocess.run(args, cwd=ROOT, check=True)
 
 
-def build(skip_tools=False):
+def require_mac():
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise SystemExit("Build this package on an Apple Silicon Mac.")
+
+
+def sha256(path):
+    with path.open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def write_checksum(path):
+    path.with_suffix(path.suffix + ".sha256").write_text(f"{sha256(path)}  {path.name}\n")
+
+
+def build_dmg(app):
+    dist = ROOT / "dist"
+    dist.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=dist) as staging, tempfile.TemporaryDirectory() as test:
+        work = Path(staging)
+        volume = work / "volume"
+        volume.mkdir()
+        run("ditto", app, volume / app.name)
+        (volume / "Applications").symlink_to("/Applications", target_is_directory=True)
+        image = work / "stream-dlp-macOS-arm64-experimental.dmg"
+        run("hdiutil", "create", "-srcfolder", volume, "-volname", "stream-dlp",
+            "-fs", "HFS+", "-format", "UDZO", image)
+        run("hdiutil", "verify", image)
+        mount = Path(test) / "mounted"
+        mount.mkdir()
+        run("hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount, image)
+        try:
+            if (mount / "Applications").readlink() != Path("/Applications"):
+                raise RuntimeError("The DMG's Applications shortcut is invalid.")
+            installed = Path(test) / app.name
+            run("ditto", mount / app.name, installed)
+        finally:
+            run("hdiutil", "detach", mount)
+        run("codesign", "--verify", "--deep", "--strict", installed)
+        subprocess.run([installed / "Contents/MacOS/stream-dlp", "--check-tools"], cwd=test, check=True)
+        write_checksum(image)
+        for output in (image, image.with_suffix(".dmg.sha256")):
+            output.replace(dist / output.name)
+        print(f"Verified Mac disk image: {dist / image.name}")
+
+
+def build(skip_tools=False):
+    require_mac()
     if not skip_tools:
         run(sys.executable, str(ROOT / "scripts/setup-macos.py"))
     for name in ("yt-dlp", "ffmpeg", "ffprobe", "deno", "versions.json", "licenses", "sources"):
@@ -80,13 +124,27 @@ def build(skip_tools=False):
         archive = dist / "stream-dlp-macOS-arm64-experimental.zip"
         # ditto preserves executable permissions and the app bundle structure.
         run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(archive))
-        with archive.open("rb") as file:
-            digest = hashlib.file_digest(file, "sha256").hexdigest()
-        archive.with_suffix(".zip.sha256").write_text(f"{digest}  {archive.name}\n")
+        write_checksum(archive)
         print(f"Experimental Mac package: {archive}")
+        build_dmg(app)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--skip-tools", action="store_true", help="Reuse previously installed Mac helpers")
-    build(parser.parse_args().skip_tools)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--skip-tools", action="store_true", help="Reuse previously installed Mac helpers")
+    mode.add_argument("--dmg-from-zip", type=Path, metavar="ZIP", help="Package an existing release ZIP")
+    parser.add_argument("--sha256", metavar="DIGEST", help="Expected release ZIP digest for --dmg-from-zip")
+    args = parser.parse_args()
+    if bool(args.dmg_from_zip) != bool(args.sha256):
+        parser.error("--dmg-from-zip and --sha256 must be supplied together")
+    if args.dmg_from_zip:
+        archive = args.dmg_from_zip.resolve()
+        if sha256(archive) != args.sha256.lower():
+            raise SystemExit("Release ZIP SHA-256 mismatch.")
+        require_mac()
+        with tempfile.TemporaryDirectory() as extracted:
+            run("ditto", "-x", "-k", archive, extracted)
+            build_dmg(Path(extracted) / "stream-dlp.app")
+    else:
+        build(args.skip_tools)
