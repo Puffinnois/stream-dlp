@@ -106,8 +106,12 @@ October 24, 2026: [TikTok investigation](docs/research/tiktok-feasibility.md) co
 bundled and latest stable helpers using 20 anonymous metadata probes. Direct
 individual-video metadata succeeded. A user-supplied sample passed helper-level
 download, full audio/video decode, and no-overwrite checks. Short/mobile links and
-production-app acceptance remain open. Investigations proceed one platform at a time; the other
-platforms have not been investigated yet.
+production-app acceptance remain open.
+
+November 2, 2026: the [X/Twitter investigation](docs/research/x-feasibility.md)
+confirmed anonymous single-video metadata and two-entry playlist responses.
+P-02 targets public native post videos after F-02 provides entry selection.
+Instagram and Facebook remain uninvestigated.
 
 - [ ] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
 - [ ] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
