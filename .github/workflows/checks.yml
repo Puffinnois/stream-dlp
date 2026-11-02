@@ -6,6 +6,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      package_v039:
+        description: Also wrap the published v0.3.9 Mac ZIP in a verified DMG
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,8 +79,27 @@ jobs:
         with:
           name: stream-dlp-macOS-arm64-experimental
           path: |
+            dist/stream-dlp-macOS-arm64-experimental.dmg
+            dist/stream-dlp-macOS-arm64-experimental.dmg.sha256
             dist/stream-dlp-macOS-arm64-experimental.zip
             dist/stream-dlp-macOS-arm64-experimental.zip.sha256
+          if-no-files-found: error
+      - name: Package the published v0.3.9 app
+        if: github.event_name == 'workflow_dispatch' && inputs.package_v039
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip=stream-dlp-macOS-arm64-experimental.zip
+          gh release download v0.3.9 --repo "$GITHUB_REPOSITORY" --pattern "$zip" --dir "$RUNNER_TEMP"
+          python scripts/build-macos.py --dmg-from-zip "$RUNNER_TEMP/$zip" --sha256 844fba4e9af0b9296d8cdc5ace8a9c497ecedf92d2a932649d22fc83f284b572
+      - name: Upload verified v0.3.9 disk image
+        if: github.event_name == 'workflow_dispatch' && inputs.package_v039
+        uses: actions/upload-artifact@v7
+        with:
+          name: stream-dlp-v0.3.9-macOS-arm64-dmg
+          path: |
+            dist/stream-dlp-macOS-arm64-experimental.dmg
+            dist/stream-dlp-macOS-arm64-experimental.dmg.sha256
           if-no-files-found: error
       - name: Upload local pipeline diagnostics
         if: failure()

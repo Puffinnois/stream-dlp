@@ -25,6 +25,22 @@ If the existing portable executable is open, use `-PortableDirectory 'dist\strea
 
 ## Develop and release
 
+The Mac build produces a drag-to-Applications DMG and a fallback ZIP. To make a
+DMG for an existing release on an Apple Silicon Mac, download that release's
+trusted ZIP and use its published SHA-256 digest:
+
+```sh
+python3 scripts/build-macos.py --dmg-from-zip /path/to/release.zip --sha256 "$EXPECTED_SHA256"
+```
+
+This path preserves the app inside that ZIP, including its release version and
+bundled tools. It runs the same mounted-image and copied-app checks as a fresh
+build. See the [Mac installation and testing guide](../macos.md).
+
+For v0.3.9, the Checks workflow has a manual `package_v039` option. It uses
+the recorded digest of the published ZIP and uploads the verified image and
+checksum in a separate `stream-dlp-v0.3.9-macOS-arm64-dmg` Actions artifact.
+
 - Checks: `cargo xtask check`. The **Checks** workflow runs it (and the Mac build) on every pushed branch and pull request. The Mac build keeps its FFmpeg build in the Actions cache until `scripts/setup-macos.py` changes, and retries failed helper downloads.
 - Try a change on Windows without releasing: push a branch named `check/<anything>`. The **Package check** workflow builds both installers, checks that the packaged and the silently installed app can run their bundled tools (`--check-tools`), that the update installer refuses a first installation and then updates that installation in place, and attaches the installers, ZIP, and checksums to the run.
 - Release: on a clean `main`, `cargo xtask release <patch|minor|major>` (or an explicit newer `X.Y.Z`) bumps `Cargo.toml` and `Cargo.lock`, commits `build: bump version to X.Y.Z`, and tags `vX.Y.Z`. Then `git push --follow-tags`. The **Release** workflow checks the tag matches `Cargo.toml`, runs the checks, builds and checks both installers, and uploads them, the ZIP, and `SHA256SUMS.txt` to a **draft** GitHub release with generated notes. Edit the notes (the app shows them in its update dialog) and press **Publish**; installed apps only see published releases. There are no prereleases: try changes through Package check instead.

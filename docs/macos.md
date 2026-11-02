@@ -7,13 +7,18 @@ it as a stable Mac release until the checklist below is complete.
 
 ## Install and use
 
-Look for `stream-dlp-macOS-arm64-experimental.zip` in the assets on the
-[release page](https://github.com/Puffinnois/stream-dlp/releases). If it is
-listed, download and extract it. For a beta distributed through GitHub Actions,
-use the Checks run linked by the maintainer. Sign into GitHub, download the
-`stream-dlp-macOS-arm64-experimental` artifact, extract it, then extract the
-app ZIP inside. Move `stream-dlp.app` to Applications and open it. The app
-includes yt-dlp, FFmpeg, ffprobe and Deno.
+On the [release page](https://github.com/Puffinnois/stream-dlp/releases),
+look for `stream-dlp-macOS-arm64-experimental.dmg`. If available:
+
+1. Double-click the DMG in Finder to open the disk image.
+2. Drag **stream-dlp** onto the **Applications** shortcut in the image.
+3. After the copy finishes, eject the **stream-dlp** disk image in Finder.
+4. Open **stream-dlp** from **Applications**.
+
+If the release offers only the ZIP, double-click the ZIP in Finder and drag the
+extracted app into Applications. For a beta distributed through GitHub Actions,
+download the artifact from the Checks run linked by the maintainer and extract
+the outer ZIP first. The app includes yt-dlp, FFmpeg, ffprobe and Deno.
 
 This app has a local ad-hoc signature, not an Apple Developer ID signature, and
 is not notarized. No paid Apple developer account is used. macOS may initially
@@ -58,10 +63,11 @@ license notices, and provenance are included in the app. No Homebrew dylibs are
 bundled. Building FFmpeg takes additional time; `--skip-tools` reuses an existing
 complete Mac `tools` directory. Never reuse Windows helpers for a Mac build.
 
-The package is written to `dist/stream-dlp-macOS-arm64-experimental.zip` with a
-SHA-256 sidecar. Apple tools generate the icon, apply ad-hoc signatures, verify
-the bundle, and preserve executable permissions in the ZIP. Ad-hoc signing is
-free and does not remove the downloaded-app warning.
+The build writes the DMG and ZIP to `dist/`, each with a SHA-256 sidecar.
+It mounts the DMG read-only, checks its Applications shortcut, copies the app
+to a temporary folder and ejects the image. It then verifies the copied app's
+signature and runs its bundled helpers. Ad-hoc signing is free and does not
+remove the downloaded-app warning.
 
 The `--check-tools` app argument runs all bundled helpers without starting the UI.
 CI extracts the ZIP outside the source tree and uses this argument to verify the
@@ -76,7 +82,7 @@ pull requests, and manual dispatch. Windows runs `cargo xtask check`
 builds the Mac helpers and app, runs unit tests and Clippy, downloads and merges a
 synthetic local DASH video, checks audio/video with ffprobe, tests cookie
 isolation and cancellation, verifies bundle signatures and helper execution, and
-uploads the experimental ZIP. Mac runs do not publish releases automatically.
+uploads the experimental DMG, ZIP and their checksums. Mac runs do not publish releases automatically.
 
 These checks do not establish real YouTube availability, GUI behavior, clean
 download Gatekeeper behavior, or real browser-session acceptance. Public YouTube
@@ -100,8 +106,9 @@ on your Mac. You can use the same form if the app never opened.
 
 ### Checks to try
 
-- [ ] Download the ZIP through a browser on an Apple Silicon Mac and record macOS version.
-- [ ] Extract, move to Applications, follow the security exception, and launch.
+- [ ] Download the package through a browser on an Apple Silicon Mac and record the macOS version and package type.
+- [ ] For the DMG, drag the app to the Applications shortcut and eject the disk image. For the ZIP, extract and move the app to Applications.
+- [ ] Launch from Applications and record whether the security exception was needed.
 - [ ] Check text, window sizing, clipboard paste, and the native destination picker.
 - [ ] Download an authorized public YouTube clip with both video and audio.
 - [ ] Open the destination in Finder and play the result in a compatible player.
