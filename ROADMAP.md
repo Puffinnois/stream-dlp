@@ -221,7 +221,7 @@ acceptance remains open; no other platform was added.
 
 - [ ] Support individual public video URLs and verified short/share links.
 - [x] Handle vertical video, missing creator metadata, and available format variations.
-- [ ] Explain photo slideshows, live links, unavailable content, and authentication requirements explicitly.
+- [x] Explain photo slideshows, live links, unavailable content, and authentication requirements explicitly.
 
 ### P-02 — X / Twitter
 

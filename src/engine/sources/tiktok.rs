@@ -184,11 +184,12 @@ pub(super) fn check(video: &mut Video) -> Result<(), EngineError> {
 /// Classifies yt-dlp's errors without repeating them: they can contain signed media URLs.
 pub(super) fn explain(errors: &str) -> EngineError {
     let lower = errors.to_lowercase();
-    if lower.contains("log in")
-        || lower.contains("login")
-        || lower.contains("sign in")
-        || lower.contains("private")
+    if lower.contains("private video")
+        || lower.contains("video is private")
+        || lower.contains("private account")
     {
+        EngineError::Unsupported("This TikTok video is private. Choose a public video post.".into())
+    } else if lower.contains("log in") || lower.contains("login") || lower.contains("sign in") {
         EngineError::SignInNeeded(Source::TikTok)
     } else if lower.contains("resolve")
         || lower.contains("timed out")
@@ -288,7 +289,13 @@ mod tests {
                 EngineError::Unavailable(Source::TikTok),
             ),
             (
-                "Private video token=secret",
+                "ERROR: [TikTok] 123: This video is private. Log in token=secret",
+                EngineError::Unsupported(
+                    "This TikTok video is private. Choose a public video post.".into(),
+                ),
+            ),
+            (
+                "ERROR: [TikTok] 123: Log in to view this video token=secret",
                 EngineError::SignInNeeded(Source::TikTok),
             ),
             (
@@ -302,6 +309,7 @@ mod tests {
         ] {
             let error = explain(raw);
             assert_eq!(error, expected);
+            assert!(!error.needs_session());
             assert!(!error.user_message().contains("secret"));
         }
         let error = explain("ERROR: Sign in https://cdn.example/?secret=token");
