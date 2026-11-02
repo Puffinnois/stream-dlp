@@ -1,7 +1,7 @@
 name: Release
 
 # `cargo xtask release <bump>` then `git push --follow-tags`: this builds the tagged version on
-# Windows and uploads it to a draft GitHub release. Add notes there and press Publish; the in-app
+# Windows and Mac and uploads it to a draft GitHub release. Add notes there and press Publish; the in-app
 # updater never sees drafts, and shows the notes in its update dialog.
 on:
   push:
@@ -11,7 +11,13 @@ permissions:
   contents: write
 
 jobs:
+  macos:
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+
   windows:
+    needs: macos
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -32,6 +38,8 @@ jobs:
         with:
           deno-version: v2.x
       - run: cargo xtask check
+      - name: Test Dev mode in the Windows release configuration
+        run: cargo test --release --locked --bin stream-dlp app::dev::tests
 
       - name: Install Inno Setup
         run: |
@@ -74,10 +82,25 @@ jobs:
       # Installed apps download their installer only from this repository's release URL, with
       # GitHub's SHA-256 digest, which gh's upload provides. Up to 0.3.9 they accept only
       # stream-dlp-Setup-Windows-x64.exe; later ones prefer stream-dlp-Update-Windows-x64.exe.
+      - name: Download the Mac packages built from this tag
+        uses: actions/download-artifact@v7
+        with:
+          name: stream-dlp-macOS-arm64-experimental
+          path: mac-release
       - name: Create draft release
         run: |
-          Get-Item -LiteralPath $env:INSTALLER, $env:UPDATE, $env:ZIP, $env:SUMS | Format-Table Name, Length
-          gh release create $env:GITHUB_REF_NAME --draft --title $env:GITHUB_REF_NAME --generate-notes $env:INSTALLER $env:UPDATE $env:ZIP $env:SUMS
+          $assets = @($env:INSTALLER, $env:UPDATE, $env:ZIP, $env:SUMS)
+          foreach ($ext in 'dmg', 'zip') {
+            $name = "stream-dlp-macOS-arm64-experimental.$ext"
+            $path = Join-Path mac-release $name
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ((Get-Content -LiteralPath "$path.sha256" -Raw).TrimEnd() -cne "$hash  $name") {
+              throw "Invalid checksum for $name"
+            }
+            $assets += $path, "$path.sha256"
+          }
+          Get-Item -LiteralPath $assets -ErrorAction Stop | Format-Table Name, Length
+          gh release create $env:GITHUB_REF_NAME --verify-tag --draft --title $env:GITHUB_REF_NAME --generate-notes @assets
           if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
         env:
           GH_TOKEN: ${{ github.token }}

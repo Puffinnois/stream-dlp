@@ -19,6 +19,11 @@ Native Rust (eframe/egui) video downloader for Windows, experimental on Apple Si
 - Update the docs that describe what you changed: the user guide for anything a user sees, `docs/reference/` for how it works.
 - Commits: Conventional Commits (`feat:`, `fix:`, `docs:`, `build:`, `ci:`, `refactor:`, `test:`), with no Co-Authored-By or other attribution trailer. Branches are merged with `git merge --no-ff` and the message `merge: <branch> (<what>)`.
 
+## Every app update
+
+- Build the standard Windows x64 app with its Dev mode toggle (Ctrl+Shift+D) and the Apple Silicon Mac app from the same version tag. Every patch, minor and major release must include the Windows setup, update installer and portable ZIP, plus the Mac DMG and fallback ZIP.
+- Keep the release in draft until both platforms pass their package checks and all required downloads and checksums are present. If either platform fails, fix it before publishing the update.
+
 ## Public repository privacy
 
 - Every agent and LLM must treat user-provided test data as local-only. Permission to test a link, file, upload, or profile does not grant permission to publish it.

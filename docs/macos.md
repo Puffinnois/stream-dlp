@@ -118,4 +118,6 @@ on your Mac. You can use the same form if the app never opened.
 
 Repeat manual checks when changing packaging, permissions, browser integration,
 updates, or substantial UI behavior. Routine shared-engine changes use automated
-checks; Mac releases may follow Windows when manual validation is still needed.
+checks. Each new release includes tested Mac packages alongside the Windows
+downloads. The Mac build retains its experimental status pending real-device
+acceptance.
