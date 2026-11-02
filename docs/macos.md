@@ -7,12 +7,13 @@ it as a stable Mac release until the checklist below is complete.
 
 ## Install and use
 
-Download the `stream-dlp-macOS-arm64-experimental` artifact from a successful
-run of the Checks workflow (`.github/workflows/checks.yml`). Extract the artifact download, then extract the app ZIP inside
-it. Move `stream-dlp.app` to Applications and open it. The app includes yt-dlp,
-FFmpeg, ffprobe, and Deno; users do not need Python, Homebrew, Rust, or Terminal.
-GitHub Actions artifacts require signing into GitHub; public Releases assets can
-be downloaded without signing in when a maintainer publishes them later.
+Look for `stream-dlp-macOS-arm64-experimental.zip` in the assets on the
+[release page](https://github.com/Puffinnois/stream-dlp/releases). If it is
+listed, download and extract it. For a beta distributed through GitHub Actions,
+use the Checks run linked by the maintainer. Sign into GitHub, download the
+`stream-dlp-macOS-arm64-experimental` artifact, extract it, then extract the
+app ZIP inside. Move `stream-dlp.app` to Applications and open it. The app
+includes yt-dlp, FFmpeg, ffprobe and Deno.
 
 This app has a local ad-hoc signature, not an Apple Developer ID signature, and
 is not notarized. No paid Apple developer account is used. macOS may initially
@@ -82,6 +83,22 @@ download Gatekeeper behavior, or real browser-session acceptance. Public YouTube
 testing can require user verification and should not gate CI on network luck.
 
 ## First real-device acceptance check
+
+### Send results to the maintainer
+
+On an Apple Silicon Mac running macOS 15 or later, try the checks below that
+fit your setup. A first-launch failure is worth reporting even if you cannot
+open the app. Successful checks help the maintainer identify which versions
+and chips have been tried.
+
+From any browser, sign into GitHub and [open a Mac beta report](https://github.com/Puffinnois/stream-dlp/issues/new?template=mac-beta.yml).
+Choose one check per report. Include the release tag (or the Actions run number
+for a CI download), macOS version, chip, and what happened. Use general steps
+such as “clicked Open folder after the download finished”. Reports are public.
+Keep links, titles, paths, screenshots, cookies, helper output and dev notes
+on your Mac. You can use the same form if the app never opened.
+
+### Checks to try
 
 - [ ] Download the ZIP through a browser on an Apple Silicon Mac and record macOS version.
 - [ ] Extract, move to Applications, follow the security exception, and launch.

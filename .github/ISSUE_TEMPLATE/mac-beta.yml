@@ -1,0 +1,47 @@
+name: Mac beta report
+description: Report a successful check or a problem on an Apple Silicon Mac.
+title: "[Mac beta] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report will be public. Use a generic title such as “Finder did not open”.
+        Keep personal details, media titles, links, file paths, cookies, logs, screenshots and dev notes out of the report.
+  - type: input
+    id: environment
+    attributes:
+      label: App version, macOS version and chip
+      placeholder: "Example: v0.3.9, macOS 15.7, M1. If launch failed, use the download's release tag."
+    validations:
+      required: true
+  - type: dropdown
+    id: step
+    attributes:
+      label: What did you test?
+      options:
+        - First launch and macOS security prompt
+        - Window, clipboard or folder picker
+        - Download and playback
+        - Open folder in Finder
+        - Cancel or quit during a download
+        - Manual cookie import
+        - Replace an earlier app
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - Passed
+        - Failed
+        - Blocked before I could test
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What did you do and what happened?
+      description: Describe the steps, expected and observed behavior, and whether it happened again. Paraphrase errors in your own words.
+    validations:
+      required: true
