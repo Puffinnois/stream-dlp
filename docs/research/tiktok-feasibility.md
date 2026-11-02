@@ -13,7 +13,22 @@ unsupported content. Short share URLs use the bounded anonymous resolver.
 Offline fixtures cover redirects to a video, photo post, or live link and
 distinguish private, sign-in-required, and unavailable extractor errors.
 
-The bundled helper also inspected another direct video anonymously. Fresh short-link acceptance remains open. The backend restricts extraction to
+On November 2, 2026, one permitted `vm.tiktok.com` share link passed the Windows
+production-backend test with Deno 2.9.8 and yt-dlp 2026.08.19. The anonymous
+resolver reached an individual video. Inspection and download succeeded, and
+FFmpeg decoded both the audio and video streams. Repeating the download preserved
+the file bytes and modification time. Cancellation during helper startup also
+passed.
+
+Three permitted `vt.tiktok.com` samples were tested with the same tools that day.
+Two passed on the first attempt. One redirected to a video path with a numeric
+ID but no creator handle. After the resolver normalized that path to TikTok's
+ID-based share route, the third sample passed the same download, decode,
+no-overwrite, and startup-cancellation checks. On November 2, 2026, the
+maintainer separately confirmed that the `tiktok.com/t/…` share-link form
+worked in manual testing.
+
+The bundled helper also inspected another direct video anonymously. The backend restricts extraction to
 TikTok, rejects collections and unexpected extractor identities, filters the first
 version to muxed H.264/H.265 video with audio, supplies missing-title fallbacks,
 and displays portrait dimensions and unknown resolutions clearly. Output names

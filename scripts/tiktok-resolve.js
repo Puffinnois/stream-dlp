@@ -4,6 +4,9 @@ export function classify(value) {
   if (u.protocol !== "https:" || u.username || u.password || u.port || u.href.length > 8192)
     throw new Error("unsafe destination");
   const main = ["tiktok.com", "www.tiktok.com", "m.tiktok.com"].includes(u.hostname);
+  // Some short links omit the creator. Use the same ID-based route as mobile links.
+  if (main && /^\/@\/video\/\d{1,20}\/?$/.test(u.pathname))
+    u.pathname = u.pathname.replace("/@/", "/share/");
   const direct = main && /^\/(?:@[\w.-]+|share)\/video\/\d{1,20}\/?$/.test(u.pathname);
   const mobile = main && /^\/v\/\d{1,20}\.html\/?$/.test(u.pathname);
   const short = (main && /^\/t\/[\w-]{1,128}\/?$/.test(u.pathname)) ||
