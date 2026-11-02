@@ -19,6 +19,13 @@ Native Rust (eframe/egui) video downloader for Windows, experimental on Apple Si
 - Update the docs that describe what you changed: the user guide for anything a user sees, `docs/reference/` for how it works.
 - Commits: Conventional Commits (`feat:`, `fix:`, `docs:`, `build:`, `ci:`, `refactor:`, `test:`), with no Co-Authored-By or other attribution trailer. Branches are merged with `git merge --no-ff` and the message `merge: <branch> (<what>)`.
 
+## Public repository privacy
+
+- Every agent and LLM must treat user-provided test data as local-only. Permission to test a link, file, upload, or profile does not grant permission to publish it.
+- Never commit, push, or post real download or viewing history, media files, titles, creator handles, video IDs, source or share links, fingerprints of user media, identifying filenames or paths, usernames, browser profiles, cookies, tokens, signed URLs, raw helper output, screenshots, or dev notes. This applies to the tree and commit history, commit messages, issues, PRs, CI logs and artifacts, and release notes and assets.
+- Use synthetic fixtures, placeholders and anonymous case labels in public examples. Keep real inputs and evidence under ignored `test-output/` or outside the checkout. Record only the behavior, outcome and technical details needed to reproduce the case privately.
+- Before committing, inspect the staged diff and file list. Before pushing, inspect all outgoing commits, including intermediate revisions, and any generated artifacts. If identifying material is already in history, stop publication and report the affected locations privately without repeating the data. Coordinate any remote history rewrite with the maintainer.
+
 ## Ask the user first
 
 - Pushing, merging into `main`, tagging, releasing, publishing a GitHub release, or deleting a branch or tag. Releases happen only through `cargo xtask release` and the Release workflow (`docs/reference/development.md`).
@@ -35,5 +42,5 @@ Native Rust (eframe/egui) video downloader for Windows, experimental on Apple Si
 ## This machine
 
 - Windows 11, repository at `C:\dev\stream-dlp`. `tools/` holds the helpers and `tools/inno-setup`; they are not in git. If they are missing, use **Settings → Download tools** in the app or `Setup tools.ps1`.
-- GitHub: the Windows `gh` is not signed in. Push and use `gh` from WSL, whose login (Puffinnois) may change workflows: `wsl.exe -e bash -c 'cd /mnt/c/dev/stream-dlp && git -c safe.directory="$PWD" push origin <branch>'` (from Git Bash, prefix `MSYS_NO_PATHCONV=1`).
+- GitHub: the Windows `gh` is not signed in. Push and use `gh` from WSL, whose authenticated account may change workflows: `wsl.exe -e bash -c 'cd /mnt/c/dev/stream-dlp && git -c safe.directory="$PWD" push origin <branch>'` (from Git Bash, prefix `MSYS_NO_PATHCONV=1`).
 - CI: every pushed branch runs Checks on Windows and Mac. A branch named `check/<name>` also runs the Package check, which builds and tests both installers.

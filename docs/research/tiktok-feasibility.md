@@ -52,7 +52,7 @@ does not justify updating the production helper.
 Added `scripts/tiktok-spike.ps1` (PowerShell 7). It runs helpers without user
 configuration or browser cookies, requests metadata without media downloads,
 limits each operation to 40 seconds, kills the process tree on timeout, and saves
-only selected metadata and errors with URLs redacted. It does not retain media
+only selected metadata and outcome labels. It does not retain media
 URLs, headers, full descriptions, or cookie jars.
 
 Compared the bundled yt-dlp **2026.08.19** with **2026.10.21**, the latest stable
@@ -67,6 +67,10 @@ Run from the repository root:
 ```powershell
 ./scripts/tiktok-spike.ps1 -CasesFile './test-output/tiktok-cases.json' -YtDlp './tools/yt-dlp.exe','./test-output/tiktok-spike/yt-dlp-candidate.exe'
 ```
+
+Keep the case file local. Its JSON array contains objects such as
+`{"name":"desktop","url":"https://www.tiktok.com/@creator/video/123"}`.
+Replace example URLs locally and use anonymous case names.
 
 The candidate must already exist; the script intentionally does not download or
 trust an arbitrary executable automatically. `-CaseName` selects named cases and

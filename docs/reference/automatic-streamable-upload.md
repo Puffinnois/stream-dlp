@@ -85,7 +85,7 @@ The user explicitly authorized upload of the generated 2-second test pattern
 and tone and acceptance of the upload terms. The production Rust runtime and
 embedded Deno driver passed `authorized_streamable_upload` on Windows/Edge in
 15.80 seconds. It automatically selected the file through the website's actual
-file chooser, uploaded it, and verified playback in a separate tab. This is a temporary guest upload.
+file chooser, uploaded it, and verified playback in a separate tab. The website returned a temporary guest link.
 
 The source was the same 75,355-byte H.264/AAC sample described in the R-02
 record. No personal video or browser profile was used. The local fixture also

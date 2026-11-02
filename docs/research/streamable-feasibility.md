@@ -36,7 +36,10 @@ the video element reported 2 seconds, 320x180, readyState 4, advancing currentTi
 and no media error. This establishes actual playback, not just link allocation.
 Audio listening and a separate fresh browser context were not tested.
 
-The generated H.264/AAC sample and a separate AV1/AAC file both uploaded and played successfully. The source stayed in place.
+The generated H.264/AAC sample played successfully. A separate AV1/AAC MP4
+with a Unicode filename also uploaded, processed and played without conversion.
+FFprobe checked the local source and the browser reported advancing playback
+without a media error. The original file stayed in place.
 
 ## Limits and compatibility
 
@@ -65,7 +68,7 @@ login in app copy when the guest option remains available.
 ## Remaining acceptance
 
 - Test a signed-in website upload with an explicitly selected test account; no
-  account was available in this run. Record its actual limits and resulting link.
+  account was available in this run. Record its limits and whether a playable link was returned.
 - Recheck retention and file requirements before shipping, especially the
   conflicting guest-retention statements. Boundary limits were not exercised.
 - S-01/S-02 still need application implementation and tests for new/existing files,
