@@ -10,7 +10,7 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **P-01 — finish TikTok.** Give photo posts, live links, and unavailable or private videos their own clear messages, with fixtures in `src/engine/sources/tiktok.rs`. Then check short share links against fresh real ones the user supplies (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/…`), and tick the P-01 boxes that are true.
+1. **P-01 — TikTok complete.** Awaiting merge.
 2. **R-03 for X/Twitter only.** Probe public `x.com` and `twitter.com` links with the bundled yt-dlp: single-video posts, multi-video posts, share links, login-required and unavailable posts. Record the first-release scope and anonymized test outcomes in `docs/research/x-feasibility.md`, like the TikTok record. No code yet.
 3. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
 4. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
@@ -217,10 +217,10 @@ are implemented experimentally, with production-backend download, decode,
 no-overwrite, session isolation, and startup-cancellation validation. Since v0.3.9,
 short share links (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/…`) resolve to the
 video first. One fresh `vm.tiktok.com` link and three `vt.tiktok.com` links passed
-the production-backend test on November 2, 2026. The `tiktok.com/t/…` form still
-needs live validation.
+the production-backend test on November 2, 2026. The maintainer confirmed the
+`tiktok.com/t/…` form worked in manual testing.
 
-- [ ] Support individual public video URLs and verified short/share links.
+- [x] Support individual public video URLs and verified short/share links.
 - [x] Handle vertical video, missing creator metadata, and available format variations.
 - [x] Explain photo slideshows, live links, unavailable content, and authentication requirements explicitly.
 

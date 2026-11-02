@@ -24,8 +24,9 @@ Three permitted `vt.tiktok.com` samples were tested with the same tools that day
 Two passed on the first attempt. One redirected to a video path with a numeric
 ID but no creator handle. After the resolver normalized that path to TikTok's
 ID-based share route, the third sample passed the same download, decode,
-no-overwrite, and startup-cancellation checks. The `tiktok.com/t/…` form still
-needs a fresh sample.
+no-overwrite, and startup-cancellation checks. On November 2, 2026, the
+maintainer separately confirmed that the `tiktok.com/t/…` share-link form
+worked in manual testing.
 
 The bundled helper also inspected another direct video anonymously. The backend restricts extraction to
 TikTok, rejects collections and unexpected extractor identities, filters the first
