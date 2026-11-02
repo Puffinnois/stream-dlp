@@ -25,7 +25,7 @@ impl std::fmt::Display for EngineError {
         match self {
             Self::Unsupported(message) | Self::Helper(message) => f.write_str(message),
             Self::SignInNeeded(Source::YouTube) => f.write_str("YouTube requires sign-in or a verification check. Use Connect browser / retry help to import your YouTube session, then retry. YouTube may still restrict this connection or video."),
-            Self::SignInNeeded(Source::TikTok) => f.write_str("TikTok requires access or verification for this video. Only public videos are supported; YouTube browser sessions cannot unlock TikTok videos."),
+            Self::SignInNeeded(Source::TikTok) => f.write_str("TikTok requires sign-in or verification for this video. Choose a public video that plays while signed out."),
             Self::RateLimited(source) => write!(
                 f,
                 "{} is limiting requests. Wait a while before trying again.",

@@ -11,8 +11,18 @@ Deno.test("short-link redirects are manual, anonymous, and stop at an individual
   });
   assert(result === full && calls === 1);
 });
+Deno.test("photo and live destinations return to URL validation without another request", async () => {
+  for (const target of ["https://www.tiktok.com/@c/photo/123", "https://www.tiktok.com/@c/live"]) {
+    let calls = 0;
+    const result = await resolve("https://vt.tiktok.com/ABC/", () => {
+      assert(++calls === 1);
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: target } }));
+    });
+    assert(result === target && calls === 1);
+  }
+});
 Deno.test("unsafe and unsupported destinations never receive requests", async () => {
-  for (const target of ["https://evil.test/video/123", "http://www.tiktok.com/@c/video/123", "https://www.tiktok.com.evil.test/", "https://user@www.tiktok.com/@c/video/123", "https://127.0.0.1/", "https://www.tiktok.com:444/@c/video/123", "https://www.tiktok.com/@c/photo/123", "https://www.tiktok.com/login", "file:///tmp/test"]) {
+  for (const target of ["https://evil.test/video/123", "http://www.tiktok.com/@c/video/123", "https://www.tiktok.com.evil.test/", "https://user@www.tiktok.com/@c/video/123", "https://127.0.0.1/", "https://www.tiktok.com:444/@c/video/123", "https://www.tiktok.com/login", "file:///tmp/test"]) {
     let calls = 0;
     await rejects(() => resolve("https://vt.tiktok.com/ABC/", () => {
       calls++; return Promise.resolve(new Response(null, { status: 302, headers: { location: target } }));

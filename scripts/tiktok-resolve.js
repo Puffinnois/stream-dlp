@@ -8,13 +8,15 @@ export function classify(value) {
   const mobile = main && /^\/v\/\d{1,20}\.html\/?$/.test(u.pathname);
   const short = (main && /^\/t\/[\w-]{1,128}\/?$/.test(u.pathname)) ||
     (["vm.tiktok.com", "vt.tiktok.com"].includes(u.hostname) && /^\/[\w-]{1,128}\/?$/.test(u.pathname));
-  if (!direct && !mobile && !short) throw new Error("unsupported destination");
+  // Let Rust explain recognized non-video posts without fetching them.
+  const unsupportedPost = main && /^\/@[\w.-]+\/(?:photo\/\d{1,20}|live)\/?$/.test(u.pathname);
+  if (!direct && !mobile && !short && !unsupportedPost) throw new Error("unsupported destination");
   u.hash = "";
   if (direct || mobile) {
     if (mobile) u.pathname = `/share/video/${u.pathname.match(/\d+/)[0]}`;
     u.hostname = "www.tiktok.com";
   }
-  return { url: u.href, direct: direct || mobile };
+  return { url: u.href, terminal: direct || mobile || unsupportedPost };
 }
 
 export async function resolve(value, request = fetch, signal = AbortSignal.timeout(15000)) {
@@ -25,7 +27,7 @@ export async function resolve(value, request = fetch, signal = AbortSignal.timeo
   const headers = { "User-Agent": "facebookexternalhit/1.1" };
   for (let hop = 0; hop <= 5; hop++) {
     signal.throwIfAborted();
-    if (current.direct) return current.url;
+    if (current.terminal) return current.url;
     if (hop === 5 || visited.has(current.url)) throw new Error("redirect limit");
     visited.add(current.url);
     let response = await request(current.url, { method: "HEAD", headers, redirect: "manual", credentials: "omit", signal });

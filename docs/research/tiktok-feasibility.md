@@ -9,7 +9,11 @@ player acceptance and broader compatibility checks remain open.
 ## Implementation follow-up
 
 The development build accepts full individual TikTok video/share URLs and rejects
-short/mobile links and unsupported content. The backend restricts extraction to
+unsupported content. Short share URLs use the bounded anonymous resolver.
+Offline fixtures cover redirects to a video, photo post, or live link and
+distinguish private, sign-in-required, and unavailable extractor errors.
+
+The bundled helper also inspected another direct video anonymously. Fresh short-link acceptance remains open. The backend restricts extraction to
 TikTok, rejects collections and unexpected extractor identities, filters the first
 version to muxed H.264/H.265 video with audio, supplies missing-title fallbacks,
 and displays portrait dimensions and unknown resolutions clearly. Output names
