@@ -18,7 +18,14 @@ production-backend test with Deno 2.9.8 and yt-dlp 2026.08.19. The anonymous
 resolver reached an individual video. Inspection and download succeeded, and
 FFmpeg decoded both the audio and video streams. Repeating the download preserved
 the file bytes and modification time. Cancellation during helper startup also
-passed. Fresh `vt.tiktok.com` and `tiktok.com/t/…` samples remain untested.
+passed.
+
+Three permitted `vt.tiktok.com` samples were tested with the same tools that day.
+Two passed on the first attempt. One redirected to a video path with a numeric
+ID but no creator handle. After the resolver normalized that path to TikTok's
+ID-based share route, the third sample passed the same download, decode,
+no-overwrite, and startup-cancellation checks. The `tiktok.com/t/…` form still
+needs a fresh sample.
 
 The bundled helper also inspected another direct video anonymously. The backend restricts extraction to
 TikTok, rejects collections and unexpected extractor identities, filters the first

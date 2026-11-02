@@ -41,6 +41,7 @@ Deno.test("redirect loops, limits, expired links, and cancellation terminate", a
   await rejects(() => resolve("https://vm.tiktok.com/ABC/", () => { throw new Error("must not request"); }, AbortSignal.abort()));
 });
 Deno.test("mobile routes normalize and HEAD fallback remains bounded", async () => {
+  assert(classify("https://www.tiktok.com/@/video/123?lang=en").url === "https://www.tiktok.com/share/video/123?lang=en");
   assert(classify("https://m.tiktok.com/v/123.html?lang=en").url === "https://www.tiktok.com/share/video/123?lang=en");
   let calls = 0;
   const result = await resolve("https://www.tiktok.com/t/ABC", (_url, opts) => {

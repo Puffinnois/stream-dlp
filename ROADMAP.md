@@ -216,9 +216,9 @@ Initial scope and implementation requirements are recorded in the
 are implemented experimentally, with production-backend download, decode,
 no-overwrite, session isolation, and startup-cancellation validation. Since v0.3.9,
 short share links (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/…`) resolve to the
-video first. One fresh `vm.tiktok.com` link passed the production-backend test on
-November 2, 2026. Fresh `vt.tiktok.com` and `tiktok.com/t/…` links still need
-live validation.
+video first. One fresh `vm.tiktok.com` link and three `vt.tiktok.com` links passed
+the production-backend test on November 2, 2026. The `tiktok.com/t/…` form still
+needs live validation.
 
 - [ ] Support individual public video URLs and verified short/share links.
 - [x] Handle vertical video, missing creator metadata, and available format variations.

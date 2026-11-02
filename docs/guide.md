@@ -29,8 +29,9 @@ audio. Portrait dimensions appear directly in the quality list. TikTok filenames
 have a source prefix, and YouTube sessions are never attached to TikTok requests.
 
 For a short share link, the app tries to find the full post URL. If that fails,
-open the link in your browser and copy the full video URL. Fresh examples of
-the three short-link forms are still awaiting verification.
+open the link in your browser and copy the full video URL. Public video links
+from `vm.tiktok.com` and `vt.tiktok.com` have passed live download tests.
+Links in the `tiktok.com/t/…` form still await live verification.
 
 Photo slideshows and live links get separate messages. For a private post or
 one that requires sign-in, choose a public video that plays while signed out.
