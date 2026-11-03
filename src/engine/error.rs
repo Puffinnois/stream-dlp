@@ -51,6 +51,7 @@ impl std::fmt::Display for EngineError {
             ),
             Self::TimedOut(source) => write!(f, "{} took too long to respond. Check your connection and try again.", source.label()),
             Self::ExpiredSession(source) => write!(f, "Your {} session has expired. Import a fresh session and retry.", source.label()),
+            Self::MissingVideo(Source::Instagram) => write!(f, "No downloadable video was found in this Instagram post. Choose a Reel or a post containing video. Photo-only posts cannot be downloaded."),
             Self::MissingVideo(source) => write!(f, "No downloadable video was found in this {} post.", source.label()),
             Self::Drm(source) => write!(f, "This {} video is DRM-protected and cannot be downloaded.", source.label()),
         }

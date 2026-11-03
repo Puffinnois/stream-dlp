@@ -183,7 +183,7 @@ impl App {
         page_header(
             ui,
             "Download",
-            "Save a YouTube, TikTok, X or Facebook video in the quality you choose.",
+            "Save a YouTube, TikTok, X, Facebook or Instagram video in the quality you choose.",
         );
         card(ui, |ui| {
             ui.label(RichText::new("Video link").size(14.).color(INK).strong());
@@ -194,7 +194,9 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text("Paste a YouTube, TikTok, X or Facebook video/share link")
+                        .hint_text(
+                            "Paste a YouTube, TikTok, X, Facebook or Instagram video/share link",
+                        )
                         .desired_width(width)
                         .margin(Vec2::new(12., 12.)),
                 );
@@ -213,7 +215,7 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new(
-                        "YouTube videos and Shorts · Public TikTok, X and Facebook video links (experimental)",
+                        "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental)",
                     )
                     .size(12.)
                     .color(MUTED),

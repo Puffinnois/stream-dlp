@@ -1,6 +1,6 @@
 # stream-dlp
 
-A native Windows video downloader for YouTube, with experimental TikTok, X/Twitter and Facebook links and an experimental Apple Silicon Mac version. It also makes GIFs from local videos and hands videos to Streamable. Rust (eframe/egui); yt-dlp, FFmpeg and Deno run as bundled helpers.
+A native Windows video downloader for YouTube, with experimental TikTok, X/Twitter, Facebook and Instagram links and an experimental Apple Silicon Mac version. It also makes GIFs from local videos and hands videos to Streamable. Rust (eframe/egui); yt-dlp, FFmpeg and Deno run as bundled helpers.
 
 - Install: `stream-dlp-Setup-Windows-x64.exe` from [Releases](https://github.com/Puffinnois/stream-dlp/releases) (per user, no administrator access), or the portable ZIP. Mac: [docs/macos.md](docs/macos.md).
 - User guide (downloading, YouTube verification, updates, download tools, GIFs, My videos and Streamable): [docs/guide.md](docs/guide.md)
