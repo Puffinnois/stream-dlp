@@ -80,7 +80,9 @@ Playlist entries retain their one-based position and media ID. Download passes
 both to yt-dlp so a changed post cannot silently save another entry. X commands
 exclude session cookies. To run the ignored production test, set
 `STREAM_DLP_X_TEST_URL` locally and `STREAM_DLP_X_TEST_CASE` to `single`,
-`multi` (selects entry two), or `photo`. Run
+`multi` (selects entry two), `photo`, `login` (expects an explicit X sign-in
+error), or `animated` (checks for a silent,
+multi-frame MP4). Run
 `cargo test --locked x_authorized_production_pipeline -- --ignored`.
 
 ## Source layout
