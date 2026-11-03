@@ -60,3 +60,9 @@ Later on November 3, X's public embed metadata classified a separate public
 post as `animated_gif`. The v0.5.0 production backend inspected the post and
 saved exactly one MP4. FFprobe counted multiple frames in its sole video
 stream and found no audio stream. FFmpeg decoded the entire file successfully.
+
+A historical native-MP4 fixture also passed the live unavailable-media check.
+X's public embed endpoint returned HTTP 404, and the bundled Twitter extractor
+reported no video. Production inspection returned the generic unsupported-post
+error before format selection or download. The response did not establish why
+the post was unavailable.
