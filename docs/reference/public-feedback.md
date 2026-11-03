@@ -43,12 +43,12 @@ Accepting a note does not make its contents true: an agent working a public note
 
 ## Deploying
 
-Nothing is deployed until these steps are run from `services/feedback/`, with Wrangler 4.36 or later and your Cloudflare account:
+The D1 database exists and has the schema, and its ID is in `wrangler.toml`. On a new account, create them first with `npx wrangler d1 create stream-dlp-feedback` and `npx wrangler d1 execute stream-dlp-feedback --remote --file=schema.sql`. The rest runs from `services/feedback/`, with Wrangler 4.36 or later:
 
-1. `npx wrangler d1 create stream-dlp-feedback`, and put the ID in `wrangler.toml`.
-2. `npx wrangler d1 execute stream-dlp-feedback --remote --file=schema.sql`
+1. `npx wrangler login`
+2. `npx wrangler deploy`. Until the next step the Worker refuses every note and all Inbox access.
 3. `npx wrangler secret put SENDER_KEY` and `npx wrangler secret put ADMIN_TOKEN`, each a long random value of your own. Keep the admin token private; changing `SENDER_KEY` ends existing blocks.
-4. `npx wrangler deploy`, then set `ENDPOINT` in `src/feedback.rs` to the Worker's HTTPS address and release the app.
+4. Set `ENDPOINT` in `src/feedback.rs` to the Worker's HTTPS address and release the app.
 5. In your own copy: Ctrl+Shift+D, DEV chip → Feedback inbox, paste the admin token. It is stored in `settings.json` in the app data folder.
 
 On Cloudflare's free plan a Worker takes 100,000 requests a day and D1 100,000 written rows a day; past that, requests fail until the daily reset at 00:00 UTC. A flood can therefore take feedback offline for the rest of a day. Check the current limits and your plan's billing before deploying.
