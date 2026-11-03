@@ -10,9 +10,8 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **R-03 for X/Twitter only.** Probe public `x.com` and `twitter.com` links with the bundled yt-dlp: single-video posts, multi-video posts, share links, login-required and unavailable posts. Record the first-release scope and anonymized test outcomes in `docs/research/x-feasibility.md`, like the TikTok record. No code yet.
-2. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
-3. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
+1. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
+2. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
 
 ## Direction and priorities
 
@@ -106,8 +105,12 @@ October 24, 2026: [TikTok investigation](docs/research/tiktok-feasibility.md) co
 bundled and latest stable helpers using 20 anonymous metadata probes. Direct
 individual-video metadata succeeded. A user-supplied sample passed helper-level
 download, full audio/video decode, and no-overwrite checks. Short/mobile links and
-production-app acceptance remain open. Investigations proceed one platform at a time; the other
-platforms have not been investigated yet.
+production-app acceptance remain open.
+
+November 2, 2026: the [X/Twitter investigation](docs/research/x-feasibility.md)
+confirmed anonymous single-video metadata and two-entry playlist responses.
+P-02 targets public native post videos after F-02 provides entry selection.
+Instagram and Facebook remain uninvestigated.
 
 - [ ] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
 - [ ] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
