@@ -1,6 +1,7 @@
 //! Per-site rules: which links are accepted, share links, the formats offered, and how
 //! yt-dlp's errors are explained. A new site is a new module here.
 mod facebook;
+pub(super) mod instagram;
 mod tiktok;
 mod x;
 mod youtube;
@@ -15,6 +16,7 @@ pub enum Source {
     TikTok,
     X,
     Facebook,
+    Instagram,
 }
 
 impl Source {
@@ -22,6 +24,7 @@ impl Source {
         match self {
             Self::YouTube => "YouTube",
             Self::TikTok => "TikTok",
+            Self::Instagram => "Instagram",
             Self::Facebook => "Facebook",
             Self::X => "X / Twitter",
         }
@@ -31,6 +34,7 @@ impl Source {
     pub(super) fn arguments(self) -> &'static [&'static str] {
         match self {
             Self::Facebook => &["--use-extractors", "Facebook"],
+            Self::Instagram => &["--use-extractors", "Instagram", "--yes-playlist"],
             Self::YouTube => &[],
             Self::TikTok => &["--use-extractors", "TikTok"],
             Self::X => &["--use-extractors", "Twitter", "--yes-playlist"],
@@ -42,6 +46,7 @@ impl Source {
             Self::YouTube => "%(title).150s [%(id)s] [%(format_id)s].%(ext)s",
             Self::TikTok => "TikTok %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
             Self::Facebook => "Facebook %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
+            Self::Instagram => "Instagram %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
             Self::X => "X %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
         }
     }
@@ -52,6 +57,7 @@ impl Source {
             Self::YouTube => Ok(()),
             Self::TikTok => tiktok::check(video),
             Self::X => x::check(video),
+            Self::Instagram => instagram::check(video),
             Self::Facebook => facebook::check(video),
         }
     }
@@ -64,6 +70,10 @@ impl Source {
             EngineError::Drm(self)
         } else if has(&["cookie", "session"]) && has(&["expired", "no longer valid"]) {
             EngineError::ExpiredSession(self)
+        } else if self == Self::Instagram
+            && has(&["login page", "login required", "log in", "login_requested"])
+        {
+            EngineError::SignInNeeded(self)
         } else if has(&[
             "http error 429",
             "http 429",
@@ -161,15 +171,21 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
         format!("https://{input}")
     };
     let unsupported = |message: &str| EngineError::Unsupported(message.into());
-    let url = url::Url::parse(&full)
-        .map_err(|_| unsupported("Paste a valid YouTube, TikTok, X or Facebook video link."))?;
+    let url = url::Url::parse(&full).map_err(|_| {
+        unsupported("Paste a valid YouTube, TikTok, X, Facebook or Instagram video link.")
+    })?;
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return Err(unsupported(
             "Paste a standard video link without credentials or a custom port.",
         ));
     }
     let host = url.host_str().unwrap_or("");
-    if facebook::HOSTS.contains(&host) {
+    if instagram::HOSTS.contains(&host) {
+        instagram::normalize(&url).map(|url| Link {
+            source: Source::Instagram,
+            url,
+        })
+    } else if facebook::HOSTS.contains(&host) {
         facebook::normalize(&url).map(|url| Link {
             source: Source::Facebook,
             url,

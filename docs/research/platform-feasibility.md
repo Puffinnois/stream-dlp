@@ -15,7 +15,7 @@ each helper. The observations below include both rounds.
 
 ## Instagram (P-03)
 
-Defer Instagram support. A video post (`/p/<code>/`), a Reel
+The initial probes led us to defer Instagram support. A video post (`/p/<code>/`), a Reel
 (`/reel/<code>/`) and a post whose upstream test expects multiple videos
 all redirected to login. The helper attributed the redirect to anonymous
 rate limiting. None returned entries, formats or metadata. The responses
@@ -26,11 +26,16 @@ The follow-up repeated the carousel and added an independently sourced Reel
 and feed post. Both helpers reached login on all three. No entry was available
 to determine whether the new feed post contained video.
 
-Reopen with a permitted sample and a way to inspect its media. Compare anonymous
-inspection with a separately authorized, Instagram-only session if needed.
-Before accepting carousels, verify a mixed post yields selectable video
-entries and a photo-only post yields a clear outcome. Share redirects,
-stories, profiles and feeds are outside the initial scope.
+P-03 follow-up on November 3, 2026, on Windows with bundled yt-dlp 2026.08.19.
+Two permitted samples later worked anonymously. A Reel exposed 12 formats and
+the app saved a file that FFmpeg decoded with both video and audio. A carousel
+returned three selectable videos. The app saved only the second entry, checked
+its media ID, and decoded its silent, multi-frame MP4. The helper offered DASH
+video for that entry even though every format explicitly had no audio.
+
+Mixed photo/video and photo-only outcomes are covered by synthetic tests.
+Real mixed and photo-only posts and signed-in recovery still need live checks.
+Share redirects, stories, profiles and feeds remain outside the initial scope.
 
 ## Facebook (P-04)
 

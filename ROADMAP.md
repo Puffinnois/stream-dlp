@@ -107,8 +107,7 @@ short-link results below, and the [X release verification](docs/research/x-feasi
 
 **Research complete.** The [four-platform helper comparison](docs/research/platform-feasibility.md)
 sets the initial Facebook target to individual public videos, including Reels,
-watch links, and the two verified share forms. Instagram is deferred after
-both helpers reached login on all five distinct fixtures. See P-04 for Facebook implementation and acceptance status.
+watch links, and the two verified share forms. Initial Instagram probes reached login on all five fixtures. P-03 later verified a Reel and carousel. See P-04 for Facebook implementation and acceptance status.
 
 - [x] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
 - [x] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
@@ -238,9 +237,11 @@ See the [live test results](docs/research/x-feasibility.md).
 
 ### P-03 — Instagram
 
-- [ ] Support verified Reel and video-post URL patterns.
-- [ ] Select video entries in mixed carousels; explain photo-only posts.
-- [ ] Add domain-scoped manual sessions and authentication recovery for the supported content. Reuse browser import only after separate compatibility validation.
+- [x] Support direct Reel and video-post URL patterns.
+- [x] Select video entries in mixed carousels and explain photo-only posts.
+- [x] Add domain-scoped manual session import and retry for Instagram.
+
+November 3, 2026, Windows and bundled yt-dlp 2026.08.19. The app downloaded and decoded a Reel with sound and the selected second video from a three-video carousel without sound. Mixed and photo-only posts and session isolation have offline coverage. Live mixed/photo-only posts and signed-in recovery remain unverified. See the [Instagram verification record](docs/research/platform-feasibility.md#instagram-p-03).
 
 ### P-04 — Facebook
 

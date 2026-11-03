@@ -229,6 +229,23 @@ pub fn parse_video(json: &str) -> Result<Video, EngineError> {
 fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
     let mut video: Video = serde_json::from_str(json)
         .map_err(|_| EngineError::Helper("Could not read the video details.".into()))?;
+    if source == Source::Instagram {
+        video.formats.retain(|f| {
+            matches!(f.ext.as_str(), "mp4" | "m4a") && f.protocol.as_deref() == Some("https")
+        });
+        // A silent entry can still offer DASH video. Only skip merging when
+        // every media format explicitly reports no audio.
+        let silent = video
+            .formats
+            .iter()
+            .all(|f| f.acodec.as_deref() == Some("none"));
+        for f in &mut video.formats {
+            f.direct_video = f.protocol.as_deref() == Some("https")
+                && f.ext == "mp4"
+                && (!f.format_id.starts_with("dash") || silent)
+                && f.vcodec.as_deref() != Some("none");
+        }
+    }
     // Facebook SD/HD progressive MP4s can omit both codec fields.
     if source == Source::Facebook {
         for f in &mut video.formats {

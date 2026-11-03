@@ -65,6 +65,10 @@ pub fn inspect(
             return Ok(None);
         };
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
+        if link.source == super::Source::Instagram {
+            // Keep photo entries without formats from aborting inspection of a mixed carousel.
+            cmd.arg("--ignore-no-formats-error");
+        }
         cmd.args(["--dump-single-json", "--skip-download", "--", &link.url]);
         let output = match process::Helper::new(&mut cmd, &cancel)
             .time_limit(Duration::from_secs(150))
@@ -93,6 +97,35 @@ pub fn inspect(
 }
 
 fn inspection_event(json: &str, link: &Link) -> Result<Event, EngineError> {
+    if link.source == super::Source::Instagram {
+        let post: serde_json::Value = serde_json::from_str(json)
+            .map_err(|_| EngineError::Helper("Could not read Instagram post metadata.".into()))?;
+        if let Some(entries) = post["entries"].as_array() {
+            if post["extractor_key"] != "Instagram" || post["_type"] != "playlist" {
+                return Err(EngineError::Unsupported(
+                    "Choose an individual Instagram post.".into(),
+                ));
+            }
+            let mut videos = Vec::new();
+            for (index, entry) in entries.iter().enumerate() {
+                if entry.is_null() {
+                    continue;
+                }
+                match parse_for(&entry.to_string(), link) {
+                    Ok(mut video) => {
+                        video.entry_index = Some(index + 1);
+                        videos.push(video);
+                    }
+                    Err(EngineError::MissingVideo(_)) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+            if videos.is_empty() {
+                return Err(EngineError::MissingVideo(link.source));
+            }
+            return Ok(Event::Entries(videos));
+        }
+    }
     if link.source == super::Source::X {
         let post: serde_json::Value = serde_json::from_str(json)
             .map_err(|_| EngineError::Helper("Could not read X post metadata.".into()))?;
@@ -131,11 +164,20 @@ pub fn download(
     let link = media.link();
     let result = (|| {
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
-        if matches!(link.source, super::Source::X | super::Source::Facebook) {
+        if matches!(
+            link.source,
+            super::Source::X | super::Source::Facebook | super::Source::Instagram
+        ) {
             let id = media
                 .id
                 .as_deref()
-                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                .filter(|id| {
+                    if link.source == super::Source::Instagram {
+                        super::sources::instagram::valid_id(id)
+                    } else {
+                        !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
+                    }
+                })
                 .ok_or_else(|| {
                     EngineError::Unsupported(format!(
                         "{} returned no usable video ID.",
@@ -327,6 +369,59 @@ mod tests {
         let (anonymous, file) = super::command(None).unwrap();
         assert!(file.is_none());
         assert!(!anonymous.get_args().any(|arg| arg == "--cookies"));
+    }
+
+    #[test]
+    fn instagram_mixed_carousel_preserves_each_video_position_and_identity() {
+        let link = crate::engine::parse_link("instagram.com/p/Example/").unwrap();
+        let photo = serde_json::json!({"extractor_key":"Instagram","formats":[{"format_id":"image","ext":"jpg","vcodec":"mjpeg","protocol":"https"}]});
+        let clip = serde_json::json!({"extractor_key":"Instagram","id":"Example_2","formats":[{"format_id":"progressive","ext":"mp4","protocol":"https"}]});
+        let mut post = serde_json::json!({"extractor_key":"Instagram","_type":"playlist","entries":[photo,clip]});
+        let Event::Entries(videos) = inspection_event(&post.to_string(), &link).unwrap() else {
+            panic!("expected a selector")
+        };
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].identity().entry_index, Some(2));
+        assert_eq!(videos[0].identity().id.as_deref(), Some("Example_2"));
+        assert_eq!(videos[0].formats[0].selector(), "progressive");
+        post["entries"] = serde_json::json!([photo]);
+        assert!(matches!(
+            inspection_event(&post.to_string(), &link),
+            Err(EngineError::MissingVideo(Source::Instagram))
+        ));
+    }
+
+    #[test]
+    fn instagram_dash_audio_is_merged_unless_the_source_is_explicitly_silent() {
+        let link = crate::engine::parse_link("instagram.com/reel/Example").unwrap();
+        let mut post = serde_json::json!({"id":"Example","extractor_key":"Instagram","formats":[
+            {"format_id":"dash-video","ext":"mp4","protocol":"https","vcodec":"avc1","acodec":"none"},
+            {"format_id":"dash-audio","ext":"m4a","protocol":"https","vcodec":"none","acodec":"aac"}
+        ]});
+        let video = parse_for(&post.to_string(), &link).unwrap();
+        assert!(video.formats[0].selector().starts_with("dash-video+"));
+        post["formats"].as_array_mut().unwrap().pop();
+        let silent = parse_for(&post.to_string(), &link).unwrap();
+        assert_eq!(silent.formats[0].selector(), "dash-video");
+    }
+
+    #[test]
+    fn instagram_cookie_jar_only_reaches_instagram_posts() {
+        let jar = SessionCookies::parse_for(
+            "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tTEST\tfake\n",
+            Source::Instagram,
+        )
+        .unwrap();
+        for (url, expected) in [
+            ("instagram.com/p/Example", true),
+            ("facebook.com/reel/123", false),
+            ("x.com/example/status/123", false),
+        ] {
+            let link = crate::engine::parse_link(url).unwrap();
+            let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+            assert_eq!(file.is_some(), expected);
+            assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
+        }
     }
 
     #[test]
@@ -820,6 +915,29 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "requires a permitted Instagram sample and installed download tools"]
+    fn instagram_authorized_production_pipeline() {
+        let link =
+            crate::engine::parse_link(&std::env::var("STREAM_DLP_INSTAGRAM_TEST_URL").unwrap())
+                .unwrap();
+        assert_eq!(link.source, Source::Instagram);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        inspect(link, None, tx, cancel.clone());
+        let mode =
+            std::env::var("STREAM_DLP_INSTAGRAM_TEST_CASE").unwrap_or_else(|_| "single".into());
+        match (mode.as_str(), rx.recv().unwrap()) {
+            ("single", Event::Loaded(video)) => verify_saved_post(video, "instagram", cancel),
+            ("carousel", Event::Entries(mut videos)) if videos.len() >= 2 => {
+                verify_saved_post(videos.remove(1), "instagram-carousel", cancel)
+            }
+            ("photo", Event::Failed(EngineError::MissingVideo(Source::Instagram))) => (),
+            (_, Event::Failed(error)) => panic!("{error}"),
+            _ => panic!("Unexpected Instagram inspection result"),
+        }
+    }
+
     fn verify_saved_post(video: Video, mode: &str, cancel: Arc<AtomicBool>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output");
@@ -851,7 +969,13 @@ mod tests {
                 .to_string_lossy()
                 .contains(&format!("[{}]", video.id.unwrap()))
         );
-        if mode == "animated" {
+        if mode == "animated"
+            || (mode == "instagram-carousel"
+                && video
+                    .formats
+                    .iter()
+                    .all(|f| f.acodec.as_deref() == Some("none")))
+        {
             assert_eq!(file.extension().and_then(|ext| ext.to_str()), Some("mp4"));
             let probe = isolate(
                 Command::new(crate::tools::path("ffprobe"))
@@ -890,7 +1014,11 @@ mod tests {
                     "-map",
                     "0:v:0",
                     "-map",
-                    if mode == "facebook" { "0:a:0" } else { "0:a?" },
+                    if matches!(mode, "facebook" | "instagram") {
+                        "0:a:0"
+                    } else {
+                        "0:a?"
+                    },
                     "-f",
                     "null",
                     "-",
