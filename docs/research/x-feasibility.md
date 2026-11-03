@@ -66,3 +66,8 @@ X's public embed endpoint returned HTTP 404, and the bundled Twitter extractor
 reported no video. Production inspection returned the generic unsupported-post
 error before format selection or download. The response did not establish why
 the post was unavailable.
+
+On November 3, a separate post produced an explicit authentication error
+with the bundled extractor while signed out. The production inspection
+returned `SignInNeeded(Source::X)` before format selection. The error did
+not trigger YouTube session recovery. No media was downloaded.

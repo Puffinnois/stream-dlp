@@ -698,6 +698,14 @@ mod tests {
         );
         let event = rx.recv().unwrap();
         let mode = std::env::var("STREAM_DLP_X_TEST_CASE").unwrap();
+        if mode == "login" {
+            let Event::Failed(error) = event else {
+                panic!("Expected inspection to stop at the X sign-in gate");
+            };
+            assert_eq!(error, EngineError::SignInNeeded(Source::X));
+            assert!(!error.needs_session());
+            return;
+        }
         if mode == "photo" {
             assert!(matches!(event, Event::Failed(EngineError::Unsupported(_))));
             return;
