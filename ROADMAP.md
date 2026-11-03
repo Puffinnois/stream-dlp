@@ -100,20 +100,20 @@ Direct upload remains blocked by the documented read-only API.
 
 ### R-03 — Platform feasibility spike
 
-October 24, 2026: [TikTok investigation](docs/research/tiktok-feasibility.md) compares the
-bundled and latest stable helpers using 20 anonymous metadata probes. Direct
-individual-video metadata succeeded. A user-supplied sample passed helper-level
-download, full audio/video decode, and no-overwrite checks. Short/mobile links and
-production-app acceptance remain open.
+November 3, 2026: P-01 covers individual TikTok videos and verified short links.
+P-02 covers native X post videos, including selected entries and silent animations.
+See the [TikTok investigation](docs/research/tiktok-feasibility.md), the P-01
+short-link results below, and the [X release verification](docs/research/x-feasibility.md).
 
-November 2, 2026: the [X/Twitter investigation](docs/research/x-feasibility.md)
-confirmed anonymous single-video metadata and two-entry playlist responses.
-P-02 targets public native post videos after F-02 provides entry selection.
-Instagram and Facebook remain uninvestigated.
+**Research complete.** The [four-platform helper comparison](docs/research/platform-feasibility.md)
+sets the initial Facebook target to individual public videos, including Reels,
+watch links, and the two verified share forms. Instagram is deferred after
+both helpers reached login on all five distinct fixtures. P-03 and P-04
+implementation and download acceptance remain open.
 
-- [ ] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
-- [ ] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
-- [ ] Record supported URL patterns, required cookies, missing metadata, collection responses, and failures for each platform.
+- [x] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
+- [x] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
+- [x] Record supported URL patterns, cookie evidence, missing metadata, collection responses, failures, and unverified cases for each platform.
 
 **Done when:** each platform has an explicit first-release scope and test examples. A blocked platform does not prevent another from shipping.
 
