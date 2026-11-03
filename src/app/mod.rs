@@ -51,6 +51,7 @@ pub struct App {
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
+    entries: Vec<Video>,
     selected: usize,
     filter: FormatFilter,
     phase: Phase,
@@ -119,6 +120,7 @@ impl App {
             link: String::new(),
             loaded_link: None,
             video: None,
+            entries: Vec::new(),
             selected: 0,
             filter: FormatFilter::All,
             phase: Phase::Idle,
@@ -370,6 +372,7 @@ mod tests {
     fn completed_download_keeps_identity_when_input_changes() {
         let mut app = App::with_profiles(Vec::new());
         let media = engine::MediaIdentity {
+            entry_index: None,
             source: engine::Source::TikTok,
             source_url: "https://www.tiktok.com/@creator/video/123".into(),
             id: Some("123".into()),

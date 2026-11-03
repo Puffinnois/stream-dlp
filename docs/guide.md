@@ -1,6 +1,6 @@
 # stream-dlp user guide
 
-stream-dlp downloads YouTube videos, with experimental TikTok support, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
+stream-dlp downloads YouTube videos, with experimental TikTok and X/Twitter support, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
 
 ## Install
 
@@ -19,6 +19,19 @@ video ID or **Untitled video**, and missing creator, duration, resolution, bitra
 container, and size use unknown labels. Unknown duration and resolution are not
 shown as zero. Estimated stream sizes keep a `~` prefix; files smaller than 1 MB
 show `<1 MB`.
+
+## X / Twitter posts (experimental)
+
+Paste a public HTTPS post link from `x.com`, `twitter.com`, or
+`mobile.twitter.com` and choose **Find video**. A copied post link can include
+a share query. For a shortened link, open it in your browser first and copy
+the full post address.
+
+For a post with multiple videos, pick one video before choosing its MP4
+quality and destination. **Choose another video from this post** returns to
+the list. MP4 files retain their original audio when present. Downloads use
+anonymous access. Photo-only posts, external embeds, live streams, and posts
+that require a signed-in account are outside the supported scope.
 
 ## TikTok links (experimental)
 

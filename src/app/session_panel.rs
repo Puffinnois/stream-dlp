@@ -328,6 +328,7 @@ impl App {
                     self.retry_download = false;
                     self.session_error = None;
                     self.video = None;
+                    self.entries.clear();
                     self.saved = None;
                     self.error = None;
                     self.status.clear();

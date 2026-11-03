@@ -49,3 +49,9 @@ The bundled helper inspected one public post with eleven formats. A direct MP4
 download passed full H.264 video and AAC audio decoding. A second post returned
 the ambiguous no-video diagnostic in both default and syndication modes. Its
 public embed metadata listed only a photo.
+
+The production backend subsequently passed both cases. It saved and decoded
+the video and rejected the photo-only post. On a separate public two-video
+post it saved exactly one MP4 when entry two was selected. The saved media ID
+matched that entry and FFmpeg decoded it. A historical animated-media fixture
+was unavailable during this run, so live animated-post coverage remains open.

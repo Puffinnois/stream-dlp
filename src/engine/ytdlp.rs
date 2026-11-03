@@ -11,6 +11,7 @@ use std::{
 
 pub enum Event {
     Loaded(Video),
+    Entries(Vec<Video>),
     Line(String),
     Complete(CompletedDownload),
     Failed(EngineError),
@@ -81,13 +82,41 @@ pub fn inspect(
                 .source
                 .explain(&String::from_utf8_lossy(&output.stderr)));
         }
-        parse_for(&String::from_utf8_lossy(&output.stdout), &link).map(Some)
+        inspection_event(&String::from_utf8_lossy(&output.stdout), &link).map(Some)
     })();
     let _ = tx.send(match result {
-        Ok(Some(v)) => Event::Loaded(v),
+        Ok(Some(event)) => event,
         Ok(None) => Event::Cancelled,
         Err(e) => Event::Failed(e),
     });
+}
+
+fn inspection_event(json: &str, link: &Link) -> Result<Event, EngineError> {
+    if link.source == super::Source::X {
+        let post: serde_json::Value = serde_json::from_str(json)
+            .map_err(|_| EngineError::Helper("Could not read X post metadata.".into()))?;
+        if let Some(entries) = post["entries"].as_array() {
+            if post["extractor_key"] != "Twitter"
+                || post["_type"] != "playlist"
+                || entries.is_empty()
+            {
+                return Err(EngineError::Unsupported(
+                    "No supported X video entries were returned.".into(),
+                ));
+            }
+            let videos = entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| {
+                    let mut video = parse_for(&entry.to_string(), link)?;
+                    video.entry_index = Some(index + 1);
+                    Ok(video)
+                })
+                .collect::<Result<Vec<_>, EngineError>>()?;
+            return Ok(Event::Entries(videos));
+        }
+    }
+    parse_for(json, link).map(Event::Loaded)
 }
 
 pub fn download(
@@ -101,6 +130,17 @@ pub fn download(
     let link = media.link();
     let result = (|| {
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
+        if link.source == super::Source::X {
+            let id = media
+                .id
+                .as_deref()
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                .ok_or_else(|| EngineError::Unsupported("X returned no usable video ID.".into()))?;
+            cmd.arg("--playlist-items")
+                .arg(media.entry_index.unwrap_or(1).to_string())
+                .arg("--match-filter")
+                .arg(format!("id = '{id}'"));
+        }
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
             .args(["--output", link.source.output_template(), "--", &link.url]);
@@ -599,6 +639,114 @@ mod tests {
             "Expected cancellation after transfer progress"
         );
         println!("Verified cancellation during an active throttled transfer.");
+    }
+
+    #[test]
+    fn x_links_and_collection_entries_are_scoped_to_one_post() {
+        let link = crate::engine::parse_link("https://mobile.twitter.com/example/status/123?s=20")
+            .unwrap();
+        assert_eq!(link.url, "https://x.com/example/status/123");
+        assert!(!link.takes_session());
+        for bad in [
+            "https://x.com.example/status/1",
+            "https://x.com/example",
+            "https://x.com/example/status/123/video/2",
+            "http://x.com/example/status/1",
+        ] {
+            assert!(crate::engine::parse_link(bad).is_err());
+        }
+        let entry = serde_json::json!({"id":"101","extractor_key":"Twitter","formats":[{"format_id":"http-128","ext":"mp4","protocol":"https"}]});
+        let mut other = entry.clone();
+        other["id"] = "102".into();
+        let mut post = serde_json::json!({"_type":"playlist","extractor_key":"Twitter","entries":[entry,other]});
+        let Event::Entries(entries) = inspection_event(&post.to_string(), &link).unwrap() else {
+            panic!("expected entry chooser")
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].identity().entry_index, Some(2));
+        assert_eq!(entries[1].identity().id.as_deref(), Some("102"));
+        assert_eq!(entries[1].formats[0].selector(), "http-128");
+        let mut animated = post["entries"][0].clone();
+        animated["formats"][0]["format_id"] = "http".into();
+        animated["formats"][0]["acodec"] = "none".into();
+        let Event::Loaded(clip) = inspection_event(&animated.to_string(), &link).unwrap() else {
+            panic!("expected a native MP4");
+        };
+        assert_eq!(clip.formats[0].selector(), "http");
+        assert_eq!(
+            Source::X.explain("Requires authentication"),
+            EngineError::SignInNeeded(Source::X)
+        );
+        assert!(!Source::X.explain("Requires authentication").needs_session());
+        post["entries"][1]["extractor_key"] = "Generic".into();
+        assert!(inspection_event(&post.to_string(), &link).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires a permitted X post and installed download tools"]
+    fn x_authorized_production_pipeline() {
+        let link =
+            crate::engine::parse_link(&std::env::var("STREAM_DLP_X_TEST_URL").unwrap()).unwrap();
+        assert_eq!(link.source, Source::X);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        inspect(
+            link,
+            Some(crate::session::fake_session()),
+            tx,
+            cancel.clone(),
+        );
+        let event = rx.recv().unwrap();
+        let mode = std::env::var("STREAM_DLP_X_TEST_CASE").unwrap();
+        if mode == "photo" {
+            assert!(matches!(event, Event::Failed(EngineError::Unsupported(_))));
+            return;
+        }
+        let video = match (mode.as_str(), event) {
+            ("single", Event::Loaded(v)) => v,
+            ("multi", Event::Entries(mut entries)) if entries.len() >= 2 => entries.remove(1),
+            (_, Event::Failed(e)) => panic!("{e}"),
+            _ => panic!("Unexpected post response"),
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output");
+        std::fs::create_dir_all(&root).unwrap();
+        let folder = tempfile::tempdir_in(root).unwrap();
+        download(
+            video.identity(),
+            video.formats[0].clone(),
+            folder.path().into(),
+            Some(crate::session::fake_session()),
+            tx,
+            cancel,
+        );
+        let file = rx
+            .into_iter()
+            .find_map(|event| match event {
+                Event::Complete(done) => {
+                    assert_eq!(done.media, video.identity());
+                    Some(done.path)
+                }
+                Event::Failed(e) => panic!("{e}"),
+                _ => None,
+            })
+            .expect("No completed file");
+        assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), 1);
+        assert!(
+            file.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(&format!("[{}]", video.id.unwrap()))
+        );
+        let decoded = isolate(
+            Command::new(crate::tools::path("ffmpeg"))
+                .args(["-nostdin", "-v", "error", "-xerror", "-i"])
+                .arg(file)
+                .args(["-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"]),
+        )
+        .output()
+        .unwrap();
+        assert!(decoded.status.success());
     }
 
     #[test]
