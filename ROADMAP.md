@@ -105,13 +105,14 @@ P-02 covers native X post videos, including selected entries and silent animatio
 See the [TikTok investigation](docs/research/tiktok-feasibility.md), the P-01
 short-link results below, and the [X release verification](docs/research/x-feasibility.md).
 
-The [four-platform helper comparison](docs/research/platform-feasibility.md) sets
-the initial Facebook target to individual Reels and watch links. Instagram is
-deferred after all three anonymous fixtures reached the login page. P-03 and
-P-04 implementation and download acceptance remain open.
+**Research complete.** The [four-platform helper comparison](docs/research/platform-feasibility.md)
+sets the initial Facebook target to individual public videos, including Reels,
+watch links, and the two verified share forms. Instagram is deferred after
+both helpers reached login on all five distinct fixtures. P-03 and P-04
+implementation and download acceptance remain open.
 
 - [x] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
-- [ ] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
+- [x] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
 - [x] Record supported URL patterns, cookie evidence, missing metadata, collection responses, failures, and unverified cases for each platform.
 
 **Done when:** each platform has an explicit first-release scope and test examples. A blocked platform does not prevent another from shipping.

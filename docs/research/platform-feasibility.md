@@ -9,7 +9,9 @@ Each invocation used `--ignore-config --no-plugin-dirs --no-cache-dir
 --skip-download --socket-timeout 10 --retries 0 --extractor-retries 0 -J`
 without cookies or a playlist override. Counts below are per helper. Both
 versions produced the same outcome for each input. These probes inspected
-metadata only.
+metadata only. A follow-up used the same options on 12 saved links per helper,
+then replayed the three new Facebook results against their canonical URLs on
+each helper. The observations below include both rounds.
 
 ## Instagram (P-03)
 
@@ -20,7 +22,11 @@ rate limiting. None returned entries, formats or metadata. The responses
 leave both post visibility and the effectiveness of cookies unknown.
 [Upstream Instagram fixtures](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/extractor/instagram.py)
 
-Reopen with a fresh permitted Reel and video post. Compare anonymous
+The follow-up repeated the carousel and added an independently sourced Reel
+and feed post. Both helpers reached login on all three. No entry was available
+to determine whether the new feed post contained video.
+
+Reopen with a permitted sample and a way to inspect its media. Compare anonymous
 inspection with a separately authorized, Instagram-only session if needed.
 Before accepting carousels, verify a mixed post yields selectable video
 entries and a photo-only post yields a clear outcome. Share redirects,
@@ -39,9 +45,19 @@ both failed to parse. A mobile `/story.php` fixture produced an explicit
 registered-user error. A synthetic invalid watch ID returned HTTP 404.
 Keep these failure reasons distinct. Authenticated recovery is untested.
 
-Gate implementation on download and decode of a permitted Reel and test a
-second playable watch video. Defer share redirects until a fresh share
-resolves to a verified individual video. Collections, feeds, groups and live
+The follow-up found three more distinct videos. An anonymous HTTP GET to
+`/share/r/<token>/` returned a single 302 to a Reel. A GET to
+`/share/v/<token>` returned a single 302 to an account video page.
+Both destinations returned HTTP 200 on the desktop Facebook host. The third
+input was a direct Reel. Both helpers reported a mobile watch URL for the
+first and third videos and an account video URL for the second. Each result
+had seven formats. Re-inspecting each reported URL preserved its media ID
+and format count on both helpers. The earlier Reel and login-required mobile
+post also reproduced their original outcomes.
+
+Include both tested share forms in P-04 when a bounded resolver validates
+each redirect and the final individual-video route. Gate download acceptance
+on a permitted sample that saves and decodes. Collections, feeds, groups and live
 streams are outside the initial scope. No Facebook probe returned a collection.
 
 ## TikTok (P-01) and X (P-02)
@@ -60,3 +76,8 @@ covers selected playlist entries, silent animation and photo-only,
 unavailable and login-required posts. Restricted downloads with an imported
 session remain unverified. [X fixtures](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/extractor/twitter.py)
 and [release verification](x-feasibility.md).
+
+In the follow-up, both helpers returned eight formats for a different direct
+TikTok video with a query string. A historical short share ended at an
+unsupported URL. Both helpers reproduced the nine-format single X post and
+returned two entries for a separate multi-video post.
