@@ -26,6 +26,22 @@ pub struct Video {
     pub duration: Option<f64>,
 }
 
+impl Video {
+    /// The file type to show: ffprobe's format name is a list such as `mov,mp4,m4a,3gp`.
+    pub fn container_label(&self) -> String {
+        self.path
+            .extension()
+            .map(|extension| extension.to_string_lossy().to_uppercase())
+            .or_else(|| {
+                self.container
+                    .split(',')
+                    .next()
+                    .map(|name| name.to_uppercase())
+            })
+            .unwrap_or_default()
+    }
+}
+
 pub fn scan(folder: &Path, cancel: &AtomicBool) -> Result<(Vec<Entry>, bool), String> {
     let mut entries = Vec::new();
     let mut truncated = false;
@@ -166,6 +182,17 @@ pub fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn container_label_names_the_file_type() {
+        let video = |path: &str| Video {
+            path: path.into(),
+            bytes: 1,
+            container: "mov,mp4,m4a,3gp,3g2,mj2".into(),
+            duration: None,
+        };
+        assert_eq!(video("clip.mp4").container_label(), "MP4");
+        assert_eq!(video("no extension").container_label(), "MOV");
+    }
     #[test]
     fn folder_scan_is_scoped_sorted_and_case_insensitive() {
         let dir = tempfile::tempdir().unwrap();

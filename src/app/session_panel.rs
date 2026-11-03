@@ -1,10 +1,13 @@
 //! The YouTube connection panel: Firefox import, cookie files, and the export guide.
 use super::{
     App, Phase, SessionImport,
-    theme::{MUTED, card, primary},
+    theme::{
+        DANGER, SPACE_M, SPACE_S, SUCCESS, caption, card, checkbox, primary, section_title,
+        semibold,
+    },
 };
 use crate::{engine, platform, session, tools};
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui;
 use std::{
     path::PathBuf,
     sync::{
@@ -232,9 +235,9 @@ impl App {
             return;
         }
         ui.label("Import reads YouTube cookies from the Firefox profile you select. Cookies stay in memory; they are used only for YouTube and removed when you disconnect or close the app.");
-        ui.label(RichText::new("Automatic import is experimental. Private windows and Firefox containers need the manual export option.").size(12.).color(MUTED));
+        ui.label(caption("Automatic import is experimental. Private windows and Firefox containers need the manual export option."));
         ui.add_enabled_ui(!self.download_busy(), |ui| {
-            ui.checkbox(&mut self.auto_refresh, "Auto mode: refresh this profile once if YouTube asks to sign in");
+            checkbox(ui, &mut self.auto_refresh, "Auto mode: refresh this profile once if YouTube asks to sign in");
             if self.browser_profiles.is_empty() {
                 ui.label("No Firefox cookie profiles found. Open Firefox, sign in to YouTube, then refresh this list.");
             } else {
@@ -261,24 +264,19 @@ impl App {
         if !self.session_expanded {
             return;
         }
-        ui.add_space(12.);
+        ui.add_space(SPACE_M);
         card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{} connection", source.label()))
-                        .size(18.)
-                        .strong(),
-                );
+                section_title(ui, format!("{} connection", source.label()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Collapse").clicked() {
                         self.session_expanded = false;
                     }
                 });
             });
-            ui.label(
-                RichText::new("Connect only when a video needs your signed-in session.")
-                    .color(MUTED),
-            );
+            ui.label(caption(
+                "Connect only when a video needs your signed-in session.",
+            ));
             if source != engine::Source::YouTube {
                 ui.label(format!(
                     "Choose a Netscape-format .txt export from a signed-in {} tab.",
@@ -306,8 +304,8 @@ impl App {
                     self.session_file_controls(ui, false);
                 }
             }
-            ui.add_space(8.);
-            ui.label(RichText::new("Your session stays in memory until removed or the app closes. Import retries the current link or failed download once. Cookies act like a sign-in; keep exports private.").size(12.).color(MUTED));
+            ui.add_space(SPACE_S);
+            ui.label(caption("Your session stays in memory until removed or the app closes. Import retries the current link or failed download once. Cookies act like a sign-in; keep exports private."));
             if self.session_loading {
                 ui.horizontal(|ui| {
                     ui.spinner();
@@ -323,18 +321,14 @@ impl App {
             }
             if self.sessions.contains_key(&source) {
                 ui.colored_label(
-                    Color32::from_rgb(31, 139, 99),
+                    SUCCESS,
                     format!(
                         "{} cookies imported · access checked when used",
                         source.label()
                     ),
                 );
                 if let Some(path) = self.session_files.get(&source) {
-                    ui.label(
-                        RichText::new(path.display().to_string())
-                            .size(12.)
-                            .color(MUTED),
-                    );
+                    ui.label(caption(path.display().to_string()));
                 }
                 if source == engine::Source::YouTube
                     && let Some(profile) = self.browser_source.clone()
@@ -371,7 +365,7 @@ impl App {
                 }
             }
             if let Some(error) = &self.session_error {
-                ui.colored_label(Color32::from_rgb(175, 46, 57), error);
+                ui.colored_label(DANGER, error);
             }
         });
     }
@@ -381,14 +375,10 @@ impl App {
         } else {
             self.session_folder.clone()
         };
-        ui.label(
-            RichText::new(format!(
-                "Look in: {}",
-                session::export::picker_folder(&folder).display()
-            ))
-            .size(12.)
-            .color(MUTED),
-        );
+        ui.label(caption(format!(
+            "Look in: {}",
+            session::export::picker_folder(&folder).display()
+        )));
         ui.add_enabled_ui(!self.download_busy(), |ui| {
             if primary(ui, "Choose exported .txt file", true).clicked() {
                 self.import_session(folder);
@@ -397,7 +387,7 @@ impl App {
                 self.import_session(session::export::downloads_folder());
             }
         });
-        ui.label(RichText::new("If the browser saved it automatically, open its Downloads list and reveal the file in your file manager. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports.").size(12.).color(MUTED));
+        ui.label(caption("If the browser saved it automatically, open its Downloads list and reveal the file in your file manager. Choose that file here. Names such as cookies (1).txt are fine; JSON and HTML files are not cookie exports."));
     }
     fn export_instructions(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -407,7 +397,7 @@ impl App {
         });
         match self.export_step {
             ExportStep::Browser => {
-                ui.label(RichText::new("Choose the browser you use for YouTube").strong());
+                ui.label(semibold("Choose the browser you use for YouTube"));
                 egui::ComboBox::from_id_salt("export_browser")
                     .selected_text(self.export_browser.label())
                     .show_ui(ui, |ui| {
@@ -431,7 +421,7 @@ impl App {
                 ui.label("For the private-window export below, allow the exporter in private / incognito windows from your browser’s extension settings.");
             }
             ExportStep::Export => {
-                ui.label(RichText::new("Export only your YouTube session").strong());
+                ui.label(semibold("Export only your YouTube session"));
                 ui.label("1. Open a new private / incognito window, sign in to YouTube, and complete any verification yourself.");
                 ui.hyperlink_to("YouTube sign-in page", "https://www.youtube.com/");
                 ui.label(
@@ -444,13 +434,10 @@ impl App {
                 ui.label(if self.export_browser == ExportBrowser::ChromeOrEdge { "3. Open Get cookies.txt LOCALLY and export cookies for youtube.com / this site in Netscape format." } else { "3. Open cookies.txt from the browser toolbar and export the current YouTube site in Netscape format." });
                 ui.label("4. Save the file below, then close the private window. Use Open export folder to create and open the suggested folder first.");
                 let folder = session::export::export_folder();
-                ui.label(
-                    RichText::new(format!(
-                        "Save as: {}",
-                        folder.join(session::export::EXPORT_NAME).display()
-                    ))
-                    .strong(),
-                );
+                ui.label(semibold(format!(
+                    "Save as: {}",
+                    folder.join(session::export::EXPORT_NAME).display()
+                )));
                 ui.horizontal(|ui| {
                     if ui.button("Open export folder").clicked() {
                         let result = std::fs::create_dir_all(&folder).and_then(|_| platform::open_folder(&folder));
@@ -458,15 +445,15 @@ impl App {
                     }
                     if ui.button("Copy folder path").clicked() { ui.ctx().copy_text(folder.display().to_string()); }
                 });
-                ui.label(RichText::new("If no Save As window appears, the file probably went into Downloads. Open the browser Downloads list to find its location.").size(12.).color(MUTED));
+                ui.label(caption("If no Save As window appears, the file probably went into Downloads. Open the browser Downloads list to find its location."));
             }
             ExportStep::SelectFile => {
-                ui.label(RichText::new("Select the file you just exported").strong());
+                ui.label(semibold("Select the file you just exported"));
                 ui.label("Look for youtube-cookies.txt, cookies.txt, or a YouTube-named .txt export. Use the latest export if several files have similar names.");
                 self.session_file_controls(ui, true);
             }
         }
-        ui.add_space(6.);
+        ui.add_space(SPACE_S);
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(

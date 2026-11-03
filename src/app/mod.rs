@@ -10,7 +10,7 @@ mod videos;
 
 use crate::{engine, session, tools, update};
 use download::FormatFilter;
-use eframe::egui::{self, Color32, RichText, Vec2};
+use eframe::egui::{self, Color32, RichText};
 use engine::{Event, Video};
 use session_panel::{ExportBrowser, ExportStep, ImportBrowser, SessionMode};
 use std::{
@@ -22,7 +22,12 @@ use std::{
     },
     time::Duration,
 };
-use theme::{BLUE, icon_tile};
+use theme::{
+    ACCENT, PAGE_MARGIN, RAIL, RAIL_TEXT, SPACE_L, SPACE_S, SPACE_XL, TEXT_CAPTION, TEXT_SECTION,
+    icon_tile, nav_item, semibold,
+};
+
+const NAV_HEIGHT: f32 = 40.;
 
 #[derive(PartialEq)]
 enum Phase {
@@ -194,26 +199,21 @@ impl App {
     }
 
     fn sidebar(&mut self, ctx: &egui::Context) {
-        let rail = Color32::from_rgb(26, 29, 40);
-        let quiet = Color32::from_rgb(184, 190, 208);
         egui::SidePanel::left("sidebar")
             .exact_width(188.)
             .resizable(false)
-            .frame(egui::Frame::new().fill(rail).inner_margin(16))
+            .frame(egui::Frame::new().fill(RAIL).inner_margin(SPACE_L))
             .show(ctx, |ui| {
-                ui.add_space(16.);
+                ui.add_space(SPACE_L);
                 ui.horizontal(|ui| {
-                    icon_tile(ui, 36., BLUE, Color32::WHITE);
+                    icon_tile(ui, 36., ACCENT, Color32::WHITE);
                     ui.label(
-                        RichText::new("stream-dlp")
-                            .size(19.)
-                            .color(Color32::WHITE)
-                            .strong(),
+                        semibold("stream-dlp")
+                            .size(TEXT_SECTION)
+                            .color(Color32::WHITE),
                     );
                 });
-                ui.add_space(36.);
-                ui.label(RichText::new("WORKSPACE").size(10.).color(quiet));
-                ui.add_space(4.);
+                ui.add_space(SPACE_XL);
                 for (page, label, working) in [
                     (
                         Page::Download,
@@ -227,71 +227,51 @@ impl App {
                     ),
                     (Page::Gif, "GIF converter", self.gif.busy),
                 ] {
-                    let active = self.page == page;
-                    let label = if working {
-                        format!("{label}  ·")
-                    } else {
-                        label.into()
-                    };
-                    let button =
-                        egui::Button::new(RichText::new(label).size(15.).color(if active {
-                            Color32::WHITE
-                        } else {
-                            quiet
-                        }))
-                        .fill(if active { BLUE } else { rail })
-                        .stroke(egui::Stroke::NONE)
-                        .corner_radius(9)
-                        .min_size(Vec2::new(ui.available_width(), 44.));
-                    if ui.add(button).clicked() {
+                    let item = nav_item(ui, RichText::new(label), self.page == page, NAV_HEIGHT);
+                    if working {
+                        // Says which page is busy from anywhere in the app.
+                        let spot = egui::Rect::from_center_size(
+                            item.rect.right_center() - egui::vec2(SPACE_L, 0.),
+                            egui::Vec2::splat(14.),
+                        );
+                        egui::Spinner::new()
+                            .color(Color32::WHITE)
+                            .paint_at(ui, spot);
+                    }
+                    if item.clicked() {
                         self.page = page;
                     }
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.);
+                    ui.add_space(SPACE_S);
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                                .size(11.)
-                                .color(quiet),
+                                .size(TEXT_CAPTION)
+                                .color(RAIL_TEXT),
                         );
                         self.dev_chip(ui);
                     });
-                    if ui
-                        .add(
-                            egui::Button::new(RichText::new("Settings").color(
-                                if self.page == Page::Settings {
-                                    Color32::WHITE
-                                } else {
-                                    quiet
-                                },
-                            ))
-                            .fill(if self.page == Page::Settings {
-                                BLUE
-                            } else {
-                                rail
-                            })
-                            .min_size(Vec2::new(ui.available_width(), 40.))
-                            .stroke(egui::Stroke::NONE),
-                        )
-                        .clicked()
+                    if nav_item(
+                        ui,
+                        RichText::new("Settings"),
+                        self.page == Page::Settings,
+                        NAV_HEIGHT,
+                    )
+                    .clicked()
                     {
                         self.page = Page::Settings;
                     }
                     if let Some(update) = &self.updater.available
-                        && ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new(format!("●  Update to {}", update.version))
-                                        .size(12.)
-                                        .color(Color32::WHITE),
-                                )
-                                .fill(rail)
-                                .stroke(egui::Stroke::NONE)
-                                .min_size(Vec2::new(ui.available_width(), 28.)),
-                            )
-                            .on_hover_text("See what’s new and install the update")
-                            .clicked()
+                        && nav_item(
+                            ui,
+                            RichText::new(format!("●  Update to {}", update.version))
+                                .size(TEXT_CAPTION),
+                            false,
+                            28.,
+                        )
+                        .on_hover_text("See what’s new and install the update")
+                        .clicked()
                     {
                         self.show_update = true;
                     }
@@ -328,31 +308,39 @@ impl eframe::App for App {
         }
         self.sidebar(ctx);
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(246, 247, 250))
-                    .inner_margin(32),
-            )
+            .frame(egui::Frame::new().fill(theme::PAGE))
             .show(ctx, |ui| {
+                // The margin is inside the scroll area, so the scrollbar sits in it, clear of
+                // the cards.
                 egui::ScrollArea::vertical()
                     .id_salt("page")
-                    .show(ui, |ui| match self.page {
-                        Page::Download => {
-                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
-                                self.content(ui)
-                            });
-                        }
-                        Page::Settings => self.settings(ui),
-                        Page::Gif => {
-                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
-                                self.gif.show(ui)
-                            });
-                        }
-                        Page::Videos => {
-                            ui.add_enabled_ui(!self.closing && !self.tool_update.active, |ui| {
-                                self.library.show(ui);
-                            });
-                        }
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui::Frame::new().inner_margin(PAGE_MARGIN).show(ui, |ui| {
+                            match self.page {
+                                Page::Download => {
+                                    ui.add_enabled_ui(
+                                        !self.closing && !self.tool_update.active,
+                                        |ui| self.content(ui),
+                                    );
+                                }
+                                Page::Settings => self.settings(ui),
+                                Page::Gif => {
+                                    ui.add_enabled_ui(
+                                        !self.closing && !self.tool_update.active,
+                                        |ui| self.gif.show(ui),
+                                    );
+                                }
+                                Page::Videos => {
+                                    ui.add_enabled_ui(
+                                        !self.closing && !self.tool_update.active,
+                                        |ui| {
+                                            self.library.show(ui);
+                                        },
+                                    );
+                                }
+                            }
+                        });
                     });
             });
         self.update_dialog(ctx);
@@ -395,6 +383,17 @@ mod tests {
 
     fn auth_error() -> Event {
         Event::Failed(engine::EngineError::SignInNeeded(engine::Source::YouTube))
+    }
+
+    #[test]
+    fn the_empty_state_gives_way_to_errors_and_the_session_panel() {
+        let mut app = App::with_profiles(Vec::new());
+        assert!(app.show_empty_state());
+        app.error = Some("Failed".into());
+        assert!(!app.show_empty_state());
+        app.error = None;
+        app.session_expanded = true;
+        assert!(!app.show_empty_state());
     }
 
     #[test]

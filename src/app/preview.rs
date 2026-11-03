@@ -1,4 +1,5 @@
 //! Lazy, bounded frame previews. No decoding or file reads on the UI thread.
+use super::theme::{RADIUS_S, RAIL, TEXT_CAPTION};
 use crate::media::preview::{HEIGHT, WIDTH, extract};
 use eframe::egui;
 use std::{
@@ -87,25 +88,21 @@ impl Previews {
             return response;
         }
         let key = Key::new(path, seconds);
-        ui.painter()
-            .rect_filled(rect, 6., egui::Color32::from_rgb(25, 28, 35));
+        ui.painter().rect_filled(rect, RADIUS_S, RAIL);
         if let Some(index) = self.cache.iter().position(|(k, _)| *k == key) {
             let entry = self.cache.remove(index).unwrap();
             match &entry.1 {
                 Ok(texture) => {
-                    ui.painter().image(
-                        texture.id(),
-                        rect,
-                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.)),
-                        egui::Color32::WHITE,
-                    );
+                    egui::Image::from_texture((texture.id(), rect.size()))
+                        .corner_radius(RADIUS_S)
+                        .paint_at(ui, rect);
                 }
                 Err(error) => {
                     ui.painter().text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "No preview",
-                        egui::FontId::proportional(12.),
+                        egui::FontId::proportional(TEXT_CAPTION),
                         egui::Color32::LIGHT_GRAY,
                     );
                     self.cache.push_back(entry.clone());
@@ -118,7 +115,7 @@ impl Previews {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "Loading…",
-                egui::FontId::proportional(12.),
+                egui::FontId::proportional(TEXT_CAPTION),
                 egui::Color32::LIGHT_GRAY,
             );
             if !self.active {

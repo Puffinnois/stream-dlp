@@ -1,4 +1,8 @@
 //! The My videos page: a folder of local videos with previews, and Streamable sharing.
+use super::theme::{
+    ACCENT, ACCENT_TINT, DANGER, RADIUS_M, SPACE_L, SPACE_M, caption, card, page_header, primary,
+    progress, section_title, semibold,
+};
 use crate::media::local::{self, EXTENSIONS, Entry, Video};
 use eframe::egui;
 use std::{
@@ -143,24 +147,18 @@ impl Library {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        use egui::RichText;
         let ctx = &ui.ctx().clone();
         let busy = self.busy || self.uploader.status.active;
-        super::theme::page_header(
+        page_header(
             ui,
             "My videos",
             "Your local videos, ready to play or share.",
         );
-        super::theme::card(ui, |ui| {
-            ui.label(
-                RichText::new("Video folder")
-                    .size(14.)
-                    .color(super::theme::INK)
-                    .strong(),
-            );
+        card(ui, |ui| {
+            section_title(ui, "Video folder");
             ui.label("Choose a folder to see your videos here.");
             ui.horizontal_wrapped(|ui| {
-                if super::theme::primary(ui, "Add video folder…", !busy).clicked() {
+                if primary(ui, "Add video folder…", !busy).clicked() {
                     let start = self
                         .folder
                         .clone()
@@ -203,44 +201,29 @@ impl Library {
                 }
             });
             if let Some(folder) = &self.folder {
-                ui.label(
-                    RichText::new(folder.display().to_string())
-                        .size(12.)
-                        .color(super::theme::MUTED),
-                );
-                ui.small(
+                ui.label(caption(folder.display().to_string()));
+                ui.label(caption(
                     "Folder selection lasts for this app session. Subfolders are not scanned.",
-                );
+                ));
             }
         });
-        ui.add_space(18.);
-        super::theme::card(ui, |ui| {
+        ui.add_space(SPACE_L);
+        card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Your videos")
-                        .size(14.)
-                        .color(super::theme::INK)
-                        .strong(),
-                );
-                ui.label(
-                    RichText::new(format!("{} videos", self.entries.len()))
-                        .size(12.)
-                        .color(super::theme::MUTED),
-                );
+                section_title(ui, "Your videos");
+                ui.label(caption(video_count(self.entries.len())));
             });
             if self.entries.is_empty() {
-                ui.add_space(12.);
+                ui.add_space(SPACE_M);
                 ui.label(if self.folder.is_some() {
                     "No videos found in this folder."
                 } else {
                     "Your videos will appear here."
                 });
-                ui.label(
-                    RichText::new("Add a video folder or choose an existing video to get started.")
-                        .size(13.)
-                        .color(super::theme::MUTED),
-                );
-                ui.add_space(12.);
+                ui.label(caption(
+                    "Add a video folder or choose an existing video to get started.",
+                ));
+                ui.add_space(SPACE_M);
             }
             if self.truncated {
                 ui.label("Showing the first 1,000 videos found. Choose a smaller folder to see other files.");
@@ -261,26 +244,19 @@ impl Library {
                             if preview.on_hover_text("Select video").clicked() && !busy {
                                 chosen = Some(entry.path.clone());
                             }
-                            let button = egui::Button::new(format!(
+                            let mut button = egui::Button::new(format!(
                                 "{name}  ·  {:.1} MB",
                                 entry.bytes as f64 / 1_000_000.
                             ))
-                            .fill(if selected {
-                                egui::Color32::from_rgb(239, 238, 255)
-                            } else {
-                                egui::Color32::WHITE
-                            })
-                            .stroke(egui::Stroke::new(
-                                1.,
-                                if selected {
-                                    super::theme::BLUE
-                                } else {
-                                    super::theme::BORDER
-                                },
-                            ))
-                            .corner_radius(8.)
+                            .corner_radius(RADIUS_M)
                             .min_size(egui::vec2(ui.available_width(), 76.5))
                             .truncate();
+                            // Only the selected row sets a fill: one would also hide hovering.
+                            if selected {
+                                button = button
+                                    .fill(ACCENT_TINT)
+                                    .stroke(egui::Stroke::new(1., ACCENT));
+                            }
                             if ui.add_enabled(!busy, button).clicked() {
                                 chosen = Some(entry.path.clone());
                             }
@@ -302,15 +278,12 @@ impl Library {
             }
         });
         if let Some(video) = &self.selected {
-            ui.add_space(18.);
-            super::theme::card(ui, |ui| {
-                ui.label(
-                    RichText::new("Selected video")
-                        .size(14.)
-                        .color(super::theme::INK)
-                        .strong(),
-                );
-                ui.strong(video.path.file_name().unwrap_or_default().to_string_lossy());
+            ui.add_space(SPACE_L);
+            card(ui, |ui| {
+                section_title(ui, "Selected video");
+                ui.label(semibold(
+                    video.path.file_name().unwrap_or_default().to_string_lossy(),
+                ));
                 let width = ui.available_width().min(480.);
                 if self
                     .previews
@@ -326,7 +299,7 @@ impl Library {
                     .unwrap_or_else(|| "Duration unavailable".into());
                 ui.label(format!(
                     "{} · {duration} · {:.1} MB",
-                    video.container,
+                    video.container_label(),
                     video.bytes as f64 / 1_000_000.
                 ));
                 ui.horizontal_wrapped(|ui| {
@@ -338,15 +311,14 @@ impl Library {
                     }
                 });
                 ui.separator();
-                ui.strong("Upload on Streamable");
+                section_title(ui, "Upload on Streamable");
                 ui.label("Automatic upload uses a separate private Edge or Chrome window. The app selects your video and returns the share link. Complete any sign-in or verification in that window.");
-                ui.label(RichText::new("Uploading sends this video to Streamable. Anyone with its link may be able to watch it. Guest links are temporary.").size(12.).color(super::theme::MUTED));
+                ui.label(caption("Uploading sends this video to Streamable. Anyone with its link may be able to watch it. Guest links are temporary."));
                 ui.horizontal_wrapped(|ui| {
-                    ui.small("By choosing Upload automatically, you accept Streamable’s");
+                    ui.label(caption("By choosing Upload automatically, you accept Streamable’s"));
                     ui.hyperlink_to("Terms of Service", "https://streamable-support.zendesk.com/hc/en-us/articles/44623209368468-Terms-of-Service");
                 });
-                if super::theme::primary(ui, "Upload automatically (experimental)", !busy).clicked()
-                {
+                if primary(ui, "Upload automatically (experimental)", !busy).clicked() {
                     self.uploader.start(video.path.clone(), ctx);
                 }
                 if ui
@@ -371,26 +343,17 @@ impl Library {
             });
         }
         if self.uploader.status.active || !self.uploader.status.message.is_empty() {
-            ui.add_space(18.);
-            super::theme::card(ui, |ui| {
-                ui.label(
-                    RichText::new("Streamable upload")
-                        .size(14.)
-                        .color(super::theme::INK)
-                        .strong(),
-                );
+            ui.add_space(SPACE_L);
+            card(ui, |ui| {
+                section_title(ui, "Streamable upload");
                 let status = &self.uploader.status;
                 if status.failed {
-                    ui.colored_label(egui::Color32::from_rgb(180, 45, 45), &status.message);
+                    ui.colored_label(DANGER, &status.message);
                 } else {
                     ui.label(&status.message);
                 }
                 if status.active {
-                    if let Some(percent) = status.percent {
-                        ui.add(egui::ProgressBar::new(percent).show_percentage());
-                    } else {
-                        ui.spinner();
-                    }
+                    progress(ui, "Uploading", status.percent);
                     if ui.button("Cancel upload").clicked() {
                         self.uploader.cancel();
                     }
@@ -409,12 +372,12 @@ impl Library {
                 }
             });
         }
-        ui.add_space(12.);
+        ui.add_space(SPACE_M);
         if !self.message.is_empty() {
             ui.label(&self.message);
         }
         if let Some(error) = &self.error {
-            ui.colored_label(egui::Color32::from_rgb(180, 45, 45), error);
+            ui.colored_label(DANGER, error);
         }
     }
     fn cancel_job(&mut self) {
@@ -424,9 +387,22 @@ impl Library {
     }
 }
 
+fn video_count(count: usize) -> String {
+    match count {
+        1 => "1 video".into(),
+        count => format!("{count} videos"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_video_count_reads_correctly() {
+        assert_eq!(video_count(0), "0 videos");
+        assert_eq!(video_count(1), "1 video");
+        assert_eq!(video_count(2), "2 videos");
+    }
     #[test]
     fn cancelled_jobs_cannot_replace_selection() {
         let mut library = Library::default();
