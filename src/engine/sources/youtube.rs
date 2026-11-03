@@ -1,6 +1,4 @@
 //! YouTube: watch, Shorts, embed, live and youtu.be links, and its sign-in check.
-use super::Source;
-use crate::engine::EngineError;
 
 const HOSTS: [&str; 4] = [
     "youtube.com",
@@ -42,41 +40,10 @@ pub(super) fn normalize(url: &url::Url, host: &str) -> Result<String, &'static s
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
 
-/// Whether `link` is a watch link [`normalize`] made.
-pub(super) fn is_canonical(link: &str) -> bool {
-    url::Url::parse(link).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str() == Some("www.youtube.com")
-            && url.path() == "/watch"
-    })
-}
-
-/// yt-dlp's last error line, or the sign-in check it reports.
-pub(super) fn explain(errors: &str) -> EngineError {
-    let tail = errors
-        .lines()
-        .rev()
-        .find(|l| l.contains("ERROR:"))
-        .unwrap_or(errors.trim());
-    let tail: String = tail.chars().take(1200).collect();
-    if tail.is_empty() {
-        EngineError::Helper(
-            "The download engine stopped unexpectedly. Try again or update the tools.".into(),
-        )
-    } else if tail.contains("Sign in")
-        || tail.contains("confirm you’re not a bot")
-        || tail.contains("confirm you're not a bot")
-    {
-        EngineError::SignInNeeded(Source::YouTube)
-    } else {
-        EngineError::Helper(tail.trim_start_matches("ERROR: ").to_owned())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::Source;
     use super::super::parse_link;
-    use super::*;
 
     #[test]
     fn canonicalizes_video_links_without_playlist_or_tracking() {
@@ -90,7 +57,7 @@ mod tests {
             let link = parse_link(link).unwrap();
             assert_eq!(link.source, Source::YouTube);
             assert_eq!(link.url, "https://www.youtube.com/watch?v=BaW_jenozKc");
-            assert!(is_canonical(&link.url));
+            assert!(link.takes_session());
         }
     }
 
@@ -106,15 +73,20 @@ mod tests {
 
     #[test]
     fn explains_verification_errors() {
-        let error = explain(
+        let error = Source::YouTube.explain(
             "WARNING: No title found\nERROR: [youtube] id: Sign in to confirm you’re not a bot. Use --cookies-from-browser...",
         );
         assert!(error.needs_session());
         assert!(error.user_message().contains("verification check"));
         assert!(!error.user_message().contains("--cookies-from-browser"));
-        let unavailable = explain("ERROR: Video unavailable");
+        let unavailable = Source::YouTube.explain("ERROR: Video unavailable");
         assert!(!unavailable.needs_session());
-        assert!(unavailable.user_message().contains("Video unavailable"));
-        assert!(explain("").user_message().contains("stopped unexpectedly"));
+        assert!(unavailable.user_message().contains("unavailable"));
+        assert!(
+            Source::YouTube
+                .explain("")
+                .user_message()
+                .contains("stopped unexpectedly")
+        );
     }
 }

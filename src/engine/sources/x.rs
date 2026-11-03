@@ -1,4 +1,4 @@
-use super::{EngineError, Source, Video};
+use super::{EngineError, Video};
 
 pub(super) const HOSTS: &[&str] = &["x.com", "twitter.com", "mobile.twitter.com"];
 
@@ -36,22 +36,4 @@ pub(super) fn check(video: &mut Video) -> Result<(), EngineError> {
         ));
     }
     Ok(())
-}
-
-pub(super) fn explain(errors: &str) -> EngineError {
-    let errors = errors.to_lowercase();
-    if errors.contains("log in")
-        || errors.contains("login")
-        || errors.contains("sign in")
-        || errors.contains("requires authentication")
-        || errors.contains("not authorized")
-    {
-        EngineError::SignInNeeded(Source::X)
-    } else if errors.contains("429") || errors.contains("rate limit") {
-        EngineError::RateLimited(Source::X)
-    } else if errors.contains("timed out") || errors.contains("connection") {
-        EngineError::Network(Source::X)
-    } else {
-        EngineError::Unsupported("X could not provide a public video for this post. Check that it contains a native video that plays while signed out.".into())
-    }
 }

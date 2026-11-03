@@ -48,7 +48,8 @@ fn command_for(
     link: &Link,
     session: Option<&SessionCookies>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), EngineError> {
-    let (mut cmd, file) = command(session.filter(|_| link.takes_session()))?;
+    let (mut cmd, file) =
+        command(session.filter(|jar| jar.source == link.source && link.takes_session()))?;
     cmd.args(link.source.arguments());
     Ok((cmd, file))
 }
@@ -71,7 +72,7 @@ pub fn inspect(
         {
             Ok(output) => output,
             Err(process::Error::Cancelled) => return Ok(None),
-            Err(process::Error::TimedOut) => return Err(EngineError::TimedOut),
+            Err(process::Error::TimedOut) => return Err(EngineError::TimedOut(link.source)),
             Err(process::Error::Start(e)) => {
                 return Err(EngineError::Helper(format!("Could not start yt-dlp: {e}")));
             }
@@ -144,8 +145,7 @@ pub fn download(
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
             .args(["--output", link.source.output_template(), "--", &link.url]);
-        // Errors are explained below; only lines the site allows reach the UI.
-        let shows_output = link.source.shows_helper_output();
+        // Raw helper output can include signed URLs, local paths and account details.
         let mut tail = VecDeque::new();
         let mut final_path = None;
         let status = match process::Helper::new(&mut cmd, &cancel).lines(|_, line| {
@@ -156,8 +156,10 @@ pub fn download(
                     tail.pop_front();
                 }
                 tail.push_back(line.to_owned());
-                if shows_output || line.starts_with("__PROGRESS__") {
+                if progress(line).is_some() {
                     let _ = tx.send(Event::Line(line.to_owned()));
+                } else if line.starts_with("[Merger]") || line.starts_with("[Fixup") {
+                    let _ = tx.send(Event::Line("[Merger]".into()));
                 }
             }
         }) {
@@ -192,21 +194,35 @@ pub fn download(
 
 pub fn progress(line: &str) -> Option<(f32, String)> {
     let data = line.strip_prefix("__PROGRESS__")?;
-    let parts: Vec<_> = data.split('|').collect();
-    let percent = parts
-        .first()?
-        .trim()
-        .trim_end_matches('%')
-        .parse::<f32>()
+    let [percent, speed, eta]: [&str; 3] = data
+        .split('|')
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .try_into()
         .ok()?;
+    let percent = percent.strip_suffix('%')?.parse::<f32>().ok()?;
+    let speed_valid = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s"]
+        .iter()
+        .any(|unit| {
+            speed.strip_suffix(unit).is_some_and(|n| {
+                n.trim()
+                    .parse::<f64>()
+                    .is_ok_and(|v| v.is_finite() && v >= 0.)
+            })
+        });
+    let eta_valid = !eta.is_empty()
+        && eta
+            .split(':')
+            .all(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()));
+    if !percent.is_finite()
+        || !(speed_valid || matches!(speed, "NA" | "Unknown"))
+        || !(eta_valid || matches!(eta, "NA" | "Unknown"))
+    {
+        return None;
+    }
     Some((
         (percent / 100.).clamp(0., 1.),
-        format!(
-            "{} · {} · {} remaining",
-            parts[0].trim(),
-            parts.get(1).unwrap_or(&"—").trim(),
-            parts.get(2).unwrap_or(&"—").trim()
-        ),
+        format!("{percent}% · {speed} · {eta} remaining"),
     ))
 }
 
@@ -252,6 +268,45 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires the bundled yt-dlp, uses offline metadata only"]
+    fn scoped_cookies_follow_helper_request_rules() {
+        let jar = SessionCookies::parse_for(
+            concat!(
+                "# Netscape HTTP Cookie File\n",
+                ".x.com\tTRUE\t/media\tTRUE\t4102444800\tMATCH\tfake\n",
+                ".x.com\tTRUE\t/media\tTRUE\t1\tEXPIRED\tfake\n",
+                ".youtube.com\tTRUE\t/\tFALSE\t4102444800\tFOREIGN\tfake\n",
+            ),
+            Source::X,
+        )
+        .unwrap();
+        let link = crate::engine::parse_link("https://x.com/example/status/123").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let info = dir.path().join("fixture.json");
+        for (url, matches) in [
+            ("https://sub.x.com/media/clip.mp4", true),
+            ("http://sub.x.com/media/clip.mp4", false),
+            ("https://x.com/media-other/clip.mp4", false),
+            ("https://x.com.example/media/clip.mp4", false),
+            ("https://www.youtube.com/media/clip.mp4", false),
+        ] {
+            std::fs::write(&info, serde_json::json!({"id":"fixture","title":"fixture","url":url,"ext":"mp4","extractor":"generic","extractor_key":"Generic","webpage_url":url}).to_string()).unwrap();
+            let (mut cmd, _file) = command_for(&link, Some(&jar)).unwrap();
+            cmd.arg("--load-info-json")
+                .arg(&info)
+                .args(["--simulate", "--print", "%(cookies)s"]);
+            let output = process::Helper::new(&mut cmd, &AtomicBool::new(false))
+                .time_limit(Duration::from_secs(30))
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let cookies = String::from_utf8(output.stdout).unwrap();
+            assert_eq!(cookies.contains("MATCH="), matches);
+            assert!(!cookies.contains("EXPIRED") && !cookies.contains("FOREIGN"));
+        }
+    }
+
+    #[test]
     fn cookie_file_is_passed_to_the_engine_and_removed_after_use() {
         let (command, file) = command(Some(&crate::session::fake_session())).unwrap();
         let path = file.as_ref().unwrap().path().to_owned();
@@ -277,6 +332,7 @@ mod tests {
         );
         assert!(progress("[Merger] merging formats").is_none());
         assert!(progress("__PROGRESS__NA|NA|NA").is_none());
+        assert!(progress("__PROGRESS__42%|Cookie: session=secret|00:03").is_none());
     }
 
     #[test]
@@ -646,7 +702,7 @@ mod tests {
         let link = crate::engine::parse_link("https://mobile.twitter.com/example/status/123?s=20")
             .unwrap();
         assert_eq!(link.url, "https://x.com/example/status/123");
-        assert!(!link.takes_session());
+        assert!(link.takes_session());
         for bad in [
             "https://x.com.example/status/1",
             "https://x.com/example",
@@ -699,7 +755,11 @@ mod tests {
         let event = rx.recv().unwrap();
         let mode = std::env::var("STREAM_DLP_X_TEST_CASE").unwrap();
         if mode == "photo" {
-            assert!(matches!(event, Event::Failed(EngineError::Unsupported(_))));
+            assert!(matches!(
+                event,
+                Event::Failed(EngineError::MissingVideo(Source::X))
+                    | Event::Failed(EngineError::Unsupported(_))
+            ));
             return;
         }
         let video = match (mode.as_str(), event) {

@@ -181,37 +181,6 @@ pub(super) fn check(video: &mut Video) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// Classifies yt-dlp's errors without repeating them: they can contain signed media URLs.
-pub(super) fn explain(errors: &str) -> EngineError {
-    let lower = errors.to_lowercase();
-    if lower.contains("private video")
-        || lower.contains("video is private")
-        || lower.contains("private account")
-    {
-        EngineError::Unsupported("This TikTok video is private. Choose a public video post.".into())
-    } else if lower.contains("log in") || lower.contains("login") || lower.contains("sign in") {
-        EngineError::SignInNeeded(Source::TikTok)
-    } else if lower.contains("resolve")
-        || lower.contains("timed out")
-        || lower.contains("connection")
-    {
-        EngineError::Network(Source::TikTok)
-    } else if lower.contains("429") || lower.contains("rate limit") {
-        EngineError::RateLimited(Source::TikTok)
-    } else if lower.contains("100002")
-        || lower.contains("not available")
-        || lower.contains("unavailable")
-        || lower.contains("removed")
-        || lower.contains("404")
-    {
-        EngineError::Unavailable(Source::TikTok)
-    } else if lower.contains("blocked") || lower.contains("403") {
-        EngineError::Restricted(Source::TikTok)
-    } else {
-        EngineError::Helper("TikTok could not provide this video. It may be unavailable or unsupported; check the link in your browser or update the download tools.".into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::parse_link;
@@ -307,17 +276,18 @@ mod tests {
                 EngineError::Network(Source::TikTok),
             ),
         ] {
-            let error = explain(raw);
+            let error = Source::TikTok.explain(raw);
             assert_eq!(error, expected);
             assert!(!error.needs_session());
             assert!(!error.user_message().contains("secret"));
         }
-        let error = explain("ERROR: Sign in https://cdn.example/?secret=token");
+        let error = Source::TikTok.explain("ERROR: Sign in https://cdn.example/?secret=token");
         assert!(!error.needs_session());
         assert!(!error.user_message().starts_with("YouTube"));
         assert!(!error.user_message().contains("secret"));
         assert!(
-            !explain("ERROR: odd failure ?secret=token")
+            !Source::TikTok
+                .explain("ERROR: odd failure ?secret=token")
                 .user_message()
                 .contains("secret")
         );

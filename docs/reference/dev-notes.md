@@ -18,11 +18,11 @@ Ported from FFC's Dev mode (`~/project/fantasy-football-companion/docs/reference
 | Text | Required; the first line is the title. The draft stays until it is saved. |
 | Tag | Bug · Idea (default) · Polish |
 | Screenshot | The whole window without the panel, up to six; × removes one. |
-| Context line | `Download · youtube.com/watch?v=… · error`: where the app was when the panel opened. **Context** shows the JSON; **Recapture** records where it is now. |
+| Context line | `Download · YouTube · error`: where the app was when the panel opened. **Context** shows the JSON; **Recapture** records where it is now. |
 | Include recent errors | Errors the app showed in the last 15 minutes (download, GIF, session import, My videos, updates, download tools, panics), at most ten, repeats counted. Ticked by default when there are any. |
 | Save | Ctrl+Enter. Writes the note and its images in the background, closes the panel, "Saved N-014". |
 
-What a page adds to the context: Download: the link, the video's title, the chosen format, the phase, the status line, the error, whether a session is loaded (never its cookies), and yt-dlp's last ten output lines. My videos: the folder, the number of videos, the selected file, the message, the error, the upload status. GIF converter: the source, its duration and the clip settings, the message, the error. Settings: the available update, the update and tools status. Every note adds the app version, debug or release build, the OS, the window size and scale, and the time.
+What a page adds to the context: Download: the platform, the chosen format, the phase, the status line, the error, whether a session is loaded (never its cookies), and the last ten sanitized progress and processing events. My videos: the folder, the number of videos, the selected file, the message, the error, the upload status. GIF converter: the source, its duration and the clip settings, the message, the error. Settings: the available update, the update and tools status. Every note adds the app version, debug or release build, the OS, the window size and scale, and the time.
 
 ## All notes
 

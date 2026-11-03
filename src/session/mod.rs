@@ -1,8 +1,8 @@
-//! The signed-in YouTube session: validated cookie imports, Firefox profiles, and the
-//! manual export guide.
+//! Per-platform cookie imports, YouTube Firefox profiles, and the manual export guide.
 pub mod export;
 pub mod firefox;
 
+use crate::engine::Source;
 use std::{
     io::{Read, Write},
     path::Path,
@@ -11,10 +11,13 @@ use std::{
 
 // Intentionally no Debug implementation: authentication values must not enter logs.
 #[derive(Clone)]
-pub struct SessionCookies(Arc<str>);
+pub struct SessionCookies {
+    text: Arc<str>,
+    pub(crate) source: Source,
+}
 
 impl SessionCookies {
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: &Path, source: Source) -> Result<Self, String> {
         let mut bytes = Vec::new();
         std::fs::File::open(path)
             .map_err(|_| {
@@ -24,15 +27,18 @@ impl SessionCookies {
             .read_to_end(&mut bytes)
             .map_err(|_| "Could not read the session file.".to_owned())?;
         if bytes.len() > 2_097_152 {
-            return Err("The session file is too large. Export only youtube.com cookies.".into());
+            return Err(format!(
+                "The session file is too large. Export only {} cookies.",
+                source.label()
+            ));
         }
         let text = String::from_utf8(bytes).map_err(|_| {
             "The session file must be a Netscape cookies.txt file in UTF-8.".to_owned()
         })?;
-        Self::parse(&text)
+        Self::parse_for(&text, source)
     }
 
-    pub(crate) fn parse(text: &str) -> Result<Self, String> {
+    pub(crate) fn parse_for(text: &str, source: Source) -> Result<Self, String> {
         let text = text.trim_start_matches('\u{feff}');
         let mut lines = text.lines();
         if !matches!(
@@ -63,7 +69,17 @@ impl SessionCookies {
                 .strip_prefix('.')
                 .unwrap_or(raw_domain)
                 .to_ascii_lowercase();
-            if domain != "youtube.com" && !domain.ends_with(".youtube.com") {
+            let domains: &[&str] = match source {
+                Source::YouTube => &["youtube.com"],
+                Source::TikTok => &["tiktok.com"],
+                Source::X => &["x.com", "twitter.com"],
+            };
+            if !domains.iter().any(|base| {
+                domain == *base
+                    || domain
+                        .strip_suffix(base)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            }) {
                 continue;
             }
             if !matches!(fields[1], "TRUE" | "FALSE")
@@ -76,7 +92,8 @@ impl SessionCookies {
                 || line.chars().any(|c| c.is_control() && c != '\t')
             {
                 return Err(format!(
-                    "Invalid YouTube cookie on line {}. Export the session again.",
+                    "Invalid {} cookie on line {}. Export the session again.",
+                    source.label(),
                     index + 2
                 ));
             }
@@ -85,9 +102,15 @@ impl SessionCookies {
             count += 1;
         }
         if count == 0 {
-            return Err("No youtube.com cookies were found. Export the session from a signed-in YouTube tab.".into());
+            return Err(format!(
+                "No {} cookies were found. Export the session from a signed-in tab.",
+                source.label()
+            ));
         }
-        Ok(Self(filtered.into()))
+        Ok(Self {
+            text: filtered.into(),
+            source,
+        })
     }
 
     pub fn temporary_file(&self) -> Result<tempfile::NamedTempFile, String> {
@@ -96,9 +119,9 @@ impl SessionCookies {
             .suffix(".txt")
             .tempfile()
             .map_err(|_| "Could not create a temporary session file.".to_owned())?;
-        file.write_all(self.0.as_bytes())
+        file.write_all(self.text.as_bytes())
             .and_then(|_| file.flush())
-            .map_err(|_| "Could not prepare the YouTube session.".to_owned())?;
+            .map_err(|_| "Could not prepare the session.".to_owned())?;
         Ok(file)
     }
 }
@@ -113,7 +136,7 @@ mod tests {
     use super::*;
     const SAMPLE: &str = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t4102444800\tTEST_SESSION\tfake-test-value\n";
     pub fn fake_session() -> SessionCookies {
-        SessionCookies::parse(SAMPLE).unwrap()
+        SessionCookies::parse_for(SAMPLE, Source::YouTube).unwrap()
     }
 
     #[test]
@@ -121,12 +144,41 @@ mod tests {
         let input = format!(
             "{SAMPLE}.example.com\tTRUE\t/\tTRUE\t4102444800\tSECRET\tunrelated\n.youtube.com.evil.test\tTRUE\t/\tTRUE\t4102444800\tBAD\tunrelated\n#HttpOnly_.www.youtube.com\tTRUE\t/\tTRUE\t4102444800\tTEST_HTTPONLY\tfake\n"
         );
-        let session = SessionCookies::parse(&input).unwrap();
-        assert!(session.0.contains("TEST_SESSION"));
-        assert!(session.0.contains("#HttpOnly_.www.youtube.com"));
-        assert!(!session.0.contains("unrelated"));
-        assert!(!session.0.replace("\r\n", "").contains('\n'));
+        let session = SessionCookies::parse_for(&input, Source::YouTube).unwrap();
+        assert!(session.text.contains("TEST_SESSION"));
+        assert!(session.text.contains("#HttpOnly_.www.youtube.com"));
+        assert!(!session.text.contains("unrelated"));
+        assert!(!session.text.replace("\r\n", "").contains('\n'));
     }
+    #[test]
+    fn mixed_export_keeps_only_the_selected_platform() {
+        let domains = [
+            "youtube.com",
+            "tiktok.com",
+            "x.com",
+            "twitter.com",
+            "notx.com",
+            "x.com.invalid",
+        ];
+        let mut input = String::from("# HTTP Cookie File\n");
+        for domain in domains {
+            input.push_str(&format!(".{domain}\tTRUE\t/\tTRUE\t0\tTEST\tfake\n"));
+        }
+        for (source, allowed) in [
+            (Source::YouTube, &domains[0..1]),
+            (Source::TikTok, &domains[1..2]),
+            (Source::X, &domains[2..4]),
+        ] {
+            let jar = SessionCookies::parse_for(&input, source).unwrap();
+            for domain in domains {
+                assert_eq!(
+                    jar.text.contains(&format!("\n.{domain}\t")),
+                    allowed.contains(&domain)
+                );
+            }
+        }
+    }
+
     #[test]
     fn rejects_invalid_exports_without_echoing_cookie_values() {
         for input in [
@@ -135,7 +187,7 @@ mod tests {
             "# Netscape HTTP Cookie File\n.youtube.com\tTOP_SECRET",
             "# HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\tinvalid\tSESSION\tTOP_SECRET",
         ] {
-            let error = match SessionCookies::parse(input) {
+            let error = match SessionCookies::parse_for(input, Source::YouTube) {
                 Ok(_) => panic!("Unexpected valid session"),
                 Err(error) => error,
             };
@@ -147,11 +199,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let original = dir.path().join("cookies.txt");
         std::fs::write(&original, SAMPLE).unwrap();
-        let session = SessionCookies::load(&original).unwrap();
+        let session = SessionCookies::load(&original, Source::YouTube).unwrap();
         let copy = session.temporary_file().unwrap();
         let path = copy.path().to_owned();
         assert!(path.exists());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), session.0.as_ref());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            session.text.as_ref()
+        );
         drop(copy);
         assert!(!path.exists());
         assert_eq!(std::fs::read_to_string(original).unwrap(), SAMPLE);
