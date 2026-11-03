@@ -79,10 +79,13 @@ The optional anonymous live YouTube test is `cargo test --locked youtube_downloa
 
 X post inspection offers direct HTTPS MP4 variants from the Twitter extractor.
 Playlist entries retain their one-based position and media ID. Download passes
-both to yt-dlp so a changed post cannot silently save another entry. X commands
-exclude session cookies. To run the ignored production test, set
+both to yt-dlp so a changed post cannot silently save another entry. In v0.6.0,
+X inspection and downloads can use an imported X session. The live test supplies
+a synthetic YouTube session, which the command builder excludes for X. Set
 `STREAM_DLP_X_TEST_URL` locally and `STREAM_DLP_X_TEST_CASE` to `single`,
-`multi` (selects entry two), or `photo`. Run
+`multi` (selects entry two), `photo`, `login` (expects an explicit X sign-in
+error), or `animated` (checks for a silent,
+multi-frame MP4). Run
 `cargo test --locked x_authorized_production_pipeline -- --ignored`.
 
 ## Source layout

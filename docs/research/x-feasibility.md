@@ -54,4 +54,28 @@ The production backend subsequently passed both cases. It saved and decoded
 the video and rejected the photo-only post. On a separate public two-video
 post it saved exactly one MP4 when entry two was selected. The saved media ID
 matched that entry and FFmpeg decoded it. A historical animated-media fixture
-was unavailable during this run, so live animated-post coverage remains open.
+was unavailable during this run.
+
+Later on November 3, X's public embed metadata classified a separate public
+post as `animated_gif`. The v0.5.0 production backend inspected the post and
+saved exactly one MP4. FFprobe counted multiple frames in its sole video
+stream and found no audio stream. FFmpeg decoded the entire file successfully.
+
+A historical native-MP4 fixture also passed the live unavailable-media check.
+X's public embed endpoint returned HTTP 404, and the bundled Twitter extractor
+reported no video. Production inspection returned the generic unsupported-post
+error before format selection or download. The response did not establish why
+the post was unavailable.
+
+On November 3, a separate post produced an explicit authentication error
+with the bundled extractor while signed out. The production inspection
+returned `SignInNeeded(Source::X)` before format selection. The error did
+not trigger YouTube session recovery. No media was downloaded.
+
+## v0.6.0 release verification
+
+All six cases passed again against the v0.6.0 backend without X credentials.
+The single video, selected second entry, and silent animation passed download
+and decode. Inspection stopped for the photo-only and unavailable posts. The
+protected post returned the X sign-in error. v0.6.0 also accepts an imported X
+session. Downloading restricted media with that session remains unverified.

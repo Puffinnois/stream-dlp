@@ -754,6 +754,14 @@ mod tests {
         );
         let event = rx.recv().unwrap();
         let mode = std::env::var("STREAM_DLP_X_TEST_CASE").unwrap();
+        if mode == "login" {
+            let Event::Failed(error) = event else {
+                panic!("Expected inspection to stop at the X sign-in gate");
+            };
+            assert_eq!(error, EngineError::SignInNeeded(Source::X));
+            assert!(!error.needs_session());
+            return;
+        }
         if mode == "photo" {
             assert!(matches!(
                 event,
@@ -763,7 +771,7 @@ mod tests {
             return;
         }
         let video = match (mode.as_str(), event) {
-            ("single", Event::Loaded(v)) => v,
+            ("single" | "animated", Event::Loaded(v)) => v,
             ("multi", Event::Entries(mut entries)) if entries.len() >= 2 => entries.remove(1),
             (_, Event::Failed(e)) => panic!("{e}"),
             _ => panic!("Unexpected post response"),
@@ -798,6 +806,37 @@ mod tests {
                 .to_string_lossy()
                 .contains(&format!("[{}]", video.id.unwrap()))
         );
+        if mode == "animated" {
+            assert_eq!(file.extension().and_then(|ext| ext.to_str()), Some("mp4"));
+            let probe = isolate(
+                Command::new(crate::tools::path("ffprobe"))
+                    .args([
+                        "-v",
+                        "error",
+                        "-count_frames",
+                        "-show_entries",
+                        "stream=codec_type,nb_read_frames",
+                        "-of",
+                        "json",
+                    ])
+                    .arg(&file),
+            )
+            .output()
+            .unwrap();
+            assert!(probe.status.success());
+            let metadata: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+            let streams = metadata["streams"].as_array().unwrap();
+            assert_eq!(streams.len(), 1);
+            assert_eq!(streams[0]["codec_type"], "video");
+            assert!(
+                streams[0]["nb_read_frames"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+                    > 1
+            );
+        }
         let decoded = isolate(
             Command::new(crate::tools::path("ffmpeg"))
                 .args(["-nostdin", "-v", "error", "-xerror", "-i"])
