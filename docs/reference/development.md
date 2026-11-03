@@ -9,7 +9,7 @@ cargo xtask check
 cargo run
 ```
 
-`cargo run` starts a debug build in Dev mode (see [dev-notes.md](dev-notes.md)). The UI and orchestration are Rust (`eframe`/`egui`); extraction is delegated to yt-dlp, media merging to FFmpeg, and JavaScript challenges to Deno. No web server or Electron runtime is used.
+`cargo run` starts a debug build in Dev mode (see [dev-notes.md](dev-notes.md)). The UI and orchestration are Rust (`eframe`/`egui`); extraction is delegated to yt-dlp, media merging to FFmpeg, and JavaScript challenges to Deno. The app runs no web server or Electron runtime; the only hosted part is the optional [public feedback service](public-feedback.md).
 
 ## Build
 
@@ -96,6 +96,7 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 
 - `src/main.rs`: arguments (`--check-tools`, `--dev-mode`) and the window.
 - `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
+- `src/feedback.rs`: public feedback: the typed context, text rules and requests; its UI is `src/app/feedback.rs`, its service `services/feedback/` ([reference](public-feedback.md)).
 - `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
 - `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter, Facebook and Instagram (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
@@ -108,5 +109,6 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 - `src/platform.rs`: opening folders, files and links.
 - `Setup tools.ps1`: verified installation and update of external tools.
 - `build.ps1`: tests, release build, portable packaging, checksums.
+- `services/feedback/`: the hosted public feedback service (a Cloudflare Worker), tested with Deno.
 - `xtask/`: `cargo xtask check` and `cargo xtask release`.
 - `.github/workflows/`: Checks, Package check, and Release.

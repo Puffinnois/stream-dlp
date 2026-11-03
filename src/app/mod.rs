@@ -1,6 +1,7 @@
 //! The window: shared state, the sidebar, and the frame loop. Each page is its own module.
 mod dev;
 mod download;
+mod feedback;
 mod gif;
 mod preview;
 mod session_panel;
@@ -53,6 +54,7 @@ pub struct App {
     updater: update::Updater,
     tool_update: tools::ToolUpdate,
     dev: dev::DevTools,
+    feedback: feedback::Feedback,
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
@@ -67,6 +69,8 @@ pub struct App {
     download_cancel: Arc<AtomicBool>,
     import_cancel: Arc<AtomicBool>,
     error: Option<String>,
+    /// What kind of error `error` is, for public feedback, which never carries its text.
+    error_kind: Option<crate::feedback::ErrorKind>,
     status: String,
     progress: f32,
     destination: Option<PathBuf>,
@@ -122,6 +126,7 @@ impl App {
             updater: update::Updater::default(),
             tool_update: tools::ToolUpdate::default(),
             dev: dev::DevTools::new(crate::dev::Settings::default(), false),
+            feedback: feedback::Feedback::new(crate::feedback::endpoint()),
             link: String::new(),
             loaded_link: None,
             video: None,
@@ -136,6 +141,7 @@ impl App {
             download_cancel: Arc::new(AtomicBool::new(false)),
             import_cancel: Arc::new(AtomicBool::new(false)),
             error: None,
+            error_kind: None,
             status: String::new(),
             progress: 0.,
             destination: None,
@@ -262,6 +268,7 @@ impl App {
                     {
                         self.page = Page::Settings;
                     }
+                    self.feedback_button(ui);
                     if let Some(update) = &self.updater.available
                         && nav_item(
                             ui,
@@ -345,6 +352,7 @@ impl eframe::App for App {
             });
         self.update_dialog(ctx);
         self.dev_windows(ctx);
+        self.feedback_windows(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

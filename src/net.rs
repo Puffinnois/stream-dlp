@@ -60,6 +60,51 @@ pub fn github(path: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// A GET to the feedback service: the status and the body, whatever the status. Redirects are not
+/// followed, so the token only ever goes to the address it was meant for.
+pub fn api_get(url: &str, token: &str) -> Result<(u16, String), String> {
+    let response = agent()
+        .get(url)
+        .config()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .build()
+        .header("Authorization", format!("Bearer {token}"))
+        .call()
+        .map_err(describe)?;
+    answer(response)
+}
+
+/// A POST to the feedback service, like [`api_get`]; `token` is for Dev mode's Inbox only.
+pub fn api_post(
+    url: &str,
+    token: Option<&str>,
+    json: Option<&str>,
+) -> Result<(u16, String), String> {
+    let mut request = agent()
+        .post(url)
+        .config()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .build()
+        .header("Content-Type", "application/json");
+    if let Some(token) = token {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let response = match json {
+        Some(json) => request.send(json),
+        None => request.send_empty(),
+    }
+    .map_err(describe)?;
+    answer(response)
+}
+
+fn answer(mut response: ureq::http::Response<ureq::Body>) -> Result<(u16, String), String> {
+    let status = response.status().as_u16();
+    let body = response.body_mut().read_to_string().map_err(describe)?;
+    Ok((status, body))
+}
+
 /// A small file (up to 10 MB), such as a license notice.
 pub fn get(url: &str) -> Result<Vec<u8>, String> {
     agent()

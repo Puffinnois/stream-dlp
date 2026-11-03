@@ -101,6 +101,17 @@ fn check() -> Result<(), String> {
             "scripts/",
         ],
     )?;
+    run(
+        &deno,
+        &[
+            "test",
+            "--no-config",
+            "--no-remote",
+            "--no-prompt",
+            "--allow-read=services/feedback",
+            "services/",
+        ],
+    )?;
     println!("All checks passed.");
     Ok(())
 }

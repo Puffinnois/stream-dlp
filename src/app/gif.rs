@@ -89,6 +89,10 @@ impl Converter {
         self.message = "Reading video…".into();
         self.job(ctx, move |tx, cancel| load_source(tx, cancel, path));
     }
+    /// Whether the page shows an error; public feedback sends only this, never its text.
+    pub fn has_error(&self) -> bool {
+        self.error.is_some()
+    }
     /// What a dev note records about this page: summary parts and details.
     pub fn note_context(&self) -> (Vec<String>, serde_json::Value) {
         let file = self.source.as_ref().and_then(|(path, _)| path.file_name());

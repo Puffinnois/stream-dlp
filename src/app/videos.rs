@@ -100,6 +100,10 @@ impl Library {
                 .map(|(entries, truncated)| ResultData::Folder(folder, entries, truncated))
         });
     }
+    /// Whether the page shows an error; public feedback sends only this, never its text.
+    pub fn has_error(&self) -> bool {
+        self.error.is_some()
+    }
     /// What a dev note records about this page: summary parts and details.
     pub fn note_context(&self) -> (Vec<String>, serde_json::Value) {
         let file = self
