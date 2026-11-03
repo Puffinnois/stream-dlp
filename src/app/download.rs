@@ -1,7 +1,12 @@
 //! The Download page: find a video, choose a format and folder, and follow the download.
 use super::{
     App, Page, Phase,
-    theme::{BLUE, BORDER, INK, MUTED, card, icon_tile, page_header, primary},
+    theme::{
+        ACCENT, ACCENT_TINT, BORDER, DANGER, HOVER_BORDER, HOVER_FILL, MUTED, RADIUS_M, SPACE_L,
+        SPACE_M, SPACE_S, SPACE_XL, SPACE_XS, TEXT_CAPTION, TEXT_HEADING, TEXT_SECTION, TEXT_TITLE,
+        WARNING, caption, card, error_banner, focus_ring, icon_tile, page_header, primary,
+        progress, radio_mark, section_title, semibold, success_line,
+    },
 };
 use crate::{engine, platform, tools};
 use eframe::egui::{self, Color32, RichText, Vec2};
@@ -186,11 +191,12 @@ impl App {
             "Save a YouTube, TikTok, X, Facebook or Instagram video in the quality you choose.",
         );
         card(ui, |ui| {
-            ui.label(RichText::new("Video link").size(14.).color(INK).strong());
-            ui.add_space(2.);
+            section_title(ui, "Video link");
+            ui.add_space(SPACE_XS);
             ui.horizontal(|ui| {
                 let busy = self.download_busy();
-                let width = (ui.available_width() - 156.).max(100.);
+                // `desired_width` excludes the field's margin; the rest is the button and gap.
+                let width = (ui.available_width() - 130.).max(100.);
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
@@ -198,8 +204,9 @@ impl App {
                             "Paste a YouTube, TikTok, X, Facebook or Instagram video/share link",
                         )
                         .desired_width(width)
-                        .margin(Vec2::new(12., 12.)),
+                        .margin(Vec2::new(SPACE_M, 9.)),
                 );
+                focus_ring(ui, &response);
                 let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if primary(
                     ui,
@@ -213,22 +220,17 @@ impl App {
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new(
-                        "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental)",
-                    )
-                    .size(12.)
-                    .color(MUTED),
-                );
+                ui.label(caption(
+                    "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental)",
+                ));
                 if ui
                     .add_enabled(
                         !self.download_busy(),
-                        egui::Button::new(if self.sessions.contains_key(&self.session_source()) {
+                        egui::Link::new(if self.sessions.contains_key(&self.session_source()) {
                             format!("{} session loaded · Manage", self.session_source().label())
                         } else {
                             format!("Connect {} session…", self.session_source().label())
-                        })
-                        .frame(false),
+                        }),
                     )
                     .clicked()
                 {
@@ -238,9 +240,9 @@ impl App {
         });
         self.session_panel(ui);
         if !tools::ready() {
-            ui.add_space(12.);
+            ui.add_space(SPACE_M);
             ui.colored_label(
-                Color32::from_rgb(174, 100, 20),
+                WARNING,
                 format!("Download tools are missing. {}", tools::help()),
             );
         }
@@ -256,29 +258,25 @@ impl App {
             });
         }
         if let Some(error) = self.error.clone() {
-            ui.add_space(12.);
-            egui::Frame::new()
-                .fill(Color32::from_rgb(255, 240, 240))
-                .corner_radius(8)
-                .inner_margin(14)
-                .show(ui, |ui| {
-                    ui.colored_label(Color32::from_rgb(175, 46, 57), error);
-                    if self
-                        .loaded_link
-                        .as_ref()
-                        .is_some_and(|link| engine::parse_link(&self.link).as_ref() == Ok(link))
-                        && ui
-                            .add_enabled(
-                                !self.download_busy(),
-                                egui::Button::new("Connect session / retry help"),
-                            )
-                            .clicked()
-                    {
-                        self.session_expanded = true;
-                    }
-                });
+            ui.add_space(SPACE_M);
+            error_banner(ui, |ui| {
+                ui.colored_label(DANGER, error);
+                if self
+                    .loaded_link
+                    .as_ref()
+                    .is_some_and(|link| engine::parse_link(&self.link).as_ref() == Ok(link))
+                    && ui
+                        .add_enabled(
+                            !self.download_busy(),
+                            egui::Button::new("Connect session / retry help"),
+                        )
+                        .clicked()
+                {
+                    self.session_expanded = true;
+                }
+            });
         }
-        ui.add_space(18.);
+        ui.add_space(SPACE_L);
         if self.phase == Phase::Inspecting {
             card(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -291,7 +289,7 @@ impl App {
             });
         } else if !self.entries.is_empty() && self.video.is_none() {
             card(ui, |ui| {
-                ui.heading("Choose one video from this post");
+                section_title(ui, "Choose one video from this post");
                 for video in &self.entries {
                     if ui
                         .button(format!(
@@ -321,60 +319,53 @@ impl App {
                 return;
             }
             self.video_card(ui);
-        } else {
-            ui.add_space(36.);
+        } else if self.show_empty_state() {
+            ui.add_space(SPACE_XL);
             ui.vertical_centered(|ui| {
-                icon_tile(ui, 72., Color32::from_rgb(239, 238, 255), BLUE);
-                ui.add_space(14.);
-                ui.label(RichText::new("A link is all you need").size(22.).strong());
+                icon_tile(ui, 72., ACCENT_TINT, ACCENT);
+                ui.add_space(SPACE_M);
+                ui.label(semibold("A link is all you need").size(TEXT_HEADING));
                 ui.label(
                     RichText::new("Paste a video or Shorts link above to get started.")
                         .color(MUTED),
                 );
-                ui.add_space(24.);
-                ui.label(
-                    RichText::new("Add a link   /   Pick a quality   /   Save to your folder")
-                        .size(12.)
-                        .color(MUTED),
-                );
+                ui.add_space(SPACE_XL);
+                ui.label(caption(
+                    "Add a link   /   Pick a quality   /   Save to your folder",
+                ));
             });
         }
+    }
+    /// The welcome only makes sense while nothing else is on the page.
+    pub(super) fn show_empty_state(&self) -> bool {
+        self.error.is_none() && !self.session_expanded
     }
     fn video_card(&mut self, ui: &mut egui::Ui) {
         let video = self.video.as_ref().unwrap().clone();
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(239, 238, 255))
-                    .corner_radius(12)
+                    .fill(ACCENT_TINT)
+                    .corner_radius(RADIUS_M)
                     .inner_margin(18)
                     .show(ui, |ui| {
-                        ui.label(RichText::new("▶").size(27.).color(BLUE));
+                        ui.label(RichText::new("▶").size(TEXT_TITLE).color(ACCENT));
                     });
                 ui.vertical(|ui| {
-                    ui.label(RichText::new(&video.title).size(18.).strong());
-                    ui.label(
-                        RichText::new(format!(
-                            "{}   ·   {}   ·   {}",
-                            video.creator_label(),
-                            video.duration_label(),
-                            video.source.label()
-                        ))
-                        .size(12.)
-                        .color(MUTED),
-                    );
+                    ui.label(semibold(&video.title).size(TEXT_SECTION));
+                    ui.label(caption(format!(
+                        "{}   ·   {}   ·   {}",
+                        video.creator_label(),
+                        video.duration_label(),
+                        video.source.label()
+                    )));
                 });
             });
-            ui.add_space(14.);
+            ui.add_space(SPACE_M);
             ui.separator();
-            ui.add_space(10.);
+            ui.add_space(SPACE_M);
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Quality & format")
-                        .size(14.)
-                        .color(MUTED)
-                        .strong(),
-                );
+                section_title(ui, "Quality & format");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!self.download_busy(), |ui| {
                         for (filter, name) in [
@@ -392,18 +383,14 @@ impl App {
                     });
                 });
             });
-            ui.label(
-                RichText::new(if video.source == engine::Source::X {
-                    "Direct MP4 · saves the original audio when present."
-                } else if video.source == engine::Source::TikTok {
-                    "Experimental TikTok support · these video formats include audio."
-                } else {
-                    "Available streams · video-only choices are combined with matching audio."
-                })
-                .size(11.)
-                .color(MUTED),
-            );
-            ui.add_space(4.);
+            ui.label(caption(if video.source == engine::Source::X {
+                "Direct MP4 · saves the original audio when present."
+            } else if video.source == engine::Source::TikTok {
+                "Experimental TikTok support · these video formats include audio."
+            } else {
+                "Available streams · video-only choices are combined with matching audio."
+            }));
+            ui.add_space(SPACE_XS);
             egui::ScrollArea::vertical()
                 .id_salt("formats")
                 .max_height(244.)
@@ -415,101 +402,81 @@ impl App {
                                 continue;
                             }
                             let selected = self.selected == index;
-                            let mut picked = false;
+                            // The row's click area comes after its contents, so its state
+                            // for this frame's colors is last frame's.
+                            let id = ui.id().with(index);
+                            let previous = ui.ctx().read_response(id);
+                            let lit = previous
+                                .as_ref()
+                                .is_some_and(|row| row.hovered() || row.has_focus());
                             let row = egui::Frame::new()
                                 .fill(if selected {
-                                    Color32::from_rgb(239, 238, 255)
+                                    ACCENT_TINT
+                                } else if lit {
+                                    HOVER_FILL
                                 } else {
                                     Color32::WHITE
                                 })
-                                .stroke(egui::Stroke::new(1., if selected { BLUE } else { BORDER }))
-                                .corner_radius(8)
-                                .inner_margin(10)
+                                .stroke(egui::Stroke::new(
+                                    1.,
+                                    if selected {
+                                        ACCENT
+                                    } else if lit {
+                                        HOVER_BORDER
+                                    } else {
+                                        BORDER
+                                    },
+                                ))
+                                .corner_radius(RADIUS_M)
+                                .inner_margin(egui::Margin::symmetric(SPACE_M as i8, SPACE_S as i8))
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
                                     ui.horizontal(|ui| {
-                                        picked |= ui.radio(selected, "").clicked();
+                                        radio_mark(ui, selected, previous.as_ref());
                                         ui.vertical(|ui| {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{}   {}",
-                                                    format.quality(),
-                                                    format.container_label()
-                                                ))
-                                                .strong(),
-                                            );
-                                            ui.label(
-                                                RichText::new(format.details())
-                                                    .size(11.)
-                                                    .color(MUTED),
-                                            );
+                                            ui.spacing_mut().item_spacing.y = SPACE_XS;
+                                            ui.label(semibold(format!(
+                                                "{}   {}",
+                                                format.quality(),
+                                                format.container_label()
+                                            )));
+                                            ui.label(caption(format.details()));
                                         });
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
-                                                ui.label(
-                                                    RichText::new(format.size())
-                                                        .size(12.)
-                                                        .color(MUTED),
-                                                );
+                                                ui.label(caption(format.size()));
                                             },
                                         );
                                     });
                                 });
-                            if picked
-                                || ui
-                                    .interact(
-                                        row.response.rect,
-                                        ui.id().with(index),
-                                        egui::Sense::click(),
-                                    )
-                                    .clicked()
+                            if ui
+                                .interact(row.response.rect, id, egui::Sense::click())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
                             {
                                 self.selected = index;
                             }
-                            ui.add_space(2.);
+                            ui.add_space(SPACE_XS);
                         }
                     });
                 });
-            ui.add_space(8.);
+            ui.add_space(SPACE_S);
             let selected = &video.formats[self.selected];
-            ui.label(
-                RichText::new(format!(
-                    "Selected: {} · {}{}",
-                    selected.quality(),
-                    selected.container_label(),
-                    if selected.video() && !selected.direct_video && !selected.audio() {
-                        " + audio (MKV if needed)"
-                    } else {
-                        ""
-                    }
-                ))
-                .size(12.)
-                .color(MUTED),
-            );
-            ui.add_space(8.);
+            ui.label(caption(format!(
+                "Selected: {} · {}{}",
+                selected.quality(),
+                selected.container_label(),
+                if selected.video() && !selected.direct_video && !selected.audio() {
+                    " + audio (MKV if needed)"
+                } else {
+                    ""
+                }
+            )));
+            ui.add_space(SPACE_S);
             match self.phase {
                 Phase::Downloading => {
-                    ui.label(
-                        RichText::new("Saving your video")
-                            .size(15.)
-                            .color(INK)
-                            .strong(),
-                    );
-                    ui.add(
-                        egui::ProgressBar::new(self.progress)
-                            .desired_width(ui.available_width())
-                            .desired_height(32.)
-                            .corner_radius(8)
-                            .fill(BLUE)
-                            .text(
-                                RichText::new(format!("{:.0}%", self.progress * 100.))
-                                    .size(18.)
-                                    .strong()
-                                    .color(Color32::WHITE),
-                            )
-                            .animate(true),
-                    );
+                    progress(ui, "Saving your video", Some(self.progress));
                     ui.horizontal(|ui| {
                         ui.label(&self.status);
                         if ui.small_button("Cancel").clicked() {
@@ -517,28 +484,17 @@ impl App {
                             self.status = "Cancelling…".into();
                         }
                     });
-                    ui.label(
-                        RichText::new(if video.source == engine::Source::X {
-                            "Downloading the selected MP4."
-                        } else {
-                            "Progress is for the current stream; audio and merging follow."
-                        })
-                        .size(11.)
-                        .color(MUTED),
-                    );
+                    ui.label(caption(if video.source == engine::Source::X {
+                        "Downloading the selected MP4."
+                    } else {
+                        "Progress is for the current stream; audio and merging follow."
+                    }));
                 }
                 Phase::Done => {
-                    ui.colored_label(
-                        Color32::from_rgb(31, 139, 99),
-                        RichText::new("✓   Download complete").strong(),
-                    );
+                    success_line(ui, "Download complete");
                     if let Some(saved) = &self.saved {
                         ui.label(format!("Saved from {}", saved.media.source.label()));
-                        ui.label(
-                            RichText::new(saved.path.display().to_string())
-                                .size(12.)
-                                .color(MUTED),
-                        );
+                        ui.label(caption(saved.path.display().to_string()));
                     }
                     ui.horizontal_wrapped(|ui| {
                         if ui
@@ -584,31 +540,28 @@ impl App {
                         if primary(ui, "Choose folder & download", true).clicked() {
                             self.choose_folder();
                         }
-                        ui.label(
-                            RichText::new("You choose where it goes.")
-                                .size(12.)
-                                .color(MUTED),
-                        );
+                        ui.label(caption("You choose where it goes."));
                     });
                     if !self.status.is_empty() {
-                        ui.label(RichText::new(&self.status).size(12.).color(MUTED));
+                        ui.label(caption(&self.status));
                     }
                 }
             }
             if let Some(folder) = &self.destination
                 && self.phase != Phase::Done
             {
-                ui.label(
-                    RichText::new(format!("Save to: {}", folder.display()))
-                        .size(11.)
-                        .color(MUTED),
-                );
+                ui.label(caption(format!("Save to: {}", folder.display())));
             }
         });
         if !self.log.is_empty() {
             egui::CollapsingHeader::new("Download details").show(ui, |ui| {
                 for line in &self.log {
-                    ui.label(RichText::new(line).monospace().size(11.).color(MUTED));
+                    ui.label(
+                        RichText::new(line)
+                            .monospace()
+                            .size(TEXT_CAPTION)
+                            .color(MUTED),
+                    );
                 }
             });
         }

@@ -320,14 +320,14 @@ impl App {
         }
         let chip = egui::Button::new(
             RichText::new("DEV")
-                .size(10.)
+                .size(theme::TEXT_CAPTION)
                 .strong()
                 .color(Color32::WHITE),
         )
         .small()
         .fill(AMBER)
         .stroke(egui::Stroke::NONE)
-        .corner_radius(6);
+        .corner_radius(theme::RADIUS_S);
         let mut choice = None;
         let (response, _) = egui::containers::menu::MenuButton::from_button(chip).ui(ui, |ui| {
             for (n, label) in [
@@ -363,8 +363,8 @@ impl App {
                     .order(egui::Order::Tooltip)
                     .show(ctx, |ui| {
                         egui::Frame::new()
-                            .fill(Color32::from_rgb(26, 29, 40))
-                            .corner_radius(9)
+                            .fill(theme::RAIL)
+                            .corner_radius(theme::RADIUS_M)
                             .inner_margin(egui::Margin::symmetric(14, 8))
                             .show(ui, |ui| ui.label(RichText::new(text).color(Color32::WHITE)));
                     });
@@ -384,7 +384,7 @@ impl App {
                         egui::Button::new(RichText::new("+ Note").color(Color32::WHITE).strong())
                             .fill(AMBER)
                             .stroke(egui::Stroke::NONE)
-                            .corner_radius(9);
+                            .corner_radius(theme::RADIUS_M);
                     if ui
                         .add(button)
                         .on_hover_text("New dev note (Ctrl+Shift+N)")
@@ -490,7 +490,7 @@ impl App {
                     }
                 });
                 if let Some(message) = &self.dev.message {
-                    ui.colored_label(Color32::from_rgb(180, 45, 45), message);
+                    ui.colored_label(theme::DANGER, message);
                 }
             });
         if recapture {
@@ -747,6 +747,7 @@ mod tests {
         };
         app.dev = DevTools::new(settings, false);
         let ctx = egui::Context::default();
+        theme::apply(&ctx);
         let frame = |app: &mut App, events: Vec<egui::Event>| {
             let input = egui::RawInput {
                 events,

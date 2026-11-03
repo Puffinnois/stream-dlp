@@ -1,7 +1,10 @@
 //! The Settings page: updates, download tools, and the install confirmation.
 use super::{
     App,
-    theme::{BORDER, MUTED, card, page_header, primary},
+    theme::{
+        BORDER, MUTED, RADIUS_L, SPACE_L, SPACE_M, SPACE_XL, SPACE_XS, TEXT_HEADING, caption, card,
+        page_header, primary, progress, section_title, semibold,
+    },
 };
 use crate::{tools, update};
 use eframe::egui::{self, Color32, RichText};
@@ -14,13 +17,13 @@ impl App {
             "App updates, download tools, and version information.",
         );
         card(ui, |ui| {
-            ui.label(RichText::new("Updates").size(18.).strong());
+            section_title(ui, "Updates");
             ui.label(
                 RichText::new(format!("Installed: {}", env!("CARGO_PKG_VERSION"))).color(MUTED),
             );
             if let Some(update) = &self.updater.available {
                 ui.separator();
-                ui.strong(format!("Version {} is available", update.version));
+                ui.label(semibold(format!("Version {} is available", update.version)));
                 if primary(ui, &format!("Update to {}…", update.version), true).clicked() {
                     self.show_update = true;
                 }
@@ -54,11 +57,11 @@ impl App {
             } else {
                 "This portable copy updates through setup, where you choose its folder. A fresh ZIP from Releases works too."
             };
-            ui.label(RichText::new(note).size(12.).color(MUTED));
+            ui.label(caption(note));
         });
-        ui.add_space(16.);
+        ui.add_space(SPACE_L);
         card(ui, |ui| {
-            ui.label(RichText::new("Download tools").size(18.).strong());
+            section_title(ui, "Download tools");
             ui.label(if tools::ready() {
                 "All download tools are ready."
             } else {
@@ -79,9 +82,9 @@ impl App {
                 ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
             });
         });
-        ui.add_space(16.);
+        ui.add_space(SPACE_L);
         card(ui, |ui| {
-            ui.label(RichText::new("About stream-dlp").size(18.).strong());
+            section_title(ui, "About stream-dlp");
             ui.label("A small native app for downloading videos and making GIFs.");
             ui.label(
                 RichText::new(format!(
@@ -94,16 +97,10 @@ impl App {
     }
     fn tool_update_controls(&mut self, ui: &mut egui::Ui) {
         if self.tool_update.active {
-            ui.horizontal(|ui| {
-                match self.tool_update.progress {
-                    Some(share) => ui.add(egui::ProgressBar::new(share).desired_width(200.)),
-                    None => ui.spinner(),
-                };
-                ui.label(&self.tool_update.status);
-                if ui.button("Cancel").clicked() {
-                    self.tool_update.cancel();
-                }
-            });
+            progress(ui, &self.tool_update.status, self.tool_update.progress);
+            if ui.button("Cancel").clicked() {
+                self.tool_update.cancel();
+            }
             return;
         }
         let label = if tools::ready() {
@@ -120,11 +117,7 @@ impl App {
         } else if !self.tool_update.status.is_empty() {
             ui.label(&self.tool_update.status);
         }
-        ui.label(
-            RichText::new("When a site stops working, a new yt-dlp usually fixes it. Only tools with a new release are downloaded, each checked against GitHub’s SHA-256 digest.")
-                .size(12.)
-                .color(MUTED),
-        );
+        ui.label(caption("When a site stops working, a new yt-dlp usually fixes it. Only tools with a new release are downloaded, each checked against GitHub’s SHA-256 digest."));
     }
 
     /// The update dialog: release notes, download progress, and Update & restart.
@@ -142,25 +135,21 @@ impl App {
             .frame(
                 egui::Frame::new()
                     .fill(Color32::WHITE)
-                    .corner_radius(16)
-                    .inner_margin(28)
+                    .corner_radius(RADIUS_L)
+                    .inner_margin(SPACE_XL)
                     .stroke(egui::Stroke::new(1., BORDER)),
             )
             .show(ctx, |ui| {
                 ui.set_width(460.);
-                ui.label(
-                    RichText::new(format!("Update to {}", update.version))
-                        .size(23.)
-                        .strong(),
-                );
+                ui.label(semibold(format!("Update to {}", update.version)).size(TEXT_HEADING));
                 ui.label(
                     RichText::new(format!("Installed: {}", env!("CARGO_PKG_VERSION"))).color(MUTED),
                 );
-                ui.add_space(12.);
+                ui.add_space(SPACE_M);
                 egui::ScrollArea::vertical()
                     .max_height(260.)
                     .show(ui, |ui| release_notes(ui, &update.notes));
-                ui.add_space(12.);
+                ui.add_space(SPACE_M);
                 if self.updater.downloading {
                     download_progress(ui, &self.updater);
                 } else if self.updater.ready() {
@@ -174,13 +163,11 @@ impl App {
                 } else if busy {
                     ui.label("Finish or cancel the current operation before installing.");
                 } else if !self.updater.silent() {
-                    ui.label(
-                        RichText::new("Setup opens: choose this app’s folder to update it.")
-                            .size(12.)
-                            .color(MUTED),
-                    );
+                    ui.label(caption(
+                        "Setup opens: choose this app’s folder to update it.",
+                    ));
                 }
-                ui.add_space(16.);
+                ui.add_space(SPACE_L);
                 ui.horizontal(|ui| {
                     if cfg!(windows) {
                         let ready = self.updater.ready();
@@ -224,18 +211,22 @@ impl App {
 fn download_progress(ui: &mut egui::Ui, updater: &update::Updater) {
     let (received, total) = updater.progress;
     let megabytes = |bytes: u64| bytes as f32 / 1_048_576.;
-    ui.add(match total {
-        Some(total) if total > 0 => {
-            egui::ProgressBar::new(received as f32 / total as f32).text(format!(
+    match total {
+        Some(total) if total > 0 => progress(
+            ui,
+            &format!(
                 "Downloading… {:.1} of {:.1} MB",
                 megabytes(received),
                 megabytes(total)
-            ))
-        }
-        _ => egui::ProgressBar::new(0.)
-            .animate(true)
-            .text(format!("Downloading… {:.1} MB", megabytes(received))),
-    });
+            ),
+            Some(received as f32 / total as f32),
+        ),
+        _ => progress(
+            ui,
+            &format!("Downloading… {:.1} MB", megabytes(received)),
+            None,
+        ),
+    }
 }
 
 /// Release notes are Markdown; headings, bullets and bold cover what GitHub generates.
@@ -250,12 +241,12 @@ fn release_notes(ui: &mut egui::Ui, notes: &str) {
         if item.starts_with("<!--") {
             continue;
         } else if let Some(heading) = item.strip_prefix('#') {
-            ui.add_space(4.);
-            ui.label(RichText::new(heading.trim_start_matches('#').trim()).strong());
+            ui.add_space(SPACE_XS);
+            ui.label(semibold(heading.trim_start_matches('#').trim()));
         } else if let Some(text) = item.strip_prefix("* ").or_else(|| item.strip_prefix("- ")) {
             ui.label(format!("•  {text}"));
         } else if item.is_empty() {
-            ui.add_space(4.);
+            ui.add_space(SPACE_XS);
         } else {
             ui.label(item);
         }

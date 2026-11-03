@@ -1,6 +1,10 @@
 //! The GIF converter page. Workers own all temporary files.
+use super::theme::{
+    DANGER, MUTED, SPACE_L, caption, card, checkbox, page_header, primary, progress, section_title,
+    semibold, slider,
+};
 use crate::media::gif::{self, Settings};
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use std::{
     path::PathBuf,
     sync::{
@@ -148,18 +152,13 @@ impl Converter {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        super::theme::page_header(
+        page_header(
             ui,
             "GIF converter",
             "Turn a favorite moment into a GIF. Made locally, on your device.",
         );
-        super::theme::card(ui, |ui| {
-            ui.label(
-                RichText::new("Source video")
-                    .size(14.)
-                    .color(super::theme::INK)
-                    .strong(),
-            );
+        card(ui, |ui| {
+            section_title(ui, "Source video");
             if let Some((path, duration)) = &self.source {
                 let width = ui.available_width().min(560.);
                 self.previews.show(
@@ -169,7 +168,8 @@ impl Converter {
                     egui::vec2(width, width * 9. / 16.),
                 );
                 ui.add_enabled_ui(!self.busy, |ui| {
-                    ui.add(
+                    slider(
+                        ui,
                         egui::Slider::new(
                             &mut self.settings.start,
                             0.0..=(*duration - self.settings.length).max(0.),
@@ -188,17 +188,20 @@ impl Converter {
                     }
                     ui.ctx().request_repaint_after(Duration::from_millis(180));
                 }
-                ui.small(format!(
+                ui.label(caption(format!(
                     "Frame at {:.1} s · Move Clip start to preview your moment",
                     self.preview_time
-                ));
+                )));
                 if ui.button("Play source video").clicked() {
                     self.error = crate::platform::open_target(path.as_os_str()).err();
                 }
-                ui.label(
-                    RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).strong(),
-                );
-                ui.small(format!("{duration:.2} seconds · {}", path.display()));
+                ui.label(semibold(
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                ));
+                ui.label(caption(format!(
+                    "{duration:.2} seconds · {}",
+                    path.display()
+                )));
             } else {
                 ui.label("Choose a downloaded clip or any local video.");
             }
@@ -223,14 +226,9 @@ impl Converter {
                 });
             }
         });
-        ui.add_space(16.);
-        super::theme::card(ui, |ui| {
-            ui.label(
-                RichText::new("Clip & quality")
-                    .size(14.)
-                    .color(super::theme::INK)
-                    .strong(),
-            );
+        ui.add_space(SPACE_L);
+        card(ui, |ui| {
+            section_title(ui, "Clip & quality");
             ui.add_enabled_ui(!self.busy, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (label, width, fps, colors, smooth) in [
@@ -255,33 +253,26 @@ impl Converter {
                 });
                 egui::CollapsingHeader::new("Advanced settings").show(ui, |ui| {
                   egui::Grid::new("gif_advanced").num_columns(2).spacing([24., 14.]).show(ui, |ui| {
-                    ui.label("Maximum dimension"); ui.add(egui::Slider::new(&mut self.settings.width, 160..=960).suffix(" px")); ui.end_row();
-                    ui.label("Frame rate"); ui.add(egui::Slider::new(&mut self.settings.fps, 5..=30).suffix(" fps")); ui.end_row();
-                    ui.label("Palette colors"); ui.add(egui::Slider::new(&mut self.settings.colors, 32..=256)); ui.end_row();
+                    ui.label("Maximum dimension"); slider(ui, egui::Slider::new(&mut self.settings.width, 160..=960).suffix(" px")); ui.end_row();
+                    ui.label("Frame rate"); slider(ui, egui::Slider::new(&mut self.settings.fps, 5..=30).suffix(" fps")); ui.end_row();
+                    ui.label("Palette colors"); slider(ui, egui::Slider::new(&mut self.settings.colors, 32..=256)); ui.end_row();
                 });
-                ui.horizontal_wrapped(|ui| { ui.checkbox(&mut self.settings.repeat, "Loop forever"); ui.checkbox(&mut self.settings.smooth, "Smooth color dithering"); });
+                ui.horizontal_wrapped(|ui| { checkbox(ui, &mut self.settings.repeat, "Loop forever"); checkbox(ui, &mut self.settings.smooth, "Smooth color dithering"); });
                 });
-                ui.small("Aspect ratio is preserved. Smaller dimensions, fewer frames and shorter clips produce smaller files. GIFs have no audio.");
+                ui.label(caption("Aspect ratio is preserved. Smaller dimensions, fewer frames and shorter clips produce smaller files. GIFs have no audio."));
             });
         });
-        ui.add_space(16.);
-        super::theme::card(ui, |ui| {
-            ui.label(
-                RichText::new("Export")
-                    .size(14.)
-                    .color(super::theme::INK)
-                    .strong(),
-            );
+        ui.add_space(SPACE_L);
+        card(ui, |ui| {
+            section_title(ui, "Export");
             let valid = self
                 .source
                 .as_ref()
                 .map(|(_, duration)| self.settings.validate(*duration));
             if let Some(Err(error)) = &valid {
-                ui.colored_label(super::theme::MUTED, error);
+                ui.colored_label(MUTED, error);
             }
-            if super::theme::primary(ui, "Save GIF…", !self.busy && matches!(valid, Some(Ok(()))))
-                .clicked()
-            {
+            if primary(ui, "Save GIF…", !self.busy && matches!(valid, Some(Ok(())))).clicked() {
                 let (source, duration) = self.source.clone().unwrap();
                 let settings = self.settings.clone();
                 self.saved = None;
@@ -315,11 +306,7 @@ impl Converter {
                 });
             }
             if self.busy {
-                ui.add(
-                    egui::ProgressBar::new(self.progress)
-                        .show_percentage()
-                        .animate(true),
-                );
+                progress(ui, &self.message, Some(self.progress));
                 if ui
                     .add_enabled(
                         !self.cancel.load(Ordering::Relaxed),
@@ -330,10 +317,11 @@ impl Converter {
                     self.cancel();
                     self.message = "Cancelling…".into();
                 }
+            } else {
+                ui.label(&self.message);
             }
-            ui.label(&self.message);
             if let Some(error) = &self.error {
-                ui.colored_label(egui::Color32::from_rgb(180, 45, 45), error);
+                ui.colored_label(DANGER, error);
             }
             if let Some((path, size)) = &self.saved {
                 if ui.button("Preview GIF").clicked()
