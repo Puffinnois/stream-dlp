@@ -248,7 +248,7 @@ See the [live test results](docs/research/x-feasibility.md).
 - [x] Handle redirects and metadata differences; add domain-scoped manual session support.
 - [x] Clearly explain unavailable or inaccessible posts and unsupported collections.
 
-November 3, 2026 (bundled yt-dlp 2026.08.19). Offline tests cover routing, redirect destinations, missing metadata, collections and session isolation. Live download and playback of a permitted sample and signed-in recovery remain open. See the [Facebook feasibility record](docs/research/platform-feasibility.md#facebook-p-04).
+November 3, 2026 (bundled yt-dlp 2026.08.19). Offline tests cover routing, redirect destinations, missing metadata, collections and session isolation. The production backend anonymously resolved a permitted Reel share link, inspected the video, and saved one file. FFmpeg decoded both its video and audio streams to completion. Signed-in recovery remains unverified. See the [Facebook feasibility record](docs/research/platform-feasibility.md#facebook-p-04).
 
 **Acceptance for each platform:** an owned/permitted public sample inspects, downloads, and plays with the expected streams; applicable session cases work; redirects, missing metadata, failures, cancellation, and multi-media behavior are verified. Record test date and helper version. Preserve the YouTube regression suite for every release.
 
