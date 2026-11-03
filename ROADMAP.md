@@ -10,9 +10,8 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **R-03 for X/Twitter only.** Probe public `x.com` and `twitter.com` links with the bundled yt-dlp: single-video posts, multi-video posts, share links, login-required and unavailable posts. Record the first-release scope and anonymized test outcomes in `docs/research/x-feasibility.md`, like the TikTok record. No code yet.
-2. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
-3. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
+1. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
+2. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
 
 ## Direction and priorities
 

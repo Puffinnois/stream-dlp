@@ -42,3 +42,10 @@ duration as optional even though the successful cases provided both.
 Keep X requests anonymous. Reserve sign-in advice for explicit authentication
 errors and report an ambiguous no-video response without diagnosing privacy
 or deletion. X sessions wait for F-03.
+
+## Maintainer samples, November 3
+
+The bundled helper inspected one public post with eleven formats. A direct MP4
+download passed full H.264 video and AAC audio decoding. A second post returned
+the ambiguous no-video diagnostic in both default and syndication modes. Its
+public embed metadata listed only a photo.
