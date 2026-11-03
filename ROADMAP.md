@@ -229,7 +229,7 @@ the production-backend test on November 2, 2026. The maintainer confirmed the
 
 - [x] Accept both `x.com` and `twitter.com` post URLs and verified share variants.
 - [x] Support video posts and a selector for posts with multiple videos.
-- [ ] Test login-required posts, unavailable media, and extracted animated media; show only output types the app can actually save.
+- [x] Test login-required posts, unavailable media, and extracted animated media; show only output types the app can actually save.
 
 ### P-03 — Instagram
 
