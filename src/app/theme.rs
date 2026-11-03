@@ -47,6 +47,15 @@ fn semibold_family() -> FontFamily {
     FontFamily::Name(SEMIBOLD.into())
 }
 
+/// In the order tried. egui draws emoji in one color. Microsoft YaHei alone covers Chinese and
+/// Japanese: with a second font, characters of one line would sit at different heights.
+const FALLBACK_FONTS: [(&str, &str); 4] = [
+    ("Segoe UI Symbol", "seguisym.ttf"),
+    ("Segoe UI Emoji", "seguiemj.ttf"),
+    ("Microsoft YaHei", "msyh.ttc"),
+    ("Malgun Gothic", "malgun.ttf"),
+];
+
 /// Fonts and style for the whole app.
 pub fn apply(ctx: &egui::Context) {
     // Use the Windows UI typefaces when present, with egui's bundled fallback.
@@ -61,16 +70,14 @@ pub fn apply(ctx: &egui::Context) {
             .unwrap()
             .insert(0, "Segoe UI".into());
     }
-    // Titles and file names hold symbols and emoji that Segoe UI lacks; egui draws them in one
-    // color. Without these, they show as empty boxes.
-    for (name, file) in [
-        ("Segoe UI Symbol", "seguisym.ttf"),
-        ("Segoe UI Emoji", "seguiemj.ttf"),
-    ] {
+    // Titles and file names hold what Segoe UI lacks, which would show as empty boxes. These fonts
+    // are large and last as long as the app: egui would keep a second copy of owned data.
+    for (name, file) in FALLBACK_FONTS {
         if let Ok(data) = std::fs::read(format!("C:\\Windows\\Fonts\\{file}")) {
+            let data: &'static [u8] = Box::leak(data.into_boxed_slice());
             fonts
                 .font_data
-                .insert(name.into(), egui::FontData::from_owned(data).into());
+                .insert(name.into(), egui::FontData::from_static(data).into());
             for family in [FontFamily::Proportional, FontFamily::Monospace] {
                 fonts.families.get_mut(&family).unwrap().push(name.into());
             }
@@ -460,17 +467,28 @@ mod tests {
         });
     }
 
-    #[cfg(windows)]
     #[test]
-    fn emoji_have_a_font_in_every_text_style() {
+    fn fallback_fonts_cover_what_segoe_ui_lacks_in_every_text_style() {
         let ctx = egui::Context::default();
         apply(&ctx);
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             for family in [FontFamily::Proportional, semibold_family()] {
                 let font = egui::FontId::new(TEXT_BODY, family);
-                for emoji in ['🧊', '🌍', '✨'] {
-                    let found = ctx.fonts_mut(|fonts| fonts.has_glyph(&font, emoji));
-                    assert!(found, "{emoji}");
+                for (file, characters) in [
+                    ("seguiemj.ttf", "🧊🌍✨"),
+                    ("msyh.ttc", "简体汉字这ひらカタ漢字｜"),
+                    ("malgun.ttf", "한국어"),
+                ] {
+                    // Not every Windows edition installs them all.
+                    if std::path::Path::new("C:\\Windows\\Fonts")
+                        .join(file)
+                        .is_file()
+                    {
+                        for c in characters.chars() {
+                            let found = ctx.fonts_mut(|fonts| fonts.has_glyph(&font, c));
+                            assert!(found, "{file} {c}");
+                        }
+                    }
                 }
             }
         });
