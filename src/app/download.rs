@@ -3,8 +3,8 @@ use super::{
     App, Page, Phase,
     theme::{
         ACCENT, ACCENT_TINT, BORDER, DANGER, HOVER_BORDER, HOVER_FILL, MUTED, RADIUS_M, SPACE_L,
-        SPACE_M, SPACE_S, SPACE_XL, SPACE_XS, TEXT_CAPTION, TEXT_HEADING, TEXT_SECTION, TEXT_TITLE,
-        WARNING, caption, card, error_banner, focus_ring, icon_tile, page_header, primary,
+        SPACE_M, SPACE_S, SPACE_XL, SPACE_XS, TEXT_CAPTION, TEXT_HEADING, TEXT_TITLE, WARNING,
+        caption, card, clamped_title, error_banner, focus_ring, icon_tile, page_header, primary,
         progress, radio_mark, section_title, semibold, success_line,
     },
 };
@@ -292,12 +292,16 @@ impl App {
                 section_title(ui, "Choose one video from this post");
                 for video in &self.entries {
                     if ui
-                        .button(format!(
-                            "Video {} · {} · {}",
-                            video.entry_index.unwrap_or(1),
-                            video.title,
-                            video.duration_label()
-                        ))
+                        .add(
+                            egui::Button::new(format!(
+                                "Video {} · {} · {}",
+                                video.entry_index.unwrap_or(1),
+                                video.title,
+                                video.duration_label()
+                            ))
+                            .truncate(),
+                        )
+                        .on_hover_text(&video.title)
                         .clicked()
                     {
                         self.video = Some(video.clone());
@@ -352,7 +356,7 @@ impl App {
                         ui.label(RichText::new("▶").size(TEXT_TITLE).color(ACCENT));
                     });
                 ui.vertical(|ui| {
-                    ui.label(semibold(&video.title).size(TEXT_SECTION));
+                    clamped_title(ui, &video.title);
                     ui.label(caption(format!(
                         "{}   ·   {}   ·   {}",
                         video.creator_label(),

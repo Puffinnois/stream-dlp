@@ -269,7 +269,8 @@ pub fn progress(line: &str) -> Option<(f32, String)> {
     }
     Some((
         (percent / 100.).clamp(0., 1.),
-        format!("{percent}% · {speed} · {eta} remaining"),
+        // The percentage is the fraction, which the progress bar shows.
+        format!("{speed} · {eta} remaining"),
     ))
 }
 
@@ -446,8 +447,8 @@ mod tests {
     #[test]
     fn parses_progress_and_ignores_noise() {
         assert_eq!(
-            progress("__PROGRESS__ 42.5%|2 MiB/s|00:03").unwrap().0,
-            0.425
+            progress("__PROGRESS__ 42.5%|2 MiB/s|00:03").unwrap(),
+            (0.425, "2 MiB/s · 00:03 remaining".to_string())
         );
         assert!(progress("[Merger] merging formats").is_none());
         assert!(progress("__PROGRESS__NA|NA|NA").is_none());

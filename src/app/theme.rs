@@ -61,6 +61,21 @@ pub fn apply(ctx: &egui::Context) {
             .unwrap()
             .insert(0, "Segoe UI".into());
     }
+    // Titles and file names hold symbols and emoji that Segoe UI lacks; egui draws them in one
+    // color. Without these, they show as empty boxes.
+    for (name, file) in [
+        ("Segoe UI Symbol", "seguisym.ttf"),
+        ("Segoe UI Emoji", "seguiemj.ttf"),
+    ] {
+        if let Ok(data) = std::fs::read(format!("C:\\Windows\\Fonts\\{file}")) {
+            fonts
+                .font_data
+                .insert(name.into(), egui::FontData::from_owned(data).into());
+            for family in [FontFamily::Proportional, FontFamily::Monospace] {
+                fonts.families.get_mut(&family).unwrap().push(name.into());
+            }
+        }
+    }
     // egui has no font weights: Semibold is its own family, falling back to the regular text.
     let mut semibold = fonts.families[&FontFamily::Proportional].clone();
     if let Ok(data) = std::fs::read("C:\\Windows\\Fonts\\seguisb.ttf") {
@@ -141,6 +156,22 @@ pub fn caption(text: impl Into<String>) -> RichText {
 /// The title of a card or a section in one.
 pub fn section_title(ui: &mut egui::Ui, text: impl Into<String>) {
     ui.label(semibold(text).size(TEXT_SECTION));
+}
+
+const TITLE_ROWS: usize = 2;
+
+fn title_job(text: &str, width: f32) -> egui::text::LayoutJob {
+    let font = egui::FontId::new(TEXT_SECTION, semibold_family());
+    let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, INK, width);
+    job.wrap.max_rows = TITLE_ROWS;
+    job
+}
+
+/// A title from a website, which can be a whole caption: at most two rows, in full on hover.
+pub fn clamped_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let width = ui.available_width();
+    ui.add(egui::Label::new(title_job(text, width)))
+        .on_hover_text(text)
 }
 
 pub fn page_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
@@ -412,6 +443,37 @@ mod tests {
             let ratio = contrast(text, background);
             assert!(ratio >= 4.5, "{text:?} on {background:?} is {ratio:.2}:1");
         }
+    }
+
+    #[test]
+    fn long_titles_stop_after_two_rows() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let long = "long words ".repeat(200);
+            let galley = ctx.fonts_mut(|fonts| fonts.layout_job(title_job(&long, 300.)));
+            assert_eq!(galley.rows.len(), TITLE_ROWS);
+            assert!(galley.elided);
+            let galley = ctx.fonts_mut(|fonts| fonts.layout_job(title_job("Short title", 300.)));
+            assert_eq!(galley.rows.len(), 1);
+            assert!(!galley.elided);
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn emoji_have_a_font_in_every_text_style() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            for family in [FontFamily::Proportional, semibold_family()] {
+                let font = egui::FontId::new(TEXT_BODY, family);
+                for emoji in ['🧊', '🌍', '✨'] {
+                    let found = ctx.fonts_mut(|fonts| fonts.has_glyph(&font, emoji));
+                    assert!(found, "{emoji}");
+                }
+            }
+        });
     }
 
     #[test]
