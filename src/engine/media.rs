@@ -229,6 +229,15 @@ pub fn parse_video(json: &str) -> Result<Video, EngineError> {
 fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
     let mut video: Video = serde_json::from_str(json)
         .map_err(|_| EngineError::Helper("Could not read the video details.".into()))?;
+    // Facebook SD/HD progressive MP4s can omit both codec fields.
+    if source == Source::Facebook {
+        for f in &mut video.formats {
+            f.direct_video = matches!(f.format_id.as_str(), "sd" | "hd")
+                && f.protocol.as_deref() == Some("https")
+                && f.ext == "mp4"
+                && f.vcodec.as_deref() != Some("none");
+        }
+    }
     if source == Source::X {
         for f in &mut video.formats {
             f.direct_video = f.protocol.as_deref() == Some("https")

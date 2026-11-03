@@ -1,6 +1,6 @@
 # stream-dlp user guide
 
-stream-dlp downloads YouTube videos, with experimental TikTok and X/Twitter support, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
+stream-dlp downloads YouTube videos, with experimental TikTok, X/Twitter and Facebook support, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
 
 ## Install
 
@@ -52,9 +52,13 @@ browser. Profiles, collections, silent clips, and video-only formats are outside
 the current scope.
 See [TikTok validation and remaining work](research/tiktok-feasibility.md).
 
-## Sessions for TikTok and X
+## Facebook (experimental)
 
-Paste the post link, then choose **Connect TikTok session…** or **Connect X / Twitter session…**. Import a Netscape-format cookie export for that platform. TikTok accepts cookies under `tiktok.com`. X accepts `x.com` and `twitter.com`. Each platform has its own in-memory session for inspection and downloading. TikTok short-link resolution stays anonymous. To disconnect one platform, paste one of its links, open **Manage**, and choose **Remove session**. Signed-in access to restricted posts is unverified.
+Paste an individual public Reel, watch link, account video or video share link (`/share/r/` or `/share/v/`). Mobile watch links work too. If a share link fails, open it in your browser and paste the individual video link. A format with unknown resolution can still be selected. Feeds, groups, collections and live broadcasts are outside the supported scope.
+
+## Sessions for TikTok, X and Facebook
+
+Paste the post link, then choose **Connect TikTok session…**, **Connect X / Twitter session…** or **Connect Facebook session…**. Import a Netscape-format cookie export for that platform. TikTok accepts cookies under `tiktok.com`. X accepts `x.com` and `twitter.com`. Facebook accepts `facebook.com` and its subdomains. Each platform has its own in-memory session for inspection and downloading. TikTok and Facebook share links resolve anonymously. To disconnect one platform, paste one of its links, open **Manage**, and choose **Remove session**. Signed-in access to restricted posts is unverified.
 
 ## When YouTube asks you to verify
 

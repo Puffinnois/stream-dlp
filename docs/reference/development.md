@@ -88,12 +88,14 @@ error), or `animated` (checks for a silent,
 multi-frame MP4). Run
 `cargo test --locked x_authorized_production_pipeline -- --ignored`.
 
+For Facebook acceptance, set `STREAM_DLP_FACEBOOK_TEST_URL` to a permitted video with sound and run `cargo test --locked facebook_authorized_production_pipeline -- --ignored`. It inspects through the app backend, downloads one format and decodes both streams.
+
 ## Source layout
 
 - `src/main.rs`: arguments (`--check-tools`, `--dev-mode`) and the window.
 - `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
 - `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
-- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok and X/Twitter (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
+- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter and Facebook (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
 - `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.

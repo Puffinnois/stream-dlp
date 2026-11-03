@@ -1,5 +1,6 @@
 //! Per-site rules: which links are accepted, share links, the formats offered, and how
 //! yt-dlp's errors are explained. A new site is a new module here.
+mod facebook;
 mod tiktok;
 mod x;
 mod youtube;
@@ -13,6 +14,7 @@ pub enum Source {
     YouTube,
     TikTok,
     X,
+    Facebook,
 }
 
 impl Source {
@@ -20,6 +22,7 @@ impl Source {
         match self {
             Self::YouTube => "YouTube",
             Self::TikTok => "TikTok",
+            Self::Facebook => "Facebook",
             Self::X => "X / Twitter",
         }
     }
@@ -27,6 +30,7 @@ impl Source {
     /// Extra yt-dlp arguments for this site.
     pub(super) fn arguments(self) -> &'static [&'static str] {
         match self {
+            Self::Facebook => &["--use-extractors", "Facebook"],
             Self::YouTube => &[],
             Self::TikTok => &["--use-extractors", "TikTok"],
             Self::X => &["--use-extractors", "Twitter", "--yes-playlist"],
@@ -37,6 +41,7 @@ impl Source {
         match self {
             Self::YouTube => "%(title).150s [%(id)s] [%(format_id)s].%(ext)s",
             Self::TikTok => "TikTok %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
+            Self::Facebook => "Facebook %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
             Self::X => "X %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
         }
     }
@@ -47,6 +52,7 @@ impl Source {
             Self::YouTube => Ok(()),
             Self::TikTok => tiktok::check(video),
             Self::X => x::check(video),
+            Self::Facebook => facebook::check(video),
         }
     }
 
@@ -76,6 +82,7 @@ impl Source {
             "log in",
             "login",
             "requires authentication",
+            "registered users",
             "not authorized",
             "not a bot",
             "http error 401",
@@ -103,6 +110,10 @@ impl Source {
         ]) || (self == Self::TikTok && lower.contains("100002"))
         {
             EngineError::Unavailable(self)
+        } else if self == Self::Facebook
+            && has(&["cannot parse data", "unable to extract", "cannot extract"])
+        {
+            EngineError::Helper("The download tools could not read this Facebook video. Check that it plays in your browser, then update the tools in Settings and retry.".into())
         } else if has(&["blocked", "http error 403", "http 403"]) {
             EngineError::Restricted(self)
         } else {
@@ -125,6 +136,7 @@ impl Link {
     /// Revalidate the exact destination before attaching a platform cookie jar.
     pub(super) fn takes_session(&self) -> bool {
         parse_link(&self.url).is_ok_and(|canonical| canonical == *self)
+            && !(self.source == Source::Facebook && facebook::is_share(&self.url))
             && !(self.source == Source::TikTok && tiktok::is_short(&self.url))
     }
 
@@ -132,6 +144,8 @@ impl Link {
     pub(super) fn resolve(self, cancel: &AtomicBool) -> Result<Option<Self>, EngineError> {
         if self.source == Source::TikTok && tiktok::is_short(&self.url) {
             tiktok::resolve(&self.url, cancel)
+        } else if self.source == Source::Facebook && facebook::is_share(&self.url) {
+            facebook::resolve(&self.url, cancel)
         } else {
             Ok(Some(self))
         }
@@ -148,14 +162,19 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
     };
     let unsupported = |message: &str| EngineError::Unsupported(message.into());
     let url = url::Url::parse(&full)
-        .map_err(|_| unsupported("Paste a valid YouTube, TikTok or X video link."))?;
+        .map_err(|_| unsupported("Paste a valid YouTube, TikTok, X or Facebook video link."))?;
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return Err(unsupported(
             "Paste a standard video link without credentials or a custom port.",
         ));
     }
     let host = url.host_str().unwrap_or("");
-    if x::HOSTS.contains(&host) {
+    if facebook::HOSTS.contains(&host) {
+        facebook::normalize(&url).map(|url| Link {
+            source: Source::Facebook,
+            url,
+        })
+    } else if x::HOSTS.contains(&host) {
         x::normalize(&url).map(|url| Link {
             source: Source::X,
             url,
