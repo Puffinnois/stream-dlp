@@ -355,7 +355,7 @@ mod native {
                 value
             ));
         }
-        SessionCookies::parse(&text).map_err(|_| "No usable YouTube session was found. Sign in to YouTube in this Firefox profile and retry. For private windows or containers, use a cookies.txt export.".into())
+        SessionCookies::parse_for(&text, crate::engine::Source::YouTube).map_err(|_| "No usable YouTube session was found. Sign in to YouTube in this Firefox profile and retry. For private windows or containers, use a cookies.txt export.".into())
     }
 
     #[cfg(test)]

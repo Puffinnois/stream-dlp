@@ -73,6 +73,8 @@ verified candidate executable to compare helper versions.
 
 With the tools installed, `cargo test --locked local_download_pipeline -- --ignored --nocapture` generates a local DASH clip with separate audio/video, serves it on localhost, detects its formats, downloads and merges both streams through the production backend, and checks the saved MP4 with FFprobe. It supplies a synthetic YouTube session to both operations, checks those cookies are not sent to localhost, and verifies cancellation. Test artifacts remain in `test-output`.
 
+Run `cargo test --locked scoped_cookies_follow_helper_request_rules -- --ignored` to exercise the production command builder and bundled yt-dlp against synthetic offline metadata. It checks domain, path, secure transport, and expiry when selecting cookies for a media URL.
+
 The optional anonymous live YouTube test is `cargo test --locked youtube_download -- --ignored --nocapture`. Set `STREAM_DLP_TEST_URL` to override the short public test video. During development, YouTube required bot verification on this connection, so the anonymous live test could not finish. Authenticated YouTube access requires a real user-supplied session and has not been verified here. The local pipeline and synthetic session integration tests exercise the engine and session handling without reading any user's browser data.
 
 X post inspection offers direct HTTPS MP4 variants from the Twitter extractor.
@@ -92,7 +94,7 @@ exclude session cookies. To run the ignored production test, set
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
 - `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.
-- `src/session/`: session cookie validation, YouTube-domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
+- `src/session/`: session cookie validation, per-platform domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
 - `src/update/`: app updates. `release.rs` reads the latest GitHub release and picks the installer; `installer.rs` downloads and starts it; `mod.rs` holds the hourly check and background download.
 - `src/net.rs`: HTTPS with the system's certificates and proxy, and SHA-256-verified downloads.
 - `src/streamable/`: the Streamable website handoff and experimental upload automation.

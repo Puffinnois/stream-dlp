@@ -35,11 +35,11 @@ The Streamable investigation belongs first so its external dependency is discove
 Module by module in the [Source layout](docs/reference/development.md#source-layout).
 
 - Downloads (`src/engine/`): YouTube, and experimental TikTok (P-01): link routing, format list, audio/video merging, progress, cancellation, no-overwrite.
-- Sessions (`src/session/`): manual cookie import and experimental Firefox import, YouTube only (F-03 is open).
+- Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok and X, plus experimental Firefox import for YouTube (F-03).
 - My videos and previews (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: other platforms (P-02 onwards), multi-video posts, per-platform sessions and errors (F-03), a persistent download history, and direct Streamable uploads (blocked, S-03/S-04).
+Still missing: other platforms (P-02 onwards), multi-video posts, a persistent download history, and direct Streamable uploads (blocked, S-03/S-04).
 
 ## Feasibility findings
 
@@ -155,12 +155,12 @@ passes 44 tests (8 opt-in tests ignored); Clippy and the local pipeline pass.
 
 ### F-03 — Per-platform sessions and errors
 
-- [ ] Generalize `SessionCookies` using explicit platform domain policies, without dropping its current validation and cleanup protections.
-- [ ] Maintain a separate session for each platform. Verify cookie domain, path, secure, and expiration behavior through the production process path.
-- [ ] Never pass a combined all-platform cookie jar to arbitrary URLs. Disable session attachment for Other by default; any future site session requires explicit host scoping.
-- [ ] Replace YouTube-only interface labels, timeouts, and sign-in errors with platform-aware messages.
-- [ ] Distinguish unsupported link, missing video, authentication, expired session, rate limit, unavailable content, network failure, DRM, and helper failure.
-- [ ] Redact cookies, sensitive URL parameters, and account details from logs and displayed raw errors.
+- [x] Generalize `SessionCookies` using explicit platform domain policies, without dropping its current validation and cleanup protections.
+- [x] Maintain a separate session for each platform. Verify cookie domain, path, secure, and expiration behavior through the production process path.
+- [x] Never pass a combined all-platform cookie jar to arbitrary URLs. Disable session attachment for Other by default; any future site session requires explicit host scoping.
+- [x] Replace YouTube-only interface labels, timeouts, and sign-in errors with platform-aware messages.
+- [x] Distinguish unsupported link, missing video, authentication, expired session, rate limit, unavailable content, network failure, DRM, and helper failure.
+- [x] Redact cookies, sensitive URL parameters, and account details from logs and displayed raw errors.
 
 **Phase acceptance:** YouTube retains its existing behavior; fixtures for other sites parse correctly; session-isolation tests and the local download/merge/cancel pipeline pass. No new network-backed feature is declared supported from fixtures alone.
 

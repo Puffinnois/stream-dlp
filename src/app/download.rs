@@ -51,7 +51,7 @@ impl App {
                 self.phase = Phase::Inspecting;
                 self.download_cancel = Arc::new(AtomicBool::new(false));
                 let (tx, cancel) = (self.tx.clone(), self.download_cancel.clone());
-                let session = self.session.clone();
+                let session = self.sessions.get(&link.source).cloned();
                 std::thread::spawn(move || engine::inspect(link, session, tx, cancel));
             }
         }
@@ -149,7 +149,7 @@ impl App {
             self.tx.clone(),
             self.download_cancel.clone(),
         );
-        let session = self.session.clone();
+        let session = self.sessions.get(&media.source).cloned();
         std::thread::spawn(move || engine::download(media, format, folder, session, tx, cancel));
     }
     /// Switches the format list; a hidden selection moves to the first shown format so the
@@ -221,10 +221,10 @@ impl App {
                 if ui
                     .add_enabled(
                         !self.download_busy(),
-                        egui::Button::new(if self.session.is_some() {
-                            "YouTube session loaded · Manage"
+                        egui::Button::new(if self.sessions.contains_key(&self.session_source()) {
+                            format!("{} session loaded · Manage", self.session_source().label())
                         } else {
-                            "Connect YouTube browser…"
+                            format!("Connect {} session…", self.session_source().label())
                         })
                         .frame(false),
                     )
@@ -264,11 +264,11 @@ impl App {
                     if self
                         .loaded_link
                         .as_ref()
-                        .is_some_and(|link| link.source == engine::Source::YouTube)
+                        .is_some_and(|link| engine::parse_link(&self.link).as_ref() == Ok(link))
                         && ui
                             .add_enabled(
                                 !self.download_busy(),
-                                egui::Button::new("Connect browser / retry help"),
+                                egui::Button::new("Connect session / retry help"),
                             )
                             .clicked()
                     {

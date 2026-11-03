@@ -93,6 +93,12 @@ impl ExportStep {
 }
 
 impl App {
+    pub(super) fn session_source(&self) -> engine::Source {
+        engine::parse_link(&self.link)
+            .map(|link| link.source)
+            .unwrap_or_default()
+    }
+
     pub(super) fn poll_session(&mut self) {
         if let Ok(result) = self.session_rx.try_recv() {
             self.session_loading = false;
@@ -107,14 +113,23 @@ impl App {
                             self.session_error = Some("Browser import cancelled.".into());
                             return;
                         }
-                        self.session = Some(session);
-                        self.session_file = import.path;
-                        self.browser_source = import.browser;
+                        let source = session.source;
+                        self.sessions.insert(source, session);
+                        self.session_files.remove(&source);
+                        if let Some(path) = import.path {
+                            self.session_files.insert(source, path);
+                        }
+                        if source == engine::Source::YouTube {
+                            self.browser_source = import.browser;
+                        }
                         self.session_error = None;
+                        self.session_expanded = false;
+                        if engine::parse_link(&self.link).is_ok_and(|link| link.source != source) {
+                            return;
+                        }
                         self.error = None;
                         self.saved = None;
                         self.phase = Phase::Idle;
-                        self.session_expanded = false;
                         let refresh_used = self.refresh_used;
                         if self.retry_download
                             && self.video.is_some()
@@ -144,15 +159,16 @@ impl App {
         self.session_loading = true;
         self.import_cancel = Arc::new(AtomicBool::new(false));
         self.session_error = None;
+        let source = self.session_source();
         let tx = self.session_tx.clone();
         std::thread::spawn(move || {
             let result = rfd::FileDialog::new()
-                .set_title("Choose your YouTube cookies.txt export")
+                .set_title(format!("Choose your {} cookies.txt export", source.label()))
                 .add_filter("Netscape cookie export", &["txt"])
                 .set_directory(session::export::picker_folder(&folder))
                 .pick_file()
                 .map(|path| SessionImport {
-                    cookies: session::SessionCookies::load(&path),
+                    cookies: session::SessionCookies::load(&path, source),
                     path: Some(path),
                     browser: None,
                 });
@@ -241,13 +257,18 @@ impl App {
         });
     }
     pub(super) fn session_panel(&mut self, ui: &mut egui::Ui) {
+        let source = self.session_source();
         if !self.session_expanded {
             return;
         }
         ui.add_space(12.);
         card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("YouTube connection").size(18.).strong());
+                ui.label(
+                    RichText::new(format!("{} connection", source.label()))
+                        .size(18.)
+                        .strong(),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Collapse").clicked() {
                         self.session_expanded = false;
@@ -258,7 +279,13 @@ impl App {
                 RichText::new("Connect only when a video needs your signed-in session.")
                     .color(MUTED),
             );
-            if self.session_mode == SessionMode::Browser {
+            if source != engine::Source::YouTube {
+                ui.label(format!(
+                    "Choose a Netscape-format .txt export from a signed-in {} tab.",
+                    source.label()
+                ));
+                self.session_file_controls(ui, false);
+            } else if self.session_mode == SessionMode::Browser {
                 self.browser_controls(ui);
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Import a cookies file…").clicked() {
@@ -294,19 +321,24 @@ impl App {
                     }
                 });
             }
-            if self.session.is_some() {
+            if self.sessions.contains_key(&source) {
                 ui.colored_label(
                     Color32::from_rgb(31, 139, 99),
-                    "YouTube cookies imported · access checked when used",
+                    format!(
+                        "{} cookies imported · access checked when used",
+                        source.label()
+                    ),
                 );
-                if let Some(path) = &self.session_file {
+                if let Some(path) = self.session_files.get(&source) {
                     ui.label(
                         RichText::new(path.display().to_string())
                             .size(12.)
                             .color(MUTED),
                     );
                 }
-                if let Some(profile) = self.browser_source.clone() {
+                if source == engine::Source::YouTube
+                    && let Some(profile) = self.browser_source.clone()
+                {
                     ui.label(format!("Firefox · {}", profile.name));
                     if ui
                         .add_enabled(
@@ -322,9 +354,11 @@ impl App {
                     .add_enabled(!self.download_busy(), egui::Button::new("Remove session"))
                     .clicked()
                 {
-                    self.session = None;
-                    self.session_file = None;
-                    self.browser_source = None;
+                    self.sessions.remove(&source);
+                    self.session_files.remove(&source);
+                    if source == engine::Source::YouTube {
+                        self.browser_source = None;
+                    }
                     self.retry_download = false;
                     self.session_error = None;
                     self.video = None;

@@ -230,15 +230,14 @@ impl App {
         }
     }
 
-    /// Where the app is: a summary line like `Download · youtube.com/watch?v=… · Failed`, and
+    /// Where the app is: a summary line like `Download · YouTube · error`, and
     /// the details as JSON.
     fn note_context(&self, ctx: &egui::Context) -> (String, serde_json::Value) {
         let (page, parts, details) = match self.page {
             Page::Download => {
-                let link = self.link.trim();
-                let short = link
-                    .trim_start_matches("https://")
-                    .trim_start_matches("www.");
+                let source = crate::engine::parse_link(&self.link)
+                    .ok()
+                    .map(|link| link.source.label());
                 let format = self.video.as_ref().and_then(|video| {
                     let format = video.formats.get(self.selected)?;
                     Some(format!("{} {}", format.quality(), format.ext))
@@ -252,8 +251,8 @@ impl App {
                     Phase::Done => "done",
                 };
                 let mut parts: Vec<String> = Vec::new();
-                if !short.is_empty() {
-                    parts.push(cut(short, 60));
+                if let Some(source) = source {
+                    parts.push(source.to_owned());
                 }
                 parts.extend(format.clone());
                 parts.push(if self.error.is_some() {
@@ -263,13 +262,12 @@ impl App {
                 });
                 let log: Vec<&String> = self.log.iter().rev().take(10).rev().collect();
                 let details = serde_json::json!({
-                    "link": link,
-                    "title": self.video.as_ref().map(|video| &video.title),
+                    "source": source,
                     "format": format,
                     "phase": phase,
                     "status": self.status,
                     "error": self.error,
-                    "session": self.session.is_some(),
+                    "session": self.sessions.contains_key(&self.session_source()),
                     "log": log,
                 });
                 ("Download", parts, details)
@@ -723,15 +721,6 @@ impl App {
     }
 }
 
-/// `text` cut to `max` characters with an ellipsis.
-fn cut(text: &str, max: usize) -> String {
-    if text.chars().count() > max {
-        format!("{}…", text.chars().take(max - 1).collect::<String>())
-    } else {
-        text.into()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -811,12 +800,12 @@ mod tests {
         app.link = "https://www.youtube.com/watch?v=abcdefghijk".into();
         app.error = Some("YouTube asks you to sign in.".into());
         let (place, context) = app.note_context(&ctx);
-        assert_eq!(place, "Download · youtube.com/watch?v=abcdefghijk · error");
+        assert_eq!(place, "Download · YouTube · error");
         assert_eq!(context["page"], "Download");
         assert_eq!(context["details"]["session"], false);
         assert_eq!(context["app"]["version"], env!("CARGO_PKG_VERSION"));
         app.page = Page::Settings;
         assert_eq!(app.note_context(&ctx).0, "Settings");
-        assert_eq!(cut("abcdef", 4), "abc…");
+        assert!(!context.to_string().contains("abcdefghijk"));
     }
 }

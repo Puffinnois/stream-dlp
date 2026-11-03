@@ -30,7 +30,7 @@ the full post address.
 For a post with multiple videos, pick one video before choosing its MP4
 quality and destination. **Choose another video from this post** returns to
 the list. MP4 files retain their original audio when present. Downloads use
-anonymous access. Photo-only posts, external embeds, live streams, and posts
+anonymous access by default. Photo-only posts, external embeds, live streams, and posts
 that require a signed-in account are outside the supported scope.
 
 ## TikTok links (experimental)
@@ -52,9 +52,13 @@ browser. Profiles, collections, silent clips, and video-only formats are outside
 the current scope.
 See [TikTok validation and remaining work](research/tiktok-feasibility.md).
 
+## Sessions for TikTok and X
+
+Paste the post link, then choose **Connect TikTok session…** or **Connect X / Twitter session…**. Import a Netscape-format cookie export for that platform. TikTok accepts cookies under `tiktok.com`. X accepts `x.com` and `twitter.com`. Each platform has its own in-memory session for inspection and downloading. TikTok short-link resolution stays anonymous. To disconnect one platform, paste one of its links, open **Manage**, and choose **Remove session**. Signed-in access to restricted posts is unverified.
+
 ## When YouTube asks you to verify
 
-Click **Connect browser…** below the video link to expand the inline connection panel, or **Connect browser / retry help** in an error message. Choose **Firefox · automatic**, choose your profile (the default is selected for you), and click **Import from Firefox & retry**. No cookie exporter or file selection is needed. Successful import collapses the panel into **Session loaded · Manage**; connection errors stay inline. The app imports YouTube cookies in the background and retries video detection or the failed download once, keeping its quality and destination. **Auto mode** is on by default: after connecting, an authentication error refreshes only that same Firefox profile and retries once per attempt. Uncheck it to refresh only when you click **Refresh from Firefox & retry**. Browser/profile choices and cookies last for the current app session.
+Click **Connect YouTube session…** below the video link to expand the inline connection panel, or **Connect session / retry help** in an error message. Choose **Firefox · automatic**, choose your profile (the default is selected for you), and click **Import from Firefox & retry**. No cookie exporter or file selection is needed. Successful import collapses the panel into **Session loaded · Manage**; connection errors stay inline. The app imports YouTube cookies in the background and retries video detection or the failed download once, keeping its quality and destination. **Auto mode** is on by default: after connecting, an authentication error refreshes only that same Firefox profile and retries once per attempt. Uncheck it to refresh only when you click **Refresh from Firefox & retry**. Browser/profile choices and cookies last for the current app session.
 
 Firefox automatic import is experimental and supports normal, unpartitioned profile cookies on Windows, with database schemas through 17. Private windows and Firefox containers need manual export. The importer opens the selected database read-only through Windows' SQLite component, selects only `youtube.com` and its subdomains, and skips expired cookies. It does not copy the whole browser database or create an all-site cookie export. Import runs in the background with cancellation and a query time budget. If the profile is busy or inaccessible, close Firefox and retry. A successful import means cookies were read, not that YouTube has accepted the sign-in.
 

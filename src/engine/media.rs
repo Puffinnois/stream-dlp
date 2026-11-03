@@ -228,7 +228,7 @@ pub fn parse_video(json: &str) -> Result<Video, EngineError> {
 
 fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
     let mut video: Video = serde_json::from_str(json)
-        .map_err(|e| EngineError::Helper(format!("Could not read the video details: {e}")))?;
+        .map_err(|_| EngineError::Helper("Could not read the video details.".into()))?;
     if source == Source::X {
         for f in &mut video.formats {
             f.direct_video = f.protocol.as_deref() == Some("https")
@@ -252,6 +252,9 @@ fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
             .map(|id| format!("Video {id}"))
             .unwrap_or_else(|| "Untitled video".into());
     }
+    if !video.formats.is_empty() && video.formats.iter().all(|f| f.has_drm == Some(true)) {
+        return Err(EngineError::Drm(source));
+    }
     video
         .formats
         .retain(|f| f.has_drm != Some(true) && (f.video() || f.audio()));
@@ -264,9 +267,7 @@ fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
             .then(b.abr.unwrap_or(0.).total_cmp(&a.abr.unwrap_or(0.)))
     });
     if video.formats.is_empty() {
-        return Err(EngineError::Unsupported(
-            "No downloadable formats were returned for this video.".into(),
-        ));
+        return Err(EngineError::MissingVideo(source));
     }
     Ok(video)
 }

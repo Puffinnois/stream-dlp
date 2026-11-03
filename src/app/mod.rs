@@ -68,14 +68,14 @@ pub struct App {
     saved: Option<engine::CompletedDownload>,
     show_update: bool,
     closing: bool,
-    session: Option<session::SessionCookies>,
+    sessions: std::collections::HashMap<engine::Source, session::SessionCookies>,
     session_expanded: bool,
     session_loading: bool,
     session_error: Option<String>,
     session_tx: mpsc::Sender<Option<SessionImport>>,
     session_rx: mpsc::Receiver<Option<SessionImport>>,
     session_folder: PathBuf,
-    session_file: Option<PathBuf>,
+    session_files: std::collections::HashMap<engine::Source, PathBuf>,
     session_mode: SessionMode,
     browser_choice: ImportBrowser,
     browser_profiles: Vec<session::firefox::Profile>,
@@ -137,14 +137,14 @@ impl App {
             saved: None,
             show_update: false,
             closing: false,
-            session: None,
+            sessions: Default::default(),
             session_expanded: false,
             session_loading: false,
             session_error: None,
             session_tx,
             session_rx,
             session_folder: session::export::export_folder(),
-            session_file: None,
+            session_files: Default::default(),
             session_mode: if cfg!(windows) {
                 SessionMode::Browser
             } else {
@@ -520,7 +520,10 @@ mod tests {
                 .unwrap();
             app.poll();
             assert!(!app.session_loading);
-            assert_eq!(app.session.is_some(), !cancelled);
+            assert_eq!(
+                app.sessions.contains_key(&engine::Source::YouTube),
+                !cancelled
+            );
             assert_eq!(
                 app.session_expanded, cancelled,
                 "Successful import collapses the connection panel; cancellation keeps it open"

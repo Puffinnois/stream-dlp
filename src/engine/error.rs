@@ -15,7 +15,10 @@ pub enum EngineError {
     /// The site could not be reached.
     Network(Source),
     /// The site took too long to answer.
-    TimedOut,
+    TimedOut(Source),
+    ExpiredSession(Source),
+    MissingVideo(Source),
+    Drm(Source),
     /// A helper failed; the text is safe to show.
     Helper(String),
 }
@@ -24,9 +27,8 @@ impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsupported(message) | Self::Helper(message) => f.write_str(message),
-            Self::SignInNeeded(Source::YouTube) => f.write_str("YouTube requires sign-in or a verification check. Use Connect browser / retry help to import your YouTube session, then retry. YouTube may still restrict this connection or video."),
-            Self::SignInNeeded(Source::TikTok) => f.write_str("TikTok requires sign-in or verification for this video. Choose a public video that plays while signed out."),
-            Self::SignInNeeded(Source::X) => f.write_str("X requires sign-in for this post. Choose a public video that plays while signed out."),
+            Self::SignInNeeded(Source::YouTube) => f.write_str("YouTube requires sign-in or a verification check. Use Connect session / retry help to import your YouTube session, then retry. YouTube may still restrict this connection or video."),
+            Self::SignInNeeded(source) => write!(f, "{} requires sign-in. Import a session for this site and retry.", source.label()),
             Self::RateLimited(source) => write!(
                 f,
                 "{} is limiting requests. Wait a while before trying again.",
@@ -47,7 +49,10 @@ impl std::fmt::Display for EngineError {
                 "Could not connect to {}. Check your connection and try again.",
                 source.label()
             ),
-            Self::TimedOut => f.write_str("The video service took too long to respond. Check your connection and try again."),
+            Self::TimedOut(source) => write!(f, "{} took too long to respond. Check your connection and try again.", source.label()),
+            Self::ExpiredSession(source) => write!(f, "Your {} session has expired. Import a fresh session and retry.", source.label()),
+            Self::MissingVideo(source) => write!(f, "No downloadable video was found in this {} post.", source.label()),
+            Self::Drm(source) => write!(f, "This {} video is DRM-protected and cannot be downloaded.", source.label()),
         }
     }
 }
@@ -60,7 +65,10 @@ impl EngineError {
     /// Whether importing the YouTube browser session could help; the UI keys its Firefox
     /// auto-refresh on it.
     pub fn needs_session(&self) -> bool {
-        *self == Self::SignInNeeded(Source::YouTube)
+        matches!(
+            self,
+            Self::SignInNeeded(Source::YouTube) | Self::ExpiredSession(Source::YouTube)
+        )
     }
 }
 

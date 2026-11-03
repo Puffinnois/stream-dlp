@@ -7,7 +7,7 @@ mod youtube;
 use super::{EngineError, Video};
 use std::sync::atomic::AtomicBool;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub enum Source {
     #[default]
     YouTube,
@@ -41,11 +41,6 @@ impl Source {
         }
     }
 
-    /// Whether yt-dlp's own output may reach the UI. TikTok's can contain signed media URLs.
-    pub(super) fn shows_helper_output(self) -> bool {
-        self == Self::YouTube
-    }
-
     /// Keeps what stream-dlp supports from this site, or explains why nothing is left.
     pub(super) fn check(self, video: &mut Video) -> Result<(), EngineError> {
         match self {
@@ -57,10 +52,64 @@ impl Source {
 
     /// Explains a failed yt-dlp run from its error output.
     pub(super) fn explain(self, errors: &str) -> EngineError {
-        match self {
-            Self::YouTube => youtube::explain(errors),
-            Self::TikTok => tiktok::explain(errors),
-            Self::X => x::explain(errors),
+        let lower = errors.to_lowercase();
+        let has = |patterns: &[&str]| patterns.iter().any(|pattern| lower.contains(pattern));
+        if has(&["drm protected", "drm-protected"]) {
+            EngineError::Drm(self)
+        } else if has(&["cookie", "session"]) && has(&["expired", "no longer valid"]) {
+            EngineError::ExpiredSession(self)
+        } else if has(&[
+            "http error 429",
+            "http 429",
+            "too many requests",
+            "rate limit",
+        ]) {
+            EngineError::RateLimited(self)
+        } else if self == Self::TikTok
+            && has(&["private video", "video is private", "private account"])
+        {
+            EngineError::Unsupported(
+                "This TikTok video is private. Choose a public video post.".into(),
+            )
+        } else if has(&[
+            "sign in",
+            "log in",
+            "login",
+            "requires authentication",
+            "not authorized",
+            "not a bot",
+            "http error 401",
+        ]) {
+            EngineError::SignInNeeded(self)
+        } else if has(&["no video", "no formats found", "no downloadable video"])
+            || (lower.contains("does not contain") && lower.contains("video"))
+        {
+            EngineError::MissingVideo(self)
+        } else if lower.contains("timed out") {
+            EngineError::TimedOut(self)
+        } else if has(&[
+            "connection",
+            "resolve",
+            "getaddrinfo failed",
+            "unable to download webpage: <urlopen error",
+        ]) {
+            EngineError::Network(self)
+        } else if has(&[
+            "not available",
+            "unavailable",
+            "removed",
+            "http 404",
+            "http error 404",
+        ]) || (self == Self::TikTok && lower.contains("100002"))
+        {
+            EngineError::Unavailable(self)
+        } else if has(&["blocked", "http error 403", "http 403"]) {
+            EngineError::Restricted(self)
+        } else {
+            EngineError::Helper(format!(
+                "The {} download engine stopped unexpectedly. Check the link in your browser or update the tools.",
+                self.label()
+            ))
         }
     }
 }
@@ -73,9 +122,10 @@ pub struct Link {
 }
 
 impl Link {
-    /// Whether the YouTube session may go with this link: only to YouTube itself.
+    /// Revalidate the exact destination before attaching a platform cookie jar.
     pub(super) fn takes_session(&self) -> bool {
-        self.source == Source::YouTube && youtube::is_canonical(&self.url)
+        parse_link(&self.url).is_ok_and(|canonical| canonical == *self)
+            && !(self.source == Source::TikTok && tiktok::is_short(&self.url))
     }
 
     /// Follows a share link to the video it stands for. `None` when cancelled.
@@ -148,11 +198,34 @@ mod tests {
     }
 
     #[test]
-    fn only_youtube_links_take_the_session() {
+    fn errors_keep_platform_and_drop_private_details() {
+        for source in [Source::YouTube, Source::TikTok, Source::X] {
+            for (raw, expected) in [
+                (
+                    "session cookies have expired",
+                    EngineError::ExpiredSession(source),
+                ),
+                ("DRM protected", EngineError::Drm(source)),
+                ("No video found", EngineError::MissingVideo(source)),
+                ("timed out", EngineError::TimedOut(source)),
+            ] {
+                let error =
+                    source.explain(&format!("{raw} https://example.test/@account?token=secret"));
+                assert_eq!(error, expected);
+                assert!(!error.user_message().contains("secret"));
+            }
+            assert!(
+                matches!(source.explain("Cookie: secret"), EngineError::Helper(message) if !message.contains("secret"))
+            );
+        }
+    }
+
+    #[test]
+    fn only_canonical_video_links_take_sessions() {
         for (link, takes) in [
             ("https://youtu.be/BaW_jenozKc", true),
             ("https://vm.tiktok.com/ABC123/", false),
-            ("https://www.tiktok.com/@creator/video/123", false),
+            ("https://www.tiktok.com/@creator/video/123", true),
         ] {
             assert_eq!(parse_link(link).unwrap().takes_session(), takes, "{link}");
         }
