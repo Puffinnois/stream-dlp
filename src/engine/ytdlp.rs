@@ -131,12 +131,17 @@ pub fn download(
     let link = media.link();
     let result = (|| {
         let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
-        if link.source == super::Source::X {
+        if matches!(link.source, super::Source::X | super::Source::Facebook) {
             let id = media
                 .id
                 .as_deref()
                 .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
-                .ok_or_else(|| EngineError::Unsupported("X returned no usable video ID.".into()))?;
+                .ok_or_else(|| {
+                    EngineError::Unsupported(format!(
+                        "{} returned no usable video ID.",
+                        link.source.label()
+                    ))
+                })?;
             cmd.arg("--playlist-items")
                 .arg(media.entry_index.unwrap_or(1).to_string())
                 .arg("--match-filter")
@@ -322,6 +327,25 @@ mod tests {
         let (anonymous, file) = super::command(None).unwrap();
         assert!(file.is_none());
         assert!(!anonymous.get_args().any(|arg| arg == "--cookies"));
+    }
+
+    #[test]
+    fn facebook_cookie_jar_only_reaches_individual_facebook_links() {
+        let jar = SessionCookies::parse_for(
+            "# Netscape HTTP Cookie File\n.facebook.com\tTRUE\t/\tTRUE\t0\tTEST\tfake\n",
+            Source::Facebook,
+        )
+        .unwrap();
+        for (url, expected) in [
+            ("facebook.com/reel/123", true),
+            ("facebook.com/share/v/Example", false),
+            ("x.com/example/status/123", false),
+        ] {
+            let link = crate::engine::parse_link(url).unwrap();
+            let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+            assert_eq!(file.is_some(), expected);
+            assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
+        }
     }
 
     #[test]
@@ -776,6 +800,27 @@ mod tests {
             (_, Event::Failed(e)) => panic!("{e}"),
             _ => panic!("Unexpected post response"),
         };
+        verify_saved_post(video, mode.as_str(), cancel);
+    }
+
+    #[test]
+    #[ignore = "requires a permitted Facebook video with sound and installed tools"]
+    fn facebook_authorized_production_pipeline() {
+        let link =
+            crate::engine::parse_link(&std::env::var("STREAM_DLP_FACEBOOK_TEST_URL").unwrap())
+                .unwrap();
+        assert_eq!(link.source, Source::Facebook);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        inspect(link, None, tx, cancel.clone());
+        match rx.recv().unwrap() {
+            Event::Loaded(video) => verify_saved_post(video, "facebook", cancel),
+            Event::Failed(error) => panic!("{error}"),
+            _ => panic!("Expected an individual Facebook video"),
+        }
+    }
+
+    fn verify_saved_post(video: Video, mode: &str, cancel: Arc<AtomicBool>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output");
         std::fs::create_dir_all(&root).unwrap();
@@ -841,7 +886,15 @@ mod tests {
             Command::new(crate::tools::path("ffmpeg"))
                 .args(["-nostdin", "-v", "error", "-xerror", "-i"])
                 .arg(file)
-                .args(["-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"]),
+                .args([
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    if mode == "facebook" { "0:a:0" } else { "0:a?" },
+                    "-f",
+                    "null",
+                    "-",
+                ]),
         )
         .output()
         .unwrap();

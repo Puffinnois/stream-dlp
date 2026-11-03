@@ -108,8 +108,7 @@ short-link results below, and the [X release verification](docs/research/x-feasi
 **Research complete.** The [four-platform helper comparison](docs/research/platform-feasibility.md)
 sets the initial Facebook target to individual public videos, including Reels,
 watch links, and the two verified share forms. Instagram is deferred after
-both helpers reached login on all five distinct fixtures. P-03 and P-04
-implementation and download acceptance remain open.
+both helpers reached login on all five distinct fixtures. See P-04 for Facebook implementation and acceptance status.
 
 - [x] Test representative public links for TikTok, X/Twitter, Instagram, and Facebook with the installed and candidate yt-dlp versions.
 - [x] Include desktop/mobile links, share redirects, video posts, reels, multiple-video posts, unavailable media, and login-required cases.
@@ -245,9 +244,11 @@ See the [live test results](docs/research/x-feasibility.md).
 
 ### P-04 — Facebook
 
-- [ ] Support verified watch, reel, mobile, and share-link patterns for individual videos.
-- [ ] Handle redirects and metadata differences; add domain-scoped session support where required.
-- [ ] Clearly explain unavailable or inaccessible posts and unsupported collections.
+- [x] Support verified watch, reel, mobile, and share-link patterns for individual videos.
+- [x] Handle redirects and metadata differences; add domain-scoped manual session support.
+- [x] Clearly explain unavailable or inaccessible posts and unsupported collections.
+
+November 3, 2026 (bundled yt-dlp 2026.08.19). Offline tests cover routing, redirect destinations, missing metadata, collections and session isolation. Live download and playback of a permitted sample and signed-in recovery remain open. See the [Facebook feasibility record](docs/research/platform-feasibility.md#facebook-p-04).
 
 **Acceptance for each platform:** an owned/permitted public sample inspects, downloads, and plays with the expected streams; applicable session cases work; redirects, missing metadata, failures, cancellation, and multi-media behavior are verified. Record test date and helper version. Preserve the YouTube regression suite for every release.
 

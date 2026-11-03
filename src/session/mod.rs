@@ -72,6 +72,7 @@ impl SessionCookies {
             let domains: &[&str] = match source {
                 Source::YouTube => &["youtube.com"],
                 Source::TikTok => &["tiktok.com"],
+                Source::Facebook => &["facebook.com"],
                 Source::X => &["x.com", "twitter.com"],
             };
             if !domains.iter().any(|base| {
@@ -157,6 +158,9 @@ mod tests {
             "tiktok.com",
             "x.com",
             "twitter.com",
+            "facebook.com",
+            "m.facebook.com",
+            "notfacebook.com",
             "notx.com",
             "x.com.invalid",
         ];
@@ -168,6 +172,7 @@ mod tests {
             (Source::YouTube, &domains[0..1]),
             (Source::TikTok, &domains[1..2]),
             (Source::X, &domains[2..4]),
+            (Source::Facebook, &domains[4..6]),
         ] {
             let jar = SessionCookies::parse_for(&input, source).unwrap();
             for domain in domains {
