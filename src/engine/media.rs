@@ -6,6 +6,9 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Format {
     pub format_id: String,
+    pub protocol: Option<String>,
+    #[serde(skip)]
+    pub direct_video: bool,
     #[serde(default, deserialize_with = "string_or_default")]
     pub ext: String,
     pub height: Option<u32>,
@@ -23,7 +26,7 @@ pub struct Format {
 
 impl Format {
     pub fn video(&self) -> bool {
-        self.vcodec.as_deref().is_some_and(|v| v != "none")
+        self.direct_video || self.vcodec.as_deref().is_some_and(|v| v != "none")
     }
     pub fn audio(&self) -> bool {
         self.acodec.as_deref().is_some_and(|v| v != "none")
@@ -99,7 +102,7 @@ impl Format {
             .unwrap_or_else(|| "Unknown container".into())
     }
     pub fn selector(&self) -> String {
-        if self.video() && !self.audio() {
+        if self.video() && !self.direct_video && !self.audio() {
             let audio = if self.ext == "mp4" {
                 "bestaudio[ext=m4a]/bestaudio"
             } else if self.ext == "webm" {
@@ -120,6 +123,8 @@ pub struct Video {
     pub source: Source,
     #[serde(skip)]
     pub source_url: String,
+    #[serde(skip)]
+    pub entry_index: Option<usize>,
     pub id: Option<String>,
     pub extractor_key: Option<String>,
     #[serde(default, deserialize_with = "string_or_default")]
@@ -142,6 +147,7 @@ pub struct Video {
 pub struct MediaIdentity {
     pub source: Source,
     pub source_url: String,
+    pub entry_index: Option<usize>,
     pub id: Option<String>,
     pub extractor_key: Option<String>,
 }
@@ -184,6 +190,7 @@ impl Video {
         MediaIdentity {
             source: self.source,
             source_url: self.source_url.clone(),
+            entry_index: self.entry_index,
             id: self.id.clone(),
             extractor_key: self.extractor_key.clone(),
         }
@@ -214,9 +221,22 @@ fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
 
 /// Reads yt-dlp's `--dump-single-json` output, keeping the downloadable formats with the
 /// best video first.
+#[cfg(test)]
 pub fn parse_video(json: &str) -> Result<Video, EngineError> {
+    parse_source(json, Source::YouTube)
+}
+
+fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
     let mut video: Video = serde_json::from_str(json)
         .map_err(|e| EngineError::Helper(format!("Could not read the video details: {e}")))?;
+    if source == Source::X {
+        for f in &mut video.formats {
+            f.direct_video = f.protocol.as_deref() == Some("https")
+                && f.ext == "mp4"
+                && f.vcodec.as_deref() != Some("none")
+                && (f.format_id == "http" || f.format_id.starts_with("http-"));
+        }
+    }
     if video.collection || video.kind.as_deref().is_some_and(|kind| kind != "video") {
         return Err(EngineError::Unsupported(
             "Choose one video; profiles and collections are not supported.".into(),
@@ -253,7 +273,7 @@ pub fn parse_video(json: &str) -> Result<Video, EngineError> {
 
 /// [`parse_video`] for `link`, applying its site's rules.
 pub(super) fn parse_for(json: &str, link: &Link) -> Result<Video, EngineError> {
-    let mut video = parse_video(json)?;
+    let mut video = parse_source(json, link.source)?;
     video.source = link.source;
     video.source_url = link.url.clone();
     link.source.check(&mut video)?;
@@ -384,6 +404,7 @@ mod tests {
             assert_eq!(
                 video.identity(),
                 MediaIdentity {
+                    entry_index: None,
                     source,
                     source_url: url.into(),
                     id: Some("123".into()),

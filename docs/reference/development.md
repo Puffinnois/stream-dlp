@@ -75,12 +75,20 @@ With the tools installed, `cargo test --locked local_download_pipeline -- --igno
 
 The optional anonymous live YouTube test is `cargo test --locked youtube_download -- --ignored --nocapture`. Set `STREAM_DLP_TEST_URL` to override the short public test video. During development, YouTube required bot verification on this connection, so the anonymous live test could not finish. Authenticated YouTube access requires a real user-supplied session and has not been verified here. The local pipeline and synthetic session integration tests exercise the engine and session handling without reading any user's browser data.
 
+X post inspection offers direct HTTPS MP4 variants from the Twitter extractor.
+Playlist entries retain their one-based position and media ID. Download passes
+both to yt-dlp so a changed post cannot silently save another entry. X commands
+exclude session cookies. To run the ignored production test, set
+`STREAM_DLP_X_TEST_URL` locally and `STREAM_DLP_X_TEST_CASE` to `single`,
+`multi` (selects entry two), or `photo`. Run
+`cargo test --locked x_authorized_production_pipeline -- --ignored`.
+
 ## Source layout
 
 - `src/main.rs`: arguments (`--check-tools`, `--dev-mode`) and the window.
 - `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
 - `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
-- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube and TikTok (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
+- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok and X/Twitter (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
 - `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.

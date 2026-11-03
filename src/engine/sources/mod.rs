@@ -1,6 +1,7 @@
 //! Per-site rules: which links are accepted, share links, the formats offered, and how
 //! yt-dlp's errors are explained. A new site is a new module here.
 mod tiktok;
+mod x;
 mod youtube;
 
 use super::{EngineError, Video};
@@ -11,6 +12,7 @@ pub enum Source {
     #[default]
     YouTube,
     TikTok,
+    X,
 }
 
 impl Source {
@@ -18,6 +20,7 @@ impl Source {
         match self {
             Self::YouTube => "YouTube",
             Self::TikTok => "TikTok",
+            Self::X => "X / Twitter",
         }
     }
 
@@ -26,6 +29,7 @@ impl Source {
         match self {
             Self::YouTube => &[],
             Self::TikTok => &["--use-extractors", "TikTok"],
+            Self::X => &["--use-extractors", "Twitter", "--yes-playlist"],
         }
     }
 
@@ -33,6 +37,7 @@ impl Source {
         match self {
             Self::YouTube => "%(title).150s [%(id)s] [%(format_id)s].%(ext)s",
             Self::TikTok => "TikTok %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
+            Self::X => "X %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
         }
     }
 
@@ -46,6 +51,7 @@ impl Source {
         match self {
             Self::YouTube => Ok(()),
             Self::TikTok => tiktok::check(video),
+            Self::X => x::check(video),
         }
     }
 
@@ -54,6 +60,7 @@ impl Source {
         match self {
             Self::YouTube => youtube::explain(errors),
             Self::TikTok => tiktok::explain(errors),
+            Self::X => x::explain(errors),
         }
     }
 }
@@ -91,14 +98,19 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
     };
     let unsupported = |message: &str| EngineError::Unsupported(message.into());
     let url = url::Url::parse(&full)
-        .map_err(|_| unsupported("Paste a valid YouTube or TikTok video link."))?;
+        .map_err(|_| unsupported("Paste a valid YouTube, TikTok or X video link."))?;
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return Err(unsupported(
             "Paste a standard video link without credentials or a custom port.",
         ));
     }
     let host = url.host_str().unwrap_or("");
-    if tiktok::HOSTS.contains(&host) {
+    if x::HOSTS.contains(&host) {
+        x::normalize(&url).map(|url| Link {
+            source: Source::X,
+            url,
+        })
+    } else if tiktok::HOSTS.contains(&host) {
         tiktok::normalize(&url, host).map(|url| Link {
             source: Source::TikTok,
             url,

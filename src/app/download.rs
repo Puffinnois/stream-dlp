@@ -42,6 +42,7 @@ impl App {
                 self.loaded_link = Some(link.clone());
                 self.error = None;
                 self.video = None;
+                self.entries.clear();
                 self.saved = None;
                 // The last video's "ready" or "cancelled" line must not label the next one.
                 self.status.clear();
@@ -62,6 +63,10 @@ impl App {
                     self.video = Some(video);
                     self.selected = 0;
                     self.filter = FormatFilter::All;
+                    self.phase = Phase::Choosing;
+                }
+                Event::Entries(entries) => {
+                    self.entries = entries;
                     self.phase = Phase::Choosing;
                 }
                 Event::Line(line) => {
@@ -178,7 +183,7 @@ impl App {
         page_header(
             ui,
             "Download",
-            "Save a YouTube or TikTok video in the quality you choose.",
+            "Save a YouTube, TikTok or X video in the quality you choose.",
         );
         card(ui, |ui| {
             ui.label(RichText::new("Video link").size(14.).color(INK).strong());
@@ -189,7 +194,7 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text("Paste a YouTube or TikTok video/share link")
+                        .hint_text("Paste a YouTube, TikTok or X video/share link")
                         .desired_width(width)
                         .margin(Vec2::new(12., 12.)),
                 );
@@ -208,7 +213,7 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new(
-                        "YouTube videos and Shorts · TikTok public video links (experimental)",
+                        "YouTube videos and Shorts · Public TikTok and X video links (experimental)",
                     )
                     .size(12.)
                     .color(MUTED),
@@ -282,7 +287,37 @@ impl App {
                     }
                 });
             });
+        } else if !self.entries.is_empty() && self.video.is_none() {
+            card(ui, |ui| {
+                ui.heading("Choose one video from this post");
+                for video in &self.entries {
+                    if ui
+                        .button(format!(
+                            "Video {} · {} · {}",
+                            video.entry_index.unwrap_or(1),
+                            video.title,
+                            video.duration_label()
+                        ))
+                        .clicked()
+                    {
+                        self.video = Some(video.clone());
+                        self.selected = 0;
+                        self.filter = FormatFilter::All;
+                    }
+                }
+            });
         } else if self.video.is_some() {
+            if !self.entries.is_empty()
+                && !self.download_busy()
+                && ui.button("Choose another video from this post").clicked()
+            {
+                self.video = None;
+                self.phase = Phase::Choosing;
+                self.saved = None;
+                self.error = None;
+                self.status.clear();
+                return;
+            }
             self.video_card(ui);
         } else {
             ui.add_space(36.);
@@ -345,6 +380,9 @@ impl App {
                             (FormatFilter::Video, "Video"),
                             (FormatFilter::All, "All"),
                         ] {
+                            if video.source == engine::Source::X && filter == FormatFilter::Audio {
+                                continue;
+                            }
                             if ui.selectable_label(self.filter == filter, name).clicked() {
                                 self.set_filter(filter);
                             }
@@ -353,7 +391,9 @@ impl App {
                 });
             });
             ui.label(
-                RichText::new(if video.source == engine::Source::TikTok {
+                RichText::new(if video.source == engine::Source::X {
+                    "Direct MP4 · saves the original audio when present."
+                } else if video.source == engine::Source::TikTok {
                     "Experimental TikTok support · these video formats include audio."
                 } else {
                     "Available streams · video-only choices are combined with matching audio."
@@ -436,7 +476,7 @@ impl App {
                     "Selected: {} · {}{}",
                     selected.quality(),
                     selected.container_label(),
-                    if selected.video() && !selected.audio() {
+                    if selected.video() && !selected.direct_video && !selected.audio() {
                         " + audio (MKV if needed)"
                     } else {
                         ""
@@ -476,9 +516,11 @@ impl App {
                         }
                     });
                     ui.label(
-                        RichText::new(
-                            "Progress is for the current stream; audio and merging follow.",
-                        )
+                        RichText::new(if video.source == engine::Source::X {
+                            "Downloading the selected MP4."
+                        } else {
+                            "Progress is for the current stream; audio and merging follow."
+                        })
                         .size(11.)
                         .color(MUTED),
                     );

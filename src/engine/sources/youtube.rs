@@ -38,7 +38,7 @@ pub(super) fn normalize(url: &url::Url, host: &str) -> Result<String, &'static s
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
-        .ok_or("Paste a YouTube or full TikTok video link.")?;
+        .ok_or("Paste a YouTube, TikTok or X video link.")?;
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
 

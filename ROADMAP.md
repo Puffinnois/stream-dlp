@@ -10,8 +10,7 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **F-02, multi-video posts.** When yt-dlp returns several videos for one post, let the user choose one; never download the whole collection or silently take the first. X needs this, and Instagram later.
-2. **P-02 — X / Twitter**, within the scope R-03 recorded: a new module in `src/engine/sources/`, public posts only. Sessions for X wait for F-03.
+No items queued.
 
 ## Direction and priorities
 
@@ -134,9 +133,9 @@ Depends on R-03.
 
 - [x] Carry media ID, source URL, extractor identity, and platform with metadata and completed-file results.
 - [x] Handle absent titles, uploader, duration, resolution, and size with useful fallbacks; avoid showing `0p` for unknown resolution.
-- [ ] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection.
+- [x] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection.
 - [ ] Keep format selection and audio merging shared, including audio-less source clips where valid. Distinguish those from failed audio retrieval.
-- [ ] Include source identity in filenames or collision handling so identical IDs from different platforms cannot falsely reuse an unrelated completed file.
+- [x] Include source identity in filenames or collision handling so identical IDs from different platforms cannot falsely reuse an unrelated completed file.
 
 October 24, 2026: inspection and completed results now retain a shared media
 identity for the implemented YouTube/TikTok routes. Download workers receive an
@@ -228,8 +227,8 @@ the production-backend test on November 2, 2026. The maintainer confirmed the
 
 ### P-02 — X / Twitter
 
-- [ ] Accept both `x.com` and `twitter.com` post URLs and verified share variants.
-- [ ] Support video posts and a selector for posts with multiple videos.
+- [x] Accept both `x.com` and `twitter.com` post URLs and verified share variants.
+- [x] Support video posts and a selector for posts with multiple videos.
 - [ ] Test login-required posts, unavailable media, and extracted animated media; show only output types the app can actually save.
 
 ### P-03 — Instagram
