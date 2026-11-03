@@ -227,6 +227,12 @@ the production-backend test on November 2, 2026. The maintainer confirmed the
 
 ### P-02 — X / Twitter
 
+**Done.** All P-02 cases for public X/Twitter posts passed validation by
+November 3, 2026. The v0.5.0 backend saved and decoded a single video, a
+selected entry from a multi-video post, and a silent animated MP4. It also
+handled photo-only, unavailable, and login-required posts.
+See the [live test results](docs/research/x-feasibility.md).
+
 - [x] Accept both `x.com` and `twitter.com` post URLs and verified share variants.
 - [x] Support video posts and a selector for posts with multiple videos.
 - [x] Test login-required posts, unavailable media, and extracted animated media; show only output types the app can actually save.
