@@ -345,6 +345,10 @@ impl App {
             .into_iter()
             .enumerate()
             {
+                // Turning Dev mode off hides this menu, so it sits apart from the everyday items.
+                if n == 4 {
+                    ui.separator();
+                }
                 if ui.button(label).clicked() {
                     choice = Some(n);
                 }
