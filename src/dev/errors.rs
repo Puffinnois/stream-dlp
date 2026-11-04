@@ -63,6 +63,9 @@ pub fn record_panics() {
     let report = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         record("panic", info.to_string());
+        if let Some(place) = info.location() {
+            crate::usage::note_panic(place.file(), place.line());
+        }
         report(info);
     }));
 }

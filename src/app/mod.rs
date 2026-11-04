@@ -7,6 +7,7 @@ mod preview;
 mod session_panel;
 mod settings;
 pub mod theme;
+mod usage;
 mod videos;
 
 use crate::{engine, session, tools, update};
@@ -55,6 +56,9 @@ pub struct App {
     tool_update: tools::ToolUpdate,
     dev: dev::DevTools,
     feedback: feedback::Feedback,
+    usage: crate::usage::Reporter,
+    usage_view: usage::UsageView,
+    offer_note: bool,
     link: String,
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
@@ -111,6 +115,7 @@ impl App {
         theme::apply(&cc.egui_ctx);
         Self {
             dev: dev::DevTools::new(crate::dev::Settings::load(), dev_mode),
+            usage: crate::usage::Reporter::new(crate::feedback::endpoint()),
             ..Self::with_profiles(session::firefox::profiles())
         }
     }
@@ -127,6 +132,9 @@ impl App {
             tool_update: tools::ToolUpdate::default(),
             dev: dev::DevTools::new(crate::dev::Settings::default(), false),
             feedback: feedback::Feedback::new(crate::feedback::endpoint()),
+            usage: crate::usage::Reporter::off(),
+            usage_view: usage::UsageView::default(),
+            offer_note: false,
             link: String::new(),
             loaded_link: None,
             video: None,
@@ -353,10 +361,12 @@ impl eframe::App for App {
         self.update_dialog(ctx);
         self.dev_windows(ctx);
         self.feedback_windows(ctx);
+        self.usage_frame(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.cancel_all();
+        self.usage.closed();
     }
 }
 

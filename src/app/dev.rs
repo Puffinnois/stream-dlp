@@ -340,13 +340,14 @@ impl App {
                 "All notes",
                 "Open notes folder",
                 "Feedback inbox",
+                "Usage reports",
                 "Turn off Dev mode  (Ctrl+Shift+D)",
             ]
             .into_iter()
             .enumerate()
             {
                 // Turning Dev mode off hides this menu, so it sits apart from the everyday items.
-                if n == 4 {
+                if n == 5 {
                     ui.separator();
                 }
                 if ui.button(label).clicked() {
@@ -360,7 +361,8 @@ impl App {
             Some(1) => self.open_list(),
             Some(2) => self.open_notes_folder(),
             Some(3) => self.open_inbox(),
-            Some(4) => self.set_dev_mode(false),
+            Some(4) => self.open_usage_view(),
+            Some(5) => self.set_dev_mode(false),
             _ => {}
         }
     }

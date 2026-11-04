@@ -113,13 +113,21 @@ pub enum Os {
 }
 
 impl Os {
-    fn current() -> Self {
+    pub fn current() -> Self {
         if cfg!(windows) {
             Self::Windows
         } else if cfg!(target_os = "macos") {
             Self::Mac
         } else {
             Self::Linux
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Mac => "macos",
+            Self::Linux => "linux",
         }
     }
 }
@@ -177,11 +185,7 @@ impl Context {
     }
 
     pub fn os(&self) -> &'static str {
-        match self.os {
-            Os::Windows => "windows",
-            Os::Mac => "macos",
-            Os::Linux => "linux",
-        }
+        self.os.name()
     }
 }
 

@@ -58,6 +58,10 @@ impl Feedback {
             inbox: Inbox::default(),
         }
     }
+
+    pub fn service_url(&self) -> Option<String> {
+        self.url.clone()
+    }
 }
 
 impl App {
@@ -95,7 +99,7 @@ impl App {
         }
     }
 
-    fn open_feedback(&mut self) {
+    pub(super) fn open_feedback(&mut self) {
         self.feedback.context = Some(self.feedback_context());
         self.feedback.open = true;
         self.feedback.focus = true;

@@ -11,6 +11,7 @@ mod session;
 mod streamable;
 mod tools;
 mod update;
+mod usage;
 
 use eframe::egui;
 

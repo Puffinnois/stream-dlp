@@ -97,6 +97,7 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 - `src/main.rs`: arguments (`--check-tools`, `--dev-mode`) and the window.
 - `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
 - `src/feedback.rs`: public feedback: the typed context, text rules and requests; its UI is `src/app/feedback.rs`, its service `services/feedback/` ([reference](public-feedback.md)).
+- `src/usage.rs` (no pages): opt-in usage reports from the Mac version: the typed events, their counts and sending; its UI is `src/app/usage.rs`, its service `services/feedback/` ([reference](usage-reports.md)).
 - `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
 - `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter, Facebook and Instagram (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.

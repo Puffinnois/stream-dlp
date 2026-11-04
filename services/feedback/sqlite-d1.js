@@ -28,7 +28,7 @@ export function memoryDatabase(schema, path = ":memory:") {
     },
     exec: (sql) => sqlite.exec(sql),
     dump: () => Object.fromEntries(
-      ["notes", "reports", "counters", "blocked"]
+      ["notes", "reports", "counters", "blocked", "usage_daily", "usage_senders", "usage_reach"]
         .map((table) => [table, sqlite.prepare(`SELECT * FROM ${table}`).all()]),
     ),
   };

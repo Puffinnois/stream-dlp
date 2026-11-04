@@ -73,18 +73,28 @@ pub fn help() -> &'static str {
 /// app's bundle lookup without a desktop session, browser profile, or video service.
 pub fn check() -> Result<(), String> {
     for name in ALL {
-        let path = path(name);
-        let flag = if matches!(name, "yt-dlp" | "deno") {
-            "--version"
-        } else {
-            "-version"
-        };
-        let status = crate::process::isolate(Command::new(&path).arg(flag)).status();
-        if !status.is_ok_and(|status| status.success()) {
+        if !runs(name) {
+            let path = path(name);
             return Err(format!("Bundled tool check failed: {}", path.display()));
         }
     }
     Ok(())
+}
+
+/// Each helper and whether it runs.
+pub fn check_each() -> Vec<(&'static str, bool)> {
+    ALL.into_iter().map(|name| (name, runs(name))).collect()
+}
+
+fn runs(name: &str) -> bool {
+    let flag = if matches!(name, "yt-dlp" | "deno") {
+        "--version"
+    } else {
+        "-version"
+    };
+    crate::process::isolate(Command::new(path(name)).arg(flag))
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use super::{
         progress, radio_mark, section_title, semibold, success_line,
     },
 };
+use crate::usage::{Event as UsageEvent, Outcome};
 use crate::{engine, platform, tools};
 use eframe::egui::{self, Color32, RichText, Vec2};
 use engine::Event;
@@ -68,12 +69,14 @@ impl App {
         while let Ok(event) = self.rx.try_recv() {
             match event {
                 Event::Loaded(video) => {
+                    self.report_outcome(Outcome::Ok);
                     self.video = Some(video);
                     self.selected = 0;
                     self.filter = FormatFilter::All;
                     self.phase = Phase::Choosing;
                 }
                 Event::Entries(entries) => {
+                    self.report_outcome(Outcome::Ok);
                     self.entries = entries;
                     self.phase = Phase::Choosing;
                 }
@@ -90,6 +93,7 @@ impl App {
                     self.log.push_back(line);
                 }
                 Event::Complete(path) => {
+                    self.report_outcome(Outcome::Ok);
                     self.saved = Some(path);
                     self.progress = 1.;
                     self.phase = Phase::Done;
@@ -97,6 +101,7 @@ impl App {
                 }
                 Event::Failed(error) => {
                     let needs_session = error.needs_session();
+                    self.report_outcome(Outcome::Failed((&error).into()));
                     self.retry_download = self.phase == Phase::Downloading;
                     crate::dev::errors::record("download", format!("{error:?}"));
                     self.error_kind = Some((&error).into());
@@ -117,6 +122,7 @@ impl App {
                     }
                 }
                 Event::Cancelled => {
+                    self.report_outcome(Outcome::Cancelled);
                     if self.phase == Phase::Downloading {
                         self.status =
                             "Cancelled. Partial downloads can be resumed by choosing the same folder."
@@ -133,6 +139,9 @@ impl App {
             }
         }
         if let Ok(folder) = self.folder_rx.try_recv() {
+            self.usage.record(UsageEvent::FolderPicker {
+                picked: folder.is_some(),
+            });
             if let Some(folder) = folder {
                 self.start_download(folder);
             } else {
@@ -277,6 +286,13 @@ impl App {
                         .clicked()
                 {
                     self.session_expanded = true;
+                }
+                // Reports say what kind of error this was; only a person can say the rest.
+                if self.usage.available()
+                    && self.feedback.service_url().is_some()
+                    && ui.button("Tell us what happened").clicked()
+                {
+                    self.open_feedback();
                 }
             });
         }

@@ -6,7 +6,7 @@ Ported from FFC's Dev mode (`~/project/fantasy-football-companion/docs/reference
 
 - **Ctrl+Shift+D** anywhere switches it on or off; a toast confirms. Stored as `dev_mode` in `settings.json` in the app data folder (`%LOCALAPPDATA%\stream-dlp\`; Mac `~/Library/Application Support/stream-dlp/`). With nothing stored it is **on** in a debug build (`cargo run`) and **off** in a release build.
 - `--dev-mode` on the command line turns it on for that launch only (until it is switched), e.g. a second shortcut: `stream-dlp.exe --dev-mode`.
-- While on, the sidebar shows an amber **DEV** chip next to the version: New note (Ctrl+Shift+N), All notes, Open notes folder, Turn off Dev mode. A **+ Note** button sits bottom-right.
+- While on, the sidebar shows an amber **DEV** chip next to the version: New note (Ctrl+Shift+N), All notes, Open notes folder, Feedback inbox, Usage reports, Turn off Dev mode. A **+ Note** button sits bottom-right.
 - It only shows tools; it changes no download and no setting of the app.
 
 ## Writing a note
