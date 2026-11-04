@@ -230,9 +230,7 @@ impl App {
                                 .color(theme::MUTED),
                         );
                         ui.ctx().request_repaint_after(Duration::from_secs(1));
-                    } else if let Some(problem) =
-                        problem.filter(|_| !feedback.text.trim().is_empty())
-                    {
+                    } else if let Some(problem) = problem {
                         ui.label(RichText::new(problem).small().color(theme::MUTED));
                     }
                 });

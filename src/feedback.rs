@@ -211,13 +211,16 @@ pub fn clean(text: &str) -> String {
 
 /// Why a text cannot be sent yet, in words for the person writing it. The service checks the same
 /// rules; this only saves a request that would be refused.
-pub fn text_problem(text: &str) -> Option<&'static str> {
+pub fn text_problem(text: &str) -> Option<String> {
     let text = clean(text);
-    if text.chars().count() < TEXT_MIN {
-        return Some("Please describe what happened in a little more detail.");
+    let length = text.chars().count();
+    if length < TEXT_MIN {
+        return Some(format!(
+            "Please write at least {TEXT_MIN} characters ({length} so far)."
+        ));
     }
-    if text.chars().count() > TEXT_MAX {
-        return Some("This note is too long. Please shorten it.");
+    if length > TEXT_MAX {
+        return Some("This note is too long. Please shorten it.".into());
     }
     let letters: Vec<char> = text
         .chars()
@@ -225,20 +228,23 @@ pub fn text_problem(text: &str) -> Option<&'static str> {
         .flat_map(char::to_lowercase)
         .collect();
     if letters.len() < LETTERS_MIN {
-        return Some("Please describe what happened in a little more detail.");
+        return Some(format!(
+            "Please use at least {LETTERS_MIN} letters or numbers ({} so far).",
+            letters.len()
+        ));
     }
     let mut distinct = letters;
     distinct.sort_unstable();
     distinct.dedup();
     if distinct.len() < DISTINCT_MIN {
-        return Some("This does not look like a description. Please say what happened.");
+        return Some("This does not look like a description. Please say what happened.".into());
     }
     let lower = text.to_lowercase();
     let links = lower.matches("http://").count()
         + lower.matches("https://").count()
         + lower.matches("www.").count();
     if links > LINKS_MAX {
-        return Some("Please keep to two links at most.");
+        return Some("Please keep to two links at most.".into());
     }
     None
 }
@@ -403,6 +409,14 @@ mod tests {
         ] {
             assert!(text_problem(bad).is_some(), "{bad}");
         }
+        assert_eq!(
+            text_problem("test").unwrap(),
+            "Please write at least 15 characters (4 so far)."
+        );
+        assert_eq!(
+            text_problem("!!!!!!!!!!!!!!!!!!!!!!!! 123").unwrap(),
+            "Please use at least 10 letters or numbers (3 so far)."
+        );
         assert!(text_problem(&"word ".repeat(1000)).is_some());
         assert!(text_problem("The format list cuts off long codec names").is_none());
         assert!(text_problem("格式列表把很长的编码名称截断了，看不到完整内容").is_none());
