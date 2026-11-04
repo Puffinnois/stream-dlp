@@ -40,6 +40,124 @@ async function pending(env) {
 const code = async (response) => (await response.json()).error;
 const GOOD = "The format list cuts off long codec names";
 
+const REPORT = {
+  version: "0.7.1",
+  os: "macos",
+  os_version: "15",
+  chip: "m1",
+  events: [
+    { kind: "started", result: "first", count: 1 },
+    { kind: "helper", subject: "yt-dlp", result: "failed", count: 1 },
+    { kind: "download", subject: "youtube", result: "network", count: 2 },
+    { kind: "crash", subject: "src/app/download.rs:120", result: "panic", count: 1 },
+  ],
+};
+function postUsage(env, body, { ip = "203.0.113.1", now = NOW } = {}) {
+  const request = new Request("https://feedback.test/v1/usage", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return handle(request, env, now);
+}
+async function usage(env, now = NOW) {
+  const response = await adminRequest(env, "/v1/admin/usage?days=30", "GET", ADMIN, now);
+  assertEquals(response.status, 200);
+  return await response.json();
+}
+
+Deno.test("usage reports add up per day and never reach the note Inbox", async () => {
+  const env = await service();
+  assertEquals((await postUsage(env, REPORT)).status, 202);
+  assertEquals((await postUsage(env, REPORT, { ip: "203.0.113.2" })).status, 202);
+  const summary = await usage(env);
+  const row = summary.rows.find((row) => row.kind === "download");
+  assertEquals(row.count, 4);
+  assertEquals(row.subject, "youtube");
+  assertEquals(row.result, "network");
+  assertEquals(summary.reach.map((day) => day.senders), [2]);
+  assertEquals((await pending(env)).length, 0);
+});
+
+Deno.test("usage rows hold no sender, and no IP address reaches the database", async () => {
+  const env = await service();
+  await postUsage(env, REPORT, { ip: "198.51.100.77" });
+  const dump = env.DB.dump();
+  assertEquals(JSON.stringify(dump).includes("198.51.100.77"), false);
+  assertEquals(dump.usage_senders.length, 1);
+  assertEquals(JSON.stringify(dump.usage_daily).includes(dump.usage_senders[0].sender), false);
+});
+
+Deno.test("usage values outside the allowlist are refused", async () => {
+  const env = await service();
+  const event = (fields) => ({ ...REPORT, events: [{ count: 1, ...fields }] });
+  const cases = [
+    { ...REPORT, path: "C:\\Users\\someone" },
+    { ...REPORT, version: "1.0.0; drop" },
+    { ...REPORT, os: "beos" },
+    { ...REPORT, os_version: "15.1 Someone's Mac" },
+    { ...REPORT, chip: "Apple M1 Pro" },
+    { ...REPORT, events: [] },
+    { ...REPORT, events: Array(33).fill(REPORT.events[0]) },
+    event({ kind: "constructor", result: "ok" }),
+    event({ kind: "started", subject: "youtube", result: "first" }),
+    event({ kind: "started", result: "https://example.test/video" }),
+    event({ kind: "download", subject: "https://example.test/video", result: "ok" }),
+    event({ kind: "download", subject: "youtube", result: "my-video.mp4" }),
+    event({ kind: "helper", subject: "/Users/someone/tools/deno", result: "ok" }),
+    event({ kind: "crash", subject: "/Users/someone/src/main.rs:1", result: "panic" }),
+    event({ kind: "crash", subject: "src/../../secret.rs:1 ", result: "panic" }),
+    event({ kind: "page", subject: "download", result: "opened", title: "A video" }),
+    { ...REPORT, events: [{ kind: "started", result: "first", count: 0 }] },
+    { ...REPORT, events: [{ kind: "started", result: "first", count: 1001 }] },
+    { ...REPORT, events: [{ kind: "started", result: "first", count: 1.5 }] },
+    [],
+    "text",
+  ];
+  for (const body of cases) {
+    // A new address each time: this is about the values, not the limits.
+    const ip = `203.0.113.${cases.indexOf(body) + 1}`;
+    assertEquals((await postUsage(env, body, { ip })).status, 400, JSON.stringify(body));
+  }
+  assertEquals(env.DB.dump().usage_daily.length, 0);
+  assertEquals((await postUsage(env, "not json")).status, 400);
+});
+
+Deno.test("usage reports are limited per sender and per day", async () => {
+  const env = await service();
+  for (let i = 0; i < 20; i++) assertEquals((await postUsage(env, REPORT)).status, 202);
+  assertEquals((await postUsage(env, REPORT)).status, 429);
+  assertEquals((await postUsage(env, REPORT, { ip: "203.0.113.9" })).status, 202);
+  const full = await service();
+  for (let i = 0; i < 1000; i++) {
+    const ip = `10.${i >> 8}.${i & 255}.1`;
+    assertEquals((await postUsage(full, REPORT, { ip })).status, 202);
+  }
+  assertEquals((await postUsage(full, REPORT, { ip: "203.0.113.9" })).status, 503);
+});
+
+Deno.test("clean-up turns finished days into a number and forgets who sent them", async () => {
+  const env = await service();
+  await postUsage(env, REPORT);
+  await postUsage(env, REPORT, { ip: "203.0.113.2" });
+  const tomorrow = NOW + 86_400;
+  await cleanUp(env.DB, tomorrow);
+  let dump = env.DB.dump();
+  assertEquals(dump.usage_senders.length, 0);
+  assertEquals(dump.usage_reach.map((day) => day.senders), [2]);
+  assertEquals((await usage(env, tomorrow)).reach.map((day) => day.senders), [2]);
+  await cleanUp(env.DB, NOW + 366 * 86_400);
+  dump = env.DB.dump();
+  assertEquals(dump.usage_daily.length, 0);
+  assertEquals(dump.usage_reach.length, 0);
+});
+
+Deno.test("the usage summary needs the admin token", async () => {
+  const env = await service();
+  const response = await adminRequest(env, "/v1/admin/usage", "GET", "wrong");
+  assertEquals(response.status, 401);
+});
+
 Deno.test("a valid note is stored and listed without its sender", async () => {
   const env = await service();
   assertEquals((await post(env, note(GOOD))).status, 202);

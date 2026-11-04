@@ -39,6 +39,12 @@ opens and every hour; **Update to X** in the sidebar shows the release notes and
 links to the release page. Nothing is downloaded or installed automatically.
 Downloads saved outside the app remain in their selected destination.
 
+The first launch asks whether to send the developers usage reports, which help
+find problems on Macs. They carry fixed details only, such as the site and kind of
+error, never links, titles, file names or error messages. The
+[user guide](guide.md#privacy) lists them, and **Settings → Usage reports** turns
+them off.
+
 The bundled FFmpeg is built for local stream copying and merging, the GIF
 converter, and video previews. It has no external codec libraries; besides the
 system zlib, its only encoders are the built-in PNG, GIF, and raw video ones those

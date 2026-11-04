@@ -116,6 +116,8 @@ impl App {
                             self.session_error = Some("Browser import cancelled.".into());
                             return;
                         }
+                        self.usage
+                            .record(crate::usage::Event::CookieImport { ok: true });
                         let source = session.source;
                         self.sessions.insert(source, session);
                         self.session_files.remove(&source);
@@ -149,6 +151,8 @@ impl App {
                         self.refresh_used = refresh_used;
                     }
                     Err(error) => {
+                        self.usage
+                            .record(crate::usage::Event::CookieImport { ok: false });
                         crate::dev::errors::record("session", &error);
                         self.session_error = Some(error);
                         self.session_expanded = true;

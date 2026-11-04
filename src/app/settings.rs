@@ -82,6 +82,7 @@ impl App {
                 ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
             });
         });
+        self.usage_settings(ui);
         ui.add_space(SPACE_L);
         card(ui, |ui| {
             section_title(ui, "About stream-dlp");

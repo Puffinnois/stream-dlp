@@ -33,3 +33,31 @@ CREATE TABLE IF NOT EXISTS blocked (
   sender TEXT PRIMARY KEY,
   created INTEGER NOT NULL
 );
+
+-- Usage reports people opted in to: totals per day. Nothing here links a row to a sender. An empty
+-- `subject` means the event has none, since a primary key column cannot usefully be NULL.
+CREATE TABLE IF NOT EXISTS usage_daily (
+  day INTEGER NOT NULL,
+  version TEXT NOT NULL,
+  os TEXT NOT NULL,
+  os_version TEXT NOT NULL,
+  chip TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  result TEXT NOT NULL,
+  count INTEGER NOT NULL,
+  PRIMARY KEY (day, version, os, os_version, chip, kind, subject, result)
+);
+
+-- Who reported today, to count them once. The daily clean-up turns finished days into a number in
+-- `usage_reach` and deletes these rows.
+CREATE TABLE IF NOT EXISTS usage_senders (
+  day INTEGER NOT NULL,
+  sender TEXT NOT NULL,
+  PRIMARY KEY (day, sender)
+);
+
+CREATE TABLE IF NOT EXISTS usage_reach (
+  day INTEGER PRIMARY KEY,
+  senders INTEGER NOT NULL
+);

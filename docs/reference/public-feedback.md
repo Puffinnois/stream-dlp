@@ -1,6 +1,6 @@
 # Public feedback — reference
 
-Anyone using the app can send the developers a text note. It waits on a small hosted service until a developer accepts it in Dev mode's Inbox; only then does it reach `notes.md`. Anyone can call the service without the app, so the app's own checks are a courtesy and the service enforces every rule.
+Anyone using the app can send the developers a text note. It waits on a small hosted service until a developer accepts it in Dev mode's Inbox; only then does it reach `notes.md`. Anyone can call the service without the app, so the app's own checks are a courtesy and the service enforces every rule. The same service takes the Mac version's opt-in [usage reports](usage-reports.md), which never reach the Inbox.
 
 ## The flow
 

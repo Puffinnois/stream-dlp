@@ -34,6 +34,40 @@ const CONTEXT = {
     "timed_out", "expired_session", "missing_video", "drm", "helper", "other",
   ]),
 };
+// Usage reports, which the app sends only for someone who agreed to them. Every value is a fixed
+// word, so a report cannot carry a link, a title, a path or a message. The caps keep a flood below
+// the database's daily write allowance.
+const USAGE_SENDER_LIMITS = [
+  { name: "10min", seconds: 10 * MINUTE, limit: 20 },
+  { name: "day", seconds: DAY, limit: 300 },
+];
+const USAGE_BATCHES_PER_DAY = 1000;
+const USAGE_EVENTS_MAX = 32;
+const USAGE_COUNT_MAX = 1000;
+const USAGE_KEEP_SECONDS = 365 * DAY;
+const USAGE_DAYS_MAX = 90;
+const OS_VERSION = /^\d{1,3}$/;
+const CHIP = /^(m\d{1,2}|other)$/;
+const CRASH_PLACE = /^(src\/[a-z0-9_/]{1,80}\.rs:\d{1,6}|dependency)$/;
+const OUTCOME = new Set(["ok", "cancelled", ...CONTEXT.error]);
+const noSubject = (subject) => subject === undefined;
+// For each kind of event, which subject and which result it may have.
+const USAGE_EVENTS = {
+  started: { subject: noSubject, result: new Set(["first", "clean", "unclean"]) },
+  helper: {
+    subject: (subject) => ["yt-dlp", "ffmpeg", "ffprobe", "deno"].includes(subject),
+    result: new Set(["ok", "failed"]),
+  },
+  inspect: { subject: (subject) => CONTEXT.source.has(subject), result: OUTCOME },
+  download: { subject: (subject) => CONTEXT.source.has(subject), result: OUTCOME },
+  page: { subject: (subject) => CONTEXT.page.has(subject), result: new Set(["opened"]) },
+  folder_picker: { subject: noSubject, result: new Set(["picked", "dismissed"]) },
+  cookie_import: { subject: noSubject, result: new Set(["ok", "failed"]) },
+  crash: {
+    subject: (subject) => typeof subject === "string" && CRASH_PLACE.test(subject),
+    result: new Set(["panic"]),
+  },
+};
 // Control characters except tab and newline, and invisible or text-reversing characters, which
 // could hide what a note really says from the person reviewing it.
 const HIDDEN = new RegExp(
@@ -215,6 +249,80 @@ async function submit(request, env, now) {
   return accepted();
 }
 
+/** The stored form of a usage report, or `null`. Unknown fields are refused, not dropped. */
+export function validateUsage(body) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const known = new Set(["version", "os", "os_version", "chip", "events"]);
+  if (Object.keys(body).some((key) => !known.has(key))) return null;
+  const { version, os, os_version: osVersion, chip, events } = body;
+  const fixed = [version, os, osVersion, chip].every((value) => typeof value === "string");
+  if (!fixed || !VERSION.test(version) || !CONTEXT.os.has(os)) return null;
+  if (!OS_VERSION.test(osVersion) || !CHIP.test(chip)) return null;
+  if (!Array.isArray(events) || events.length === 0 || events.length > USAGE_EVENTS_MAX) return null;
+  for (const event of events) {
+    if (typeof event !== "object" || event === null || Array.isArray(event)) return null;
+    const fields = new Set(["kind", "subject", "result", "count"]);
+    if (Object.keys(event).some((key) => !fields.has(key))) return null;
+    // `hasOwn`, because a sender can name a kind such as "constructor".
+    if (typeof event.kind !== "string" || !Object.hasOwn(USAGE_EVENTS, event.kind)) return null;
+    const rule = USAGE_EVENTS[event.kind];
+    if (!rule.subject(event.subject) || !rule.result.has(event.result)) return null;
+    if (!Number.isInteger(event.count) || event.count < 1 || event.count > USAGE_COUNT_MAX) return null;
+  }
+  return { version, os, osVersion, chip, events };
+}
+
+async function submitUsage(request, env, now) {
+  if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) {
+    return refuse(415, "invalid");
+  }
+  if (!env.DB || !env.SENDER_KEY) return refuse(503, "unavailable");
+  const ip = request.headers.get("cf-connecting-ip");
+  if (!ip) return refuse(400, "invalid");
+  const sender = await senderOf(ip, env.SENDER_KEY);
+  if (env.LIMITER) {
+    const { success } = await env.LIMITER.limit({ key: sender });
+    if (!success) return refuse(429, "rate_limited", { "retry-after": "60" });
+  }
+  const raw = await readBody(request, MAX_BODY);
+  if (raw === null) return refuse(413, "too_long");
+  const db = env.DB;
+  const blocked = await db.prepare("SELECT 1 FROM blocked WHERE sender = ?1").bind(sender).first();
+  if (blocked) return accepted();
+  for (const { name, seconds, limit } of USAGE_SENDER_LIMITS) {
+    if (await bump(db, `usage:${name}:${sender}`, seconds, now) > limit) {
+      return refuse(429, "rate_limited", { "retry-after": String(seconds - (now % seconds)) });
+    }
+  }
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return refuse(400, "invalid");
+  }
+  const report = validateUsage(body);
+  if (!report) return refuse(400, "invalid");
+  if (await bump(db, "usage-batches", DAY, now) > USAGE_BATCHES_PER_DAY) {
+    return refuse(503, "busy", { "retry-after": String(DAY - (now % DAY)) });
+  }
+  const day = now - (now % DAY);
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO usage_senders (day, sender) VALUES (?1, ?2)").bind(day, sender),
+    ...report.events.map((event) =>
+      db.prepare(
+        `INSERT INTO usage_daily (day, version, os, os_version, chip, kind, subject, result, count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT (day, version, os, os_version, chip, kind, subject, result)
+         DO UPDATE SET count = count + excluded.count`,
+      ).bind(
+        day, report.version, report.os, report.osVersion, report.chip,
+        event.kind, event.subject ?? "", event.result, event.count,
+      )
+    ),
+  ]);
+  return accepted();
+}
+
 async function isAdmin(request, env) {
   const token = env.ADMIN_TOKEN;
   if (typeof token !== "string" || token.length < ADMIN_TOKEN_MIN) return false;
@@ -261,10 +369,32 @@ async function resolveNote(id, action, db, now) {
   return json(200, { status: "blocked" });
 }
 
+/** Totals over the last days, for Dev mode. Today's senders are counted live. */
+async function usageSummary(url, db, now) {
+  const days = Math.min(Math.max(Number(url.searchParams.get("days")) || 30, 1), USAGE_DAYS_MAX);
+  const today = now - (now % DAY);
+  const since = today - (days - 1) * DAY;
+  const { results } = await db.prepare(
+    `SELECT version, os, os_version, chip, kind, subject, result, SUM(count) AS count
+     FROM usage_daily WHERE day >= ?1
+     GROUP BY version, os, os_version, chip, kind, subject, result
+     ORDER BY version DESC, kind, subject, result LIMIT 500`,
+  ).bind(since).all();
+  const { results: reach } = await db.prepare(
+    `SELECT day, senders FROM usage_reach WHERE day >= ?1
+     UNION ALL SELECT day, COUNT(*) FROM usage_senders WHERE day >= ?1 GROUP BY day
+     ORDER BY day`,
+  ).bind(since).all();
+  return json(200, { days, reach, rows: results });
+}
+
 async function admin(request, url, env, now) {
   if (!env.DB) return refuse(503, "unavailable");
   if (!await isAdmin(request, env)) return refuse(401, "unauthorized");
   if (request.method === "GET" && url.pathname === "/v1/admin/notes") return listNotes(url, env.DB);
+  if (request.method === "GET" && url.pathname === "/v1/admin/usage") {
+    return usageSummary(url, env.DB, now);
+  }
   const match = url.pathname.match(/^\/v1\/admin\/notes\/([^/]+)\/(accept|reject|block)$/);
   if (request.method === "POST" && match && ID.test(match[1])) {
     return resolveNote(match[1], match[2], env.DB, now);
@@ -279,6 +409,14 @@ export async function cleanUp(db, now) {
     db.prepare("DELETE FROM reports WHERE note NOT IN (SELECT id FROM notes)"),
     db.prepare("DELETE FROM counters WHERE window < ?1").bind(now - 2 * DAY),
     db.prepare("DELETE FROM blocked WHERE created < ?1").bind(now - BLOCK_SECONDS),
+    // A finished day becomes one number, and the hashed addresses behind it are deleted.
+    db.prepare(
+      `INSERT OR REPLACE INTO usage_reach (day, senders)
+       SELECT day, COUNT(*) FROM usage_senders WHERE day < ?1 GROUP BY day`,
+    ).bind(now - (now % DAY)),
+    db.prepare("DELETE FROM usage_senders WHERE day < ?1").bind(now - (now % DAY)),
+    db.prepare("DELETE FROM usage_daily WHERE day < ?1").bind(now - USAGE_KEEP_SECONDS),
+    db.prepare("DELETE FROM usage_reach WHERE day < ?1").bind(now - USAGE_KEEP_SECONDS),
   ]);
 }
 
@@ -287,6 +425,9 @@ export async function handle(request, env, now = Math.floor(Date.now() / 1000)) 
     const url = new URL(request.url);
     if (url.pathname === "/v1/notes") {
       return request.method === "POST" ? await submit(request, env, now) : refuse(405, "invalid");
+    }
+    if (url.pathname === "/v1/usage") {
+      return request.method === "POST" ? await submitUsage(request, env, now) : refuse(405, "invalid");
     }
     if (url.pathname.startsWith("/v1/admin/")) return await admin(request, url, env, now);
     return refuse(404, "not_found");
