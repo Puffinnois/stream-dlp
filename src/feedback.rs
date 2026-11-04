@@ -7,7 +7,7 @@ use crate::engine::{EngineError, Source};
 use serde::{Deserialize, Serialize};
 
 /// Set when the service is deployed. While `None`, a release build shows no feedback at all.
-const ENDPOINT: Option<&str> = None;
+const ENDPOINT: Option<&str> = Some("https://stream-dlp-feedback.puffinn.workers.dev");
 pub const TEXT_MIN: usize = 15;
 pub const TEXT_MAX: usize = 4000;
 const LETTERS_MIN: usize = 10;
