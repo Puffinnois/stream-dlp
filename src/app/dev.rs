@@ -52,7 +52,7 @@ struct Shot {
 
 pub struct DevTools {
     pub on: bool,
-    settings: dev::Settings,
+    pub(super) settings: dev::Settings,
     panel: bool,
     focus: bool,
     list: bool,
@@ -97,21 +97,26 @@ impl DevTools {
         }
     }
 
-    fn store(&self) -> Result<notes::Store, String> {
+    pub(super) fn store(&self) -> Result<notes::Store, String> {
         self.settings
             .notes_dir()
             .map(|dir| notes::Store { dir })
             .ok_or_else(|| "The app data folder is unknown.".into())
     }
 
-    fn reload(&mut self) {
+    /// Whether a screenshot is being taken; every panel hides for it.
+    pub(super) fn capturing(&self) -> bool {
+        self.capture != Capture::Idle
+    }
+
+    pub(super) fn reload(&mut self) {
         match self.store().and_then(|store| store.read()) {
             Ok(file) => self.notes = file.notes().cloned().collect(),
             Err(error) => self.message = Some(error),
         }
     }
 
-    fn toast(&mut self, text: impl Into<String>) {
+    pub(super) fn toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), Instant::now()));
     }
 }
@@ -334,11 +339,16 @@ impl App {
                 "New note  (Ctrl+Shift+N)",
                 "All notes",
                 "Open notes folder",
+                "Feedback inbox",
                 "Turn off Dev mode  (Ctrl+Shift+D)",
             ]
             .into_iter()
             .enumerate()
             {
+                // Turning Dev mode off hides this menu, so it sits apart from the everyday items.
+                if n == 4 {
+                    ui.separator();
+                }
                 if ui.button(label).clicked() {
                     choice = Some(n);
                 }
@@ -349,7 +359,8 @@ impl App {
             Some(0) => self.open_note(ui.ctx()),
             Some(1) => self.open_list(),
             Some(2) => self.open_notes_folder(),
-            Some(3) => self.set_dev_mode(false),
+            Some(3) => self.open_inbox(),
+            Some(4) => self.set_dev_mode(false),
             _ => {}
         }
     }
@@ -597,7 +608,12 @@ impl App {
                             let id = &note.meta.id;
                             ui.label(
                                 RichText::new(format!(
-                                    "{id} · {} · {}",
+                                    "{id}{} · {} · {}",
+                                    if note.meta.public.is_some() {
+                                        " · public"
+                                    } else {
+                                        ""
+                                    },
                                     note.meta.tag.label(),
                                     note.meta
                                         .created
@@ -729,7 +745,7 @@ mod tests {
     fn dev_mode_follows_the_flag_then_the_setting_then_the_build() {
         let set = |dev_mode| dev::Settings {
             dev_mode,
-            dev_notes_dir: None,
+            ..Default::default()
         };
         assert!(DevTools::new(set(Some(false)), true).on);
         assert!(!DevTools::new(set(Some(false)), false).on);
@@ -744,6 +760,7 @@ mod tests {
         let settings = dev::Settings {
             dev_mode: Some(true),
             dev_notes_dir: Some(dir.path().into()),
+            ..Default::default()
         };
         app.dev = DevTools::new(settings, false);
         let ctx = egui::Context::default();

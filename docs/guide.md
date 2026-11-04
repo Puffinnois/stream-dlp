@@ -157,4 +157,6 @@ See [Mac build, installation, automated checks, and acceptance checklist](macos.
 
 Downloads execute tools directly using argument arrays, without interpolating video links into a shell. User yt-dlp configs are ignored to keep behavior predictable. Cookies are read only from an export or Firefox profile the user explicitly chooses and passed to yt-dlp for its YouTube requests. No passwords, analytics, or download history are collected.
 
+**Send feedback** is the one thing the app sends about itself, and only when you press Send: your text, the tag, and the app version, operating system, page, site and kind of error, all of which **What else is sent** shows first. It sends no links, file names or screenshots, so leave out anything private when you write. Your IP address is only used in scrambled form, to limit abuse. The developers read each note; notes nobody handles are deleted after 90 days.
+
 Download videos you own or have permission to save. See `THIRD-PARTY.md` for component licenses and upstream sources.

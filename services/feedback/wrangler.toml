@@ -1,0 +1,29 @@
+# Deploying: docs/reference/public-feedback.md. Secrets (SENDER_KEY, ADMIN_TOKEN) are set with
+# `wrangler secret put` and are never written here.
+name = "stream-dlp-feedback"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "stream-dlp-feedback"
+database_id = "5a0f19f8-2e76-4acf-a9e1-b894e9f7a65f"
+
+# Flood protection only: approximate, counted per Cloudflare location and keyed on the hashed IP,
+# so it is generous for people sharing an address. The strict limits are in worker.js.
+[[ratelimits]]
+name = "LIMITER"
+# Unique within the Cloudflare account: Workers sharing an ID share counters.
+namespace_id = "48213"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# Deletes expired notes, counters and blocks.
+[triggers]
+crons = ["0 4 * * *"]
+
+# Request logs could hold a sender's address.
+[observability]
+enabled = false

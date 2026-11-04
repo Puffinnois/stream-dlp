@@ -40,7 +40,10 @@ impl FormatFilter {
 impl App {
     pub(super) fn inspect(&mut self) {
         match engine::parse_link(&self.link) {
-            Err(error) => self.error = Some(error.user_message()),
+            Err(error) => {
+                self.error_kind = Some((&error).into());
+                self.error = Some(error.user_message());
+            }
             Ok(link) => {
                 self.refresh_used = false;
                 self.retry_download = false;
@@ -96,6 +99,7 @@ impl App {
                     let needs_session = error.needs_session();
                     self.retry_download = self.phase == Phase::Downloading;
                     crate::dev::errors::record("download", format!("{error:?}"));
+                    self.error_kind = Some((&error).into());
                     self.error = Some(error.user_message());
                     self.phase = if self.video.is_some() {
                         Phase::Choosing

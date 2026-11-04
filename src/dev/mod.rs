@@ -18,6 +18,9 @@ pub struct Settings {
     pub dev_mode: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_notes_dir: Option<PathBuf>,
+    /// Dev mode's key to the feedback Inbox. Only a developer's own copy has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback_token: Option<String>,
 }
 
 impl Settings {
@@ -75,7 +78,7 @@ mod tests {
         assert_eq!(Settings::default().dev_mode(), cfg!(debug_assertions));
         let settings = Settings {
             dev_mode: Some(true),
-            dev_notes_dir: None,
+            ..Default::default()
         };
         settings.save_to(&path).unwrap();
         assert_eq!(
