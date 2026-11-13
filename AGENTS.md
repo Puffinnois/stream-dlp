@@ -14,6 +14,7 @@ Native Rust (eframe/egui) video downloader for Windows, experimental on Apple Si
 ## How to work
 
 - One task per branch, cut from an up-to-date `main` (`feat/…`, `fix/…`, `docs/…`). Leave unrelated changes out.
+- A bug or possible improvement you notice that is unrelated to your task: note it and report it to the user when the task ends. Fix a minor one (small, low risk, no design decision, nothing under "Ask the user first") on its own branch. Leave a major one for the user to decide.
 - Before every commit, run `cargo xtask check` (formatting, Clippy, the Rust and Deno tests; CI runs the same) and fix what fails. A task is not done without a passing run; show its last lines. `cargo fmt` fixes formatting.
 - Put tests next to the code they test (`#[cfg(test)] mod tests` in the same file). Tests that need the network, real accounts or real files are `#[ignore]`d. Run an ignored test only by its name, never all of them with `cargo test -- --ignored` (see Never).
 - Match the surrounding code: its naming, comment density and idioms. Give a new feature its own module instead of growing `src/app/mod.rs`, and add it to the Source layout.
