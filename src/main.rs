@@ -3,6 +3,7 @@ mod app;
 mod dev;
 mod engine;
 mod feedback;
+mod history;
 mod media;
 mod net;
 mod platform;
