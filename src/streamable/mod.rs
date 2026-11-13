@@ -280,6 +280,77 @@ fn stopped() -> String {
 
 pub const STREAMABLE: &str = "https://streamable.com/";
 
+/// The canonical form of a Streamable link the user pasted: `https://streamable.com/<id>`, with
+/// `<id>` 1 to 32 ASCII letters or digits. The same without a scheme or with `www.` is accepted;
+/// anything else (another host, a port, credentials, more path, a query, other characters) is not.
+pub fn pasted_link(input: &str) -> Option<String> {
+    let input = input.trim();
+    // The URL standard drops tabs and line breaks inside a link, so nothing invisible may pass.
+    if !input.bytes().all(|b| b.is_ascii_graphic()) {
+        return None;
+    }
+    let rest = match input.get(..8) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("https://") => &input[8..],
+        _ if input.contains("://") => return None,
+        _ => input,
+    };
+    let (host, id) = rest.split_once('/')?;
+    let host = host.to_ascii_lowercase();
+    (matches!(host.as_str(), "streamable.com" | "www.streamable.com")
+        && (1..=32).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+    .then(|| format!("{STREAMABLE}{id}"))
+}
+
+/// The link pasted back after the manual handoff, for one selected file. It lives in memory for
+/// this session only: never in a file, the download history, a note, feedback or usage reports.
+#[derive(Debug, Default)]
+pub struct PastedLink {
+    file: Option<PathBuf>,
+    /// What is in the field.
+    pub input: String,
+    link: Option<String>,
+    /// The last input was not a Streamable link.
+    pub rejected: bool,
+}
+
+impl PastedLink {
+    /// After a handoff for `file`: offers the field, keeping a link already pasted for it.
+    pub fn offer(&mut self, file: &Path) {
+        self.keep_only(Some(file));
+        self.file = Some(file.to_path_buf());
+    }
+
+    /// Forgets everything unless `file` is the file it belongs to.
+    pub fn keep_only(&mut self, file: Option<&Path>) {
+        if self.file.as_deref() != file {
+            *self = Self::default();
+        }
+    }
+
+    /// Whether the field is offered for `file`.
+    pub fn offered(&self, file: &Path) -> bool {
+        self.file.as_deref() == Some(file)
+    }
+
+    /// Takes the field's text: a Streamable link replaces the kept one, anything else is refused
+    /// and not kept.
+    pub fn submit(&mut self) {
+        match pasted_link(&self.input) {
+            Some(link) => {
+                self.link = Some(link);
+                self.input.clear();
+                self.rejected = false;
+            }
+            None => self.rejected = true,
+        }
+    }
+
+    pub fn link(&self) -> Option<&str> {
+        self.link.as_deref()
+    }
+}
+
 /// Reveals the video and opens Streamable, so the user can drag it into the website.
 pub fn handoff(
     path: &Path,
@@ -382,6 +453,101 @@ mod tests {
             verified.expect("No playable share link returned")
         );
     }
+    #[test]
+    fn pasted_links_are_normalised() {
+        for (input, id) in [
+            ("https://streamable.com/abc123", "abc123"),
+            ("  https://streamable.com/abc123\n", "abc123"),
+            ("streamable.com/abc123", "abc123"),
+            ("www.streamable.com/abc123", "abc123"),
+            ("https://www.streamable.com/AbC9", "AbC9"),
+            ("HTTPS://Streamable.COM/x", "x"),
+            (
+                "https://streamable.com/abcdefghijklmnopqrstuvwxyz012345",
+                "abcdefghijklmnopqrstuvwxyz012345",
+            ),
+        ] {
+            assert_eq!(
+                pasted_link(input).as_deref(),
+                Some(format!("https://streamable.com/{id}").as_str()),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_pasted_text_is_refused() {
+        for bad in [
+            "",
+            "   ",
+            "abc123",
+            "https://streamable.com/",
+            "https://streamable.com",
+            "http://streamable.com/abc123",
+            "ftp://streamable.com/abc123",
+            "//streamable.com/abc123",
+            "https://evil.test/abc123",
+            "https://streamable.com.example.test/abc123",
+            "https://example.test/streamable.com/abc123",
+            "https://notstreamable.com/abc123",
+            "https://m.streamable.com/abc123",
+            "https://user:pass@streamable.com/abc123",
+            "https://user@streamable.com/abc123",
+            "https://streamable.com:443/abc123",
+            "https://streamable.com:8080/abc123",
+            "https://streamable.com/abc123/",
+            "https://streamable.com/e/abc123",
+            "https://streamable.com/abc123/extra",
+            "https://streamable.com/abc123?t=5",
+            "https://streamable.com/abc123#t",
+            "https://streamable.com/abc-123",
+            "https://streamable.com/abc%31",
+            "https://streamable.com/abcdefghijklmnopqrstuvwxyz0123456",
+            "https://streamable.com/abc\t123",
+            "https://stream\table.com/abc123",
+            "https://streamable.com/äbc",
+            "https://streamable.cоm/abc123",
+        ] {
+            assert_eq!(pasted_link(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_pasted_link_belongs_to_one_file() {
+        let (first, second) = (Path::new("first.mp4"), Path::new("second.mp4"));
+        let mut pasted = PastedLink::default();
+        assert!(!pasted.offered(first));
+        pasted.offer(first);
+        assert!(pasted.offered(first) && !pasted.offered(second));
+        pasted.input = "https://evil.test/abc123".into();
+        pasted.submit();
+        assert!(pasted.rejected && pasted.link().is_none());
+        pasted.input = "streamable.com/abc123".into();
+        pasted.submit();
+        assert_eq!(pasted.link(), Some("https://streamable.com/abc123"));
+        assert!(!pasted.rejected && pasted.input.is_empty());
+        pasted.input = "not a link".into();
+        pasted.submit();
+        assert_eq!(
+            pasted.link(),
+            Some("https://streamable.com/abc123"),
+            "A refusal keeps the link"
+        );
+
+        pasted.offer(first);
+        assert!(
+            pasted.link().is_some(),
+            "Handing the same file off again keeps its link"
+        );
+        pasted.keep_only(Some(first));
+        assert!(pasted.link().is_some());
+        pasted.keep_only(Some(second));
+        assert!(pasted.link().is_none() && !pasted.offered(first) && pasted.input.is_empty());
+        pasted.offer(first);
+        pasted.keep_only(None);
+        assert!(!pasted.offered(first));
+    }
+
     #[test]
     fn only_scoped_share_links_are_accepted() {
         assert!(share_url("https://streamable.com/abc123").is_some());
