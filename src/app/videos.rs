@@ -26,6 +26,8 @@ pub struct Library {
     previews: super::preview::Previews,
     pub uploader: crate::streamable::Uploader,
     pub recent: super::recent::Recent,
+    /// The link pasted back after the manual handoff, for the selected file only.
+    pasted: crate::streamable::PastedLink,
     folder: Option<PathBuf>,
     entries: Vec<Entry>,
     truncated: bool,
@@ -45,6 +47,7 @@ impl Default for Library {
             previews: super::preview::Previews::default(),
             uploader: crate::streamable::Uploader::default(),
             recent: super::recent::Recent::default(),
+            pasted: crate::streamable::PastedLink::default(),
             folder: None,
             entries: vec![],
             truncated: false,
@@ -92,6 +95,7 @@ impl Library {
             return;
         }
         self.selected = None;
+        self.pasted.keep_only(Some(&path));
         self.job(ctx, move |cancel| {
             local::probe(&path, cancel).map(ResultData::Video)
         });
@@ -142,8 +146,12 @@ impl Library {
                     self.entries = entries;
                     self.truncated = truncated;
                     self.selected = None;
+                    self.pasted.keep_only(None);
                 }
-                Ok(ResultData::Video(video)) => self.selected = Some(video),
+                Ok(ResultData::Video(video)) => {
+                    self.pasted.keep_only(Some(&video.path));
+                    self.selected = Some(video);
+                }
                 Ok(ResultData::Cancelled) => {}
                 Err(error) => {
                     crate::dev::errors::record("videos", &error);
@@ -347,12 +355,16 @@ impl Library {
                         Ok(()) => {
                             self.error = None;
                             self.message = "Streamable opened and the file was revealed. Select or drag it into the website to upload.".into();
+                            self.pasted.offer(&video.path);
                         }
                         Err(error) => {
                             self.message.clear();
                             self.error = Some(error);
                         }
                     }
+                }
+                if self.pasted.offered(&video.path) {
+                    self.error = pasted_link(ui, &mut self.pasted).or(self.error.take());
                 }
             });
         }
@@ -374,10 +386,7 @@ impl Library {
                     ctx.request_repaint_after(Duration::from_millis(80));
                 }
                 if let Some(url) = &self.uploader.status.url {
-                    ui.hyperlink(url);
-                    if ui.button("Copy share link").clicked() {
-                        ui.ctx().copy_text(url.clone());
-                    }
+                    share_link(ui, url, "Copy share link");
                 } else if !self.uploader.status.active
                     && let Some(url) = &self.uploader.status.candidate
                 {
@@ -401,6 +410,61 @@ impl Library {
     }
 }
 
+/// A share link with Copy, as the automatic upload and the pasted link both show it.
+fn share_link(ui: &mut egui::Ui, url: &str, copy: &str) {
+    ui.hyperlink(url);
+    if ui.button(copy).clicked() {
+        ui.ctx().copy_text(url.to_owned());
+    }
+}
+
+/// The optional field after the manual handoff, and the link the user pasted. The app cannot see
+/// the upload, so nothing here says it finished. Returns an error from opening the link.
+fn pasted_link(ui: &mut egui::Ui, pasted: &mut crate::streamable::PastedLink) -> Option<String> {
+    let mut error = None;
+    ui.add_space(SPACE_M);
+    ui.label("Paste the Streamable link here (optional)");
+    ui.horizontal(|ui| {
+        let field = ui.add(
+            egui::TextEdit::singleline(&mut pasted.input)
+                .hint_text("https://streamable.com/…")
+                .desired_width(320.),
+        );
+        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if field.changed() {
+            pasted.rejected = false;
+        }
+        if ui
+            .add_enabled(
+                !pasted.input.trim().is_empty(),
+                egui::Button::new("Use link"),
+            )
+            .clicked()
+            || entered
+        {
+            pasted.submit();
+        }
+    });
+    if pasted.rejected {
+        ui.colored_label(
+            DANGER,
+            "That is not a Streamable link. It looks like https://streamable.com/abc123.",
+        );
+    }
+    if let Some(link) = pasted.link() {
+        ui.label(caption(
+            "The link you pasted. The app does not check whether the upload finished.",
+        ));
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Open").clicked() {
+                error = crate::platform::open_target(std::ffi::OsStr::new(link)).err();
+            }
+            share_link(ui, link, "Copy");
+        });
+    }
+    error
+}
+
 fn video_count(count: usize) -> String {
     match count {
         1 => "1 video".into(),
@@ -417,6 +481,44 @@ mod tests {
         assert_eq!(video_count(1), "1 video");
         assert_eq!(video_count(2), "2 videos");
     }
+    fn video(path: &str) -> local::Video {
+        local::Video {
+            path: path.into(),
+            bytes: 10,
+            container: "mp4".into(),
+            duration: None,
+        }
+    }
+
+    #[test]
+    fn a_pasted_link_is_cleared_when_another_file_is_selected() {
+        let mut library = Library::default();
+        library.selected = Some(video("first.mp4"));
+        library.pasted.offer(std::path::Path::new("first.mp4"));
+        library.pasted.input = "https://streamable.com/abc123".into();
+        library.pasted.submit();
+        let send = |library: &mut Library, result| {
+            library.busy = true;
+            library.tx.send((library.generation, Ok(result))).unwrap();
+            library.poll();
+        };
+        send(&mut library, ResultData::Video(video("first.mp4")));
+        assert!(
+            library.pasted.link().is_some(),
+            "Checking the same file again keeps it"
+        );
+        send(&mut library, ResultData::Video(video("second.mp4")));
+        assert!(library.pasted.link().is_none());
+        assert!(!library.pasted.offered(std::path::Path::new("first.mp4")));
+
+        library.pasted.offer(std::path::Path::new("second.mp4"));
+        send(
+            &mut library,
+            ResultData::Folder("folder".into(), Vec::new(), false),
+        );
+        assert!(!library.pasted.offered(std::path::Path::new("second.mp4")));
+    }
+
     #[test]
     fn cancelled_jobs_cannot_replace_selection() {
         let mut library = Library::default();

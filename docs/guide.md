@@ -163,6 +163,16 @@ Uploading is an explicit choice and accepts the linked Streamable upload terms.
 Guest links may be publicly accessible and are temporary. **Use website manually**
 remains available as a fallback. Neither flow changes the original file.
 
+**Use website manually** opens Streamable in your browser and shows the file so
+you can drag it into the page. If that fails or you cancel on the website, the
+file and your download stay as they were. Afterwards, you can paste the link
+Streamable gives you into **Paste the Streamable link here (optional)** and choose
+**Use link**. The app accepts only links like `https://streamable.com/abc123`
+(also without `https://` or with `www.`), then offers **Open** and **Copy**. It
+cannot see the upload, so it shows this as the link you pasted, not as a finished
+or checked upload. The link is kept only while that video stays selected in this
+session: choosing another video forgets it, and it is never saved or sent anywhere.
+
 Automatic uploading requires installed Edge or Chrome and the bundled Deno tool.
 It does not reuse your normal browser profile or YouTube session. Website changes
 can break automation. Only Windows/Edge is locally exercised; see the

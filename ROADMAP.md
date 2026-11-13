@@ -326,10 +326,15 @@ Depends on R-02 and S-01; recommended initial sharing release under the current 
 
 - [x] Open Streamable and reveal the selected video in Explorer so the user can select or drag it into the website.
 - [x] Explain whether login is required according to the verified website behavior; use the user's browser session.
-- [ ] Let the user optionally paste the resulting share URL back into stream-dlp for opening/copying.
+- [x] Let the user optionally paste the resulting share URL back into stream-dlp for opening/copying.
 - [x] Keep the local file and download result intact when the handoff is cancelled or the website fails.
 
 **Phase acceptance:** both a newly downloaded file and an older file can enter the workflow. The app reports only the handoff it performed; it does not claim to have detected upload completion.
+
+November 13, 2026: after **Use website manually**, an optional field takes the
+pasted Streamable link (only `https://streamable.com/<id>`, normalised), shown
+with Open and Copy as the link the user pasted; it is kept in memory for the
+selected file only.
 
 ### S-02A — Experimental automatic website uploads
 
