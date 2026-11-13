@@ -265,7 +265,8 @@ impl App {
     }
     pub(super) fn session_panel(&mut self, ui: &mut egui::Ui) {
         let source = self.session_source();
-        if !self.session_expanded {
+        // Other sites never take a session: no import, export guide or Firefox refresh.
+        if !self.session_expanded || source == engine::Source::Other {
             return;
         }
         ui.add_space(SPACE_M);
