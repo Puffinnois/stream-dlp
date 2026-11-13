@@ -24,6 +24,13 @@ verification solutions, normal browser profiles, or YouTube sessions are read.
 Progress percentages appear only when exposed by website controls; otherwise
 the app shows a spinner and current phase. Manual website assistance remains
 available when automation fails or the necessary browser/tools are unavailable.
+After that manual handoff the user may paste the resulting link back
+(`streamable::pasted_link`, `PastedLink`): only `https://streamable.com/<id>`
+with a 1–32 character ASCII letter-or-digit ID is accepted, also without the
+scheme or with `www.`, and shown in canonical form with Open and Copy as the
+link the user pasted. It is never reported as a finished or verified upload, and
+it lives in memory for the selected file only (cleared on another selection;
+never written to disk, notes, feedback or usage reports).
 
 ## Runtime and lifecycle
 
