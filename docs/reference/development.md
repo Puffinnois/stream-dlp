@@ -69,7 +69,7 @@ disposable synthetic profiles without a media URL. It does not read your browser
 profiles or establish automatic browser-import support. Repeat `--yt-dlp` with a
 verified candidate executable to compare helper versions.
 
-`cargo test --locked` checks URL validation (including mobile and shared Shorts links), format filtering and ordering, audio selection, progress parsing, session validation and domain filtering, temporary-file cleanup, and preservation of the original export. `cargo clippy --all-targets --locked -- -D warnings` checks code quality.
+`cargo test --locked` checks URL validation (including mobile and shared Shorts links), format filtering and ordering, audio selection (each format's expected sound, `engine::Sound`: included, merged, none for a source whose every stream reports no audio, or unknown for a direct file; a saved file that should have sound but has no audio stream, checked with FFprobe, or a failed merge is `EngineError::MissingAudio`), progress parsing, session validation and domain filtering, temporary-file cleanup, and preservation of the original export. `cargo clippy --all-targets --locked -- -D warnings` checks code quality.
 
 With the tools installed, `cargo test --locked local_download_pipeline -- --ignored --nocapture` generates a local DASH clip with separate audio/video, serves it on localhost, detects its formats, downloads and merges both streams through the production backend, and checks the saved MP4 with FFprobe. It supplies a synthetic YouTube session to both operations, checks those cookies are not sent to localhost, and verifies cancellation. Test artifacts remain in `test-output`.
 

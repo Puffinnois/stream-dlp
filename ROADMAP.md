@@ -141,7 +141,7 @@ regression tests pass unchanged.
 - [x] Carry media ID, source URL, extractor identity, and platform with metadata and completed-file results.
 - [x] Handle absent titles, uploader, duration, resolution, and size with useful fallbacks; avoid showing `0p` for unknown resolution.
 - [x] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection.
-- [ ] Keep format selection and audio merging shared, including audio-less source clips where valid. Distinguish those from failed audio retrieval.
+- [x] Keep format selection and audio merging shared, including audio-less source clips where valid. Distinguish those from failed audio retrieval.
 - [x] Include source identity in filenames or collision handling so identical IDs from different platforms cannot falsely reuse an unrelated completed file.
 
 October 24, 2026: inspection and completed results now retain a shared media
@@ -159,6 +159,19 @@ and unknown sizes. The UI uses explicit unknown labels, retains ID-based title
 fallbacks, distinguishes estimated sizes, and shows small files as less than 1 MB.
 Unknown audio bitrate and container also have clear labels. The Rust suite now
 passes 44 tests (8 opt-in tests ignored); Clippy and the local pipeline pass.
+
+November 13, 2026: every site now shares one sound decision per format
+(`engine::Sound`): a source whose every stream reports no audio is labelled
+**This video has no sound** before download and saved as video only (previously a
+YouTube-style or Facebook DASH silent source asked for audio that did not exist and
+failed); video-only formats of sources with audio still merge as before. A merge
+that fails, or a file saved without the audio its format promised (checked with
+FFprobe), fails with its own lost-sound message instead of a silent success.
+Direct files whose site reports no codecs (X, Facebook SD/HD, other sites) are saved
+as they are. TikTok's own first-release rule still refuses silent clips. Covered
+by deterministic tests for split and combined/direct formats and by the local
+pipeline; silent sources other than the earlier X and Instagram samples are
+verified from fixtures only.
 
 ### F-03 — Per-platform sessions and errors
 
