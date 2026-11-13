@@ -361,10 +361,7 @@ impl App {
                 icon_tile(ui, 72., ACCENT_TINT, ACCENT);
                 ui.add_space(SPACE_M);
                 ui.label(semibold("A link is all you need").size(TEXT_HEADING));
-                ui.label(
-                    RichText::new("Paste a video or Shorts link above to get started.")
-                        .color(MUTED),
-                );
+                ui.label(RichText::new("Paste a video link above to get started.").color(MUTED));
                 ui.add_space(SPACE_XL);
                 ui.label(caption(
                     "Add a link   /   Pick a quality   /   Save to your folder",
