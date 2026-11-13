@@ -134,8 +134,25 @@ in a folder. Switch between **Download** and **My videos** without losing the
 current download or folder selection. Select a video to check its container, duration, and size, then use
 **Play video** or **Show file**. **Refresh** reloads the folder after files change.
 The list includes up to 1,000 video filenames in that folder, without scanning
-subfolders. The folder selection lasts for this app session; no library history
-is saved. **Choose existing video…** also works without adding a folder.
+subfolders. The folder selection lasts for this app session. **Choose existing
+video…** also works without adding a folder.
+
+### Recent downloads (optional)
+
+The app can keep a short list of your recent downloads. It is off until you turn
+on **Settings → Recent downloads → Keep a list of recent downloads**. From then on,
+**My videos** shows a **Recent downloads** section with your last 50 downloads:
+each one's title, platform, when it finished and its folder. Select one to work
+with it just like a video you chose yourself: details, play, show file, GIF and
+Streamable. A file you have moved or deleted stays listed, greyed out and marked
+**File moved or deleted**, until you remove it.
+
+The list holds only where each file was saved, its title, the platform and the
+time. It never holds links, sign-in details or anything about the video's page,
+and it is never sent anywhere: not with feedback, usage reports or anything else.
+**Remove** takes one entry off the list and **Clear all** erases the whole list;
+neither deletes a video. Turning the setting off erases the list too, after asking.
+Deleting the app's data folder (see Privacy) also removes it.
 
 After a download, **Upload on Streamable** selects the completed file in the same
 interface. **Upload automatically (experimental)** opens a separate private
@@ -163,7 +180,7 @@ See [Mac build, installation, automated checks, and acceptance checklist](macos.
 
 ## Privacy
 
-Downloads execute tools directly using argument arrays, without interpolating video links into a shell. User yt-dlp configs are ignored to keep behavior predictable. Cookies are read only from an export or Firefox profile the user explicitly chooses and passed to yt-dlp for its YouTube requests. No passwords or download history are collected.
+Downloads execute tools directly using argument arrays, without interpolating video links into a shell. User yt-dlp configs are ignored to keep behavior predictable. Cookies are read only from an export or Firefox profile the user explicitly chooses and passed to yt-dlp for its YouTube requests. No passwords or download history are collected. The optional recent-downloads list stays on your computer, in `history.json` in the app's data folder (Windows: `%LOCALAPPDATA%\stream-dlp`; Mac: `~/Library/Application Support/stream-dlp`); deleting that folder removes it with the app's other settings.
 
 On Windows, **Send feedback** is the one thing the app sends about itself. On Mac there is one more, only if you agree: **usage reports**. The first time the Mac version opens, it asks whether to send the developers short reports on how it is working. They carry the app and macOS versions, the chip generation (such as M1), whether the app and its tools started properly, the site and result or kind of error of each video lookup and download, which pages you open, whether the folder picker and cookie import worked, and where in the app's code a crash happened. They never carry links, video titles, file names, folders, cookies or error messages. Your IP address is only used in scrambled form, to limit abuse and roughly count how many people report each day. The developers see totals per day, kept for a year, and no report is stored on its own. **Settings → Usage reports** turns this off, deletes what is waiting, and shows what is sent.
 
