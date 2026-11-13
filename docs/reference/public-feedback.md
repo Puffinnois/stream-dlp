@@ -12,7 +12,7 @@ While `ENDPOINT` in `src/feedback.rs` is `None`, a release build shows no Send f
 
 ## What a note carries
 
-The text, the tag, and these fixed words: app version, OS, page, and on the Download page the phase, the site, and the kind of error. They are enums in `src/feedback.rs`, and the service refuses any other field or value, so a path, title, link or error message cannot be added by accident. There are no screenshots, no recent-errors log and no install ID.
+The text, the tag, and these fixed words: app version, OS, page, and on the Download page the phase, the site (`other` for any site that is not a named platform, never its name), and the kind of error. They are enums in `src/feedback.rs`, and the service refuses any other field or value, so a path, title, link or error message cannot be added by accident. There are no screenshots, no recent-errors log and no install ID.
 
 The sender's IP address is not stored: the service keeps an HMAC of it under a secret key (`SENDER_KEY`), used for limits and blocks. Notes nobody handles are deleted after 90 days, as are handled notes' hashes; blocks last a year.
 

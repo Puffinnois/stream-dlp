@@ -1,6 +1,6 @@
 # stream-dlp feature roadmap
 
-Prepared October 21, 2026, against stream-dlp 0.3.3; "What already exists" updated November 1, 2026 (v0.3.9 and the restructure).
+Prepared October 21, 2026, against stream-dlp 0.3.3; "What already exists" updated November 13, 2026 (other sites, U-01).
 
 Task checkboxes track implementation. Firefox automatic session import is now implemented experimentally; see R-01 and A-01/A-02 for its validation limits. Remaining research findings are based on source inspection and upstream documentation unless a live test is explicitly recorded.
 
@@ -34,12 +34,12 @@ The Streamable investigation belongs first so its external dependency is discove
 
 Module by module in the [Source layout](docs/reference/development.md#source-layout).
 
-- Downloads (`src/engine/`): YouTube, and experimental TikTok (P-01): link routing, format list, audio/video merging, progress, cancellation, no-overwrite.
-- Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok and X, plus experimental Firefox import for YouTube (F-03).
+- Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging, multi-video choice, progress, cancellation, no-overwrite.
+- Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). Other sites never take a session.
 - My videos and previews (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: other platforms (P-02 onwards), multi-video posts, a persistent download history, and direct Streamable uploads (blocked, S-03/S-04).
+Still missing: a persistent download history, direct Streamable uploads (blocked, S-03/S-04), and destination checks on what yt-dlp fetches after the pasted link for other sites (U-01).
 
 ## Feasibility findings
 
@@ -121,11 +121,20 @@ watch links, and the two verified share forms. Initial Instagram probes reached 
 
 Depends on R-03.
 
-- [ ] Add a small platform model: YouTube, TikTok, Instagram, X/Twitter, Facebook, and Other.
-- [ ] Separate common HTTP(S) validation from each platform's URL normalization. Keep YouTube's existing canonicalization and regression cases.
-- [ ] Recognize exact domains and approved share-link hosts; reject deceptive lookalikes and URLs containing credentials.
-- [ ] Preserve query parameters required by a site. Remove tracking parameters only when known to be safe.
-- [ ] Define handling of redirects and non-public destinations, especially before enabling arbitrary URLs.
+- [x] Add a small platform model: YouTube, TikTok, Instagram, X/Twitter, Facebook, and Other.
+- [x] Separate common HTTP(S) validation from each platform's URL normalization. Keep YouTube's existing canonicalization and regression cases.
+- [x] Recognize exact domains and approved share-link hosts; reject deceptive lookalikes and URLs containing credentials.
+- [x] Preserve query parameters required by a site. Remove tracking parameters only when known to be safe.
+- [x] Define handling of redirects and non-public destinations, especially before enabling arbitrary URLs.
+
+November 13, 2026: `parse_link` checks credentials and ports for every link, then
+hands a platform's own hosts to its `normalize`. Other addresses of a named
+platform and lookalikes are refused as that platform's; only hosts of no named
+platform become `Source::Other`, so a refused YouTube or TikTok link is never
+retried as Other. Other links keep their query and drop only the fragment.
+Redirects and non-public destinations are defined in the
+[other-sites reference](docs/reference/other-sites.md); the existing platform
+regression tests pass unchanged.
 
 ### F-02 — General metadata and media selection
 
@@ -259,12 +268,33 @@ Depends on Phase 1 and experience from at least the first named-platform release
 
 ### U-01 — Other sites / Auto-detect
 
-- [ ] Route recognized sites to their platform handler; allow other public HTTP(S) URLs through yt-dlp's remaining site-specific extractors and generic fallback.
-- [ ] Label this **Other sites (experimental)** and explain that compatibility varies. Universal means an attempt at supported media extraction, not every website.
+- [x] Route recognized sites to their platform handler; allow other public HTTP(S) URLs through yt-dlp's remaining site-specific extractors and generic fallback.
+- [x] Label this **Other sites (experimental)** and explain that compatibility varies. Universal means an attempt at supported media extraction, not every website.
 - [ ] Support public direct video files and non-DRM HLS/DASH where the existing tools can handle them.
-- [ ] Define resource limits for redirects, inspection time, metadata size, and collection size. Keep bulk downloads and arbitrary local/network-resource access outside the initial scope.
+- [x] Define resource limits for redirects, inspection time, metadata size, and collection size. Keep bulk downloads and arbitrary local/network-resource access outside the initial scope.
 - [ ] Implement the F-01 destination policy for redirects and nested media requests; validate what yt-dlp and FFmpeg actually fetch rather than checking only the pasted URL.
-- [ ] Leave authentication off by default and surface meaningful unsupported-site, DRM, and missing-media results.
+- [x] Leave authentication off by default and surface meaningful unsupported-site, DRM, and missing-media results.
+
+November 13, 2026, bundled yt-dlp 2026.08.19: implemented in
+`src/engine/sources/other.rs` ([reference](docs/reference/other-sites.md)). Other
+links never take a session (tested with sessions for all five platforms
+loaded). Limits: 5 checked redirects in 15 seconds, the existing 150-second
+inspection, 32 MB of metadata, 25 entries with one chosen, never a collection.
+Live, audio-only, DRM and non-HTTP results are refused with their own messages.
+
+Direct files and HLS/DASH stay open: synthetic fixtures for a direct file, an
+embedded page and HLS/DASH results pass, and the bundled yt-dlp, run by hand
+with the app's arguments against local fixtures, found and saved a direct MP4,
+a page's embedded video and an HLS stream; one public sample file inspected as
+a direct video. The `#[ignore]`d end-to-end test through the app's own code
+(`other_sites_local_fixtures_inspect_and_download`) is written but has not run
+yet, and DASH through a real manifest is untested. Nested requests stay open
+because only part of them can be enforced: the pasted link and its HTTP
+redirects are checked, `file://` stays disabled and FFmpeg gets a network-only
+protocol whitelist (both verified against a hostile local playlist), but
+yt-dlp's own later requests (embeds, manifests, segments, its own redirects)
+are not checked against the address policy, and DNS can change between the
+check and yt-dlp's lookup. See the reference's known limits.
 
 **Phase acceptance:** public direct-file, embedded-video, and manifest fixtures work; unsupported pages fail cleanly; arbitrary URLs cannot inherit another platform's credentials.
 
