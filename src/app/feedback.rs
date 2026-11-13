@@ -67,7 +67,7 @@ impl Feedback {
 impl App {
     /// All a public note says about the app. Only fixed words go in, so the link, the error's
     /// text and any file name stay on the machine.
-    fn feedback_context(&self) -> Context {
+    pub(super) fn feedback_context(&self) -> Context {
         match self.page {
             Page::Download => {
                 let phase = match self.phase {
@@ -666,6 +666,7 @@ mod tests {
                 dev_mode: Some(true),
                 dev_notes_dir: Some(dir.into()),
                 feedback_token: Some("local-admin-token-local-admin-token".into()),
+                ..Default::default()
             },
             false,
         )

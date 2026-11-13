@@ -95,10 +95,11 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 ## Source layout
 
 - `src/main.rs`: arguments (`--check-tools`, `--dev-mode`) and the window.
-- `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
+- `src/app/`: the UI only. `mod.rs` holds the state, sidebar and frame loop; `theme.rs` the colors and shared widgets; one module per page or panel (`download`, `session_panel`, `settings`, `gif`, `videos`, and `recent` for the recent-downloads section and its setting) and the `preview` widget; `dev/` Dev mode and the dev notes panel.
 - `src/feedback.rs`: public feedback: the typed context, text rules and requests; its UI is `src/app/feedback.rs`, its service `services/feedback/` ([reference](public-feedback.md)).
 - `src/usage.rs` (no pages): opt-in usage reports from the Mac version: the typed events, their counts and sending; its UI is `src/app/usage.rs`, its service `services/feedback/` ([reference](usage-reports.md)).
-- `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
+- `src/history.rs` (no egui): the optional recent-download list: `history.json`, its four-field entries, load, save, record, remove and clear; its UI is `src/app/recent.rs` ([reference](download-history.md)).
+- `src/dev/` (no egui): the settings file, the Dev mode setting, the recent-errors log and the dev notes file.
 - `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter, Facebook and Instagram (link normalization, share links, offered formats, error explanations), and `other.rs` for every other site: its link and destination policy, redirects and limits ([reference](other-sites.md)); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.

@@ -237,7 +237,7 @@ impl App {
 
     /// Where the app is: a summary line like `Download · YouTube · error`, and
     /// the details as JSON.
-    fn note_context(&self, ctx: &egui::Context) -> (String, serde_json::Value) {
+    pub(super) fn note_context(&self, ctx: &egui::Context) -> (String, serde_json::Value) {
         let (page, parts, details) = match self.page {
             Page::Download => {
                 let source = crate::engine::parse_link(&self.link)

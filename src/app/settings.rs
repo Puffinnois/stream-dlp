@@ -82,6 +82,7 @@ impl App {
                 ui.hyperlink_to("yt-dlp project", "https://github.com/yt-dlp/yt-dlp");
             });
         });
+        self.history_settings(ui);
         self.usage_settings(ui);
         ui.add_space(SPACE_L);
         card(ui, |ui| {

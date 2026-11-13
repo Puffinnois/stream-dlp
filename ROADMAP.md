@@ -36,10 +36,10 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 
 - Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging, multi-video choice, progress, cancellation, no-overwrite.
 - Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). Other sites never take a session.
-- My videos and previews (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
+- My videos and previews, with an optional recent-download list (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: a persistent download history, direct Streamable uploads (blocked, S-03/S-04), and destination checks on what yt-dlp fetches after the pasted link for other sites (U-01).
+Still missing: direct Streamable uploads (blocked, S-03/S-04), and destination checks on what yt-dlp fetches after the pasted link for other sites (U-01).
 
 ## Feasibility findings
 
@@ -306,13 +306,19 @@ Depends on F-02; can proceed independently of the Streamable API decision.
 
 - [x] Keep the completed file available for a **Share on Streamable** action.
 - [x] Add **Choose existing video** for files downloaded before this feature existed or outside stream-dlp.
-- [ ] Add a small local recent-download list if desired for convenience: final path, title, source platform, and completion time; no cookies or credentials.
-- [ ] If history is included, make it optional, removable, and tolerant of moved/deleted files. Browsing an existing file must work without history.
+- [x] Add a small local recent-download list if desired for convenience: final path, title, source platform, and completion time; no cookies or credentials.
+- [x] If history is included, make it optional, removable, and tolerant of moved/deleted files. Browsing an existing file must work without history.
 - [x] Probe selected files with FFprobe to check readability, container, streams, duration, and size.
 
 Implemented a session-only **My videos** folder browser with a bounded,
 nonrecursive list, refresh, file details, play/reveal actions, and existing-file
-selection. No history is persisted. Shared metadata work in F-02 remains separate.
+selection. Shared metadata work in F-02 remains separate.
+
+November 13, 2026: an optional **Recent downloads** list, off by default
+(Settings), keeps the last 50 downloads' path, title, platform word and time in
+`history.json`; entries can be removed or the list cleared, moved or deleted files
+stay listed and muted, and selecting one works like choosing an existing video
+([reference](docs/reference/download-history.md)).
 
 ### S-02 — Browser-assisted Streamable workflow
 

@@ -382,6 +382,50 @@ pub fn success_line(ui: &mut egui::Ui, text: &str) {
     });
 }
 
+/// A modal question with a destructive answer and Cancel. `Some(true)` once confirmed,
+/// `Some(false)` once cancelled or dismissed, `None` while it waits.
+pub fn confirm(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    body: &str,
+    action: &str,
+) -> Option<bool> {
+    let mut answer = None;
+    let response = egui::Modal::new(egui::Id::new(id))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::WHITE)
+                .corner_radius(RADIUS_L)
+                .inner_margin(SPACE_XL)
+                .stroke(egui::Stroke::new(1., BORDER)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(420.);
+            ui.label(semibold(title).size(TEXT_HEADING));
+            ui.add_space(SPACE_S);
+            ui.label(body);
+            ui.add_space(SPACE_L);
+            ui.horizontal(|ui| {
+                if filled_button(
+                    ui,
+                    egui::Button::new(semibold(action).color(Color32::WHITE))
+                        .min_size(Vec2::new(0., CONTROL_HEIGHT)),
+                    true,
+                    [DANGER; 3],
+                )
+                .clicked()
+                {
+                    answer = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+    answer.or(response.should_close().then_some(false))
+}
+
 pub fn icon_tile(ui: &mut egui::Ui, size: f32, background: Color32, foreground: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
     ui.painter().rect_filled(rect, size * 0.25, background);

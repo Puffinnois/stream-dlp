@@ -96,9 +96,15 @@ impl App {
                     }
                     self.log.push_back(line);
                 }
-                Event::Complete(path) => {
+                Event::Complete(saved) => {
                     self.report_outcome(Outcome::Ok);
-                    self.saved = Some(path);
+                    let title = self.video.as_ref().map(|video| video.title.as_str());
+                    self.library.recent.record(
+                        saved.path.clone(),
+                        title.unwrap_or_default(),
+                        saved.media.source.into(),
+                    );
+                    self.saved = Some(saved);
                     self.progress = 1.;
                     self.phase = Phase::Done;
                     self.status = "Your download is ready.".into();
@@ -528,6 +534,9 @@ impl App {
                     if let Some(saved) = &self.saved {
                         ui.label(format!("Saved from {}", saved.media.source.label()));
                         ui.label(caption(saved.path.display().to_string()));
+                    }
+                    if let Some(error) = &self.library.recent.error {
+                        ui.label(caption(error).color(DANGER));
                     }
                     ui.horizontal_wrapped(|ui| {
                         if ui

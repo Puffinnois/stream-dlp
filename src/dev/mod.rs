@@ -21,6 +21,9 @@ pub struct Settings {
     /// Dev mode's key to the feedback Inbox. Only a developer's own copy has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback_token: Option<String>,
+    /// Keeps the list of recent downloads (`crate::history`). Off until the person turns it on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub download_history: bool,
 }
 
 impl Settings {

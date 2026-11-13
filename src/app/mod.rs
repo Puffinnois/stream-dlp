@@ -4,6 +4,7 @@ mod download;
 mod feedback;
 mod gif;
 mod preview;
+mod recent;
 mod session_panel;
 mod settings;
 pub mod theme;
@@ -113,11 +114,13 @@ impl App {
     /// `dev_mode` is the `--dev-mode` flag.
     pub fn new(cc: &eframe::CreationContext<'_>, dev_mode: bool) -> Self {
         theme::apply(&cc.egui_ctx);
-        Self {
+        let mut app = Self {
             dev: dev::DevTools::new(crate::dev::Settings::load(), dev_mode),
             usage: crate::usage::Reporter::new(crate::feedback::endpoint()),
             ..Self::with_profiles(session::firefox::profiles())
-        }
+        };
+        app.library.recent.start(app.dev.settings.download_history);
+        app
     }
 
     fn with_profiles(browser_profiles: Vec<session::firefox::Profile>) -> Self {
