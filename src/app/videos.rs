@@ -25,6 +25,7 @@ type JobResult = (u64, Result<ResultData, String>);
 pub struct Library {
     previews: super::preview::Previews,
     pub uploader: crate::streamable::Uploader,
+    pub recent: super::recent::Recent,
     folder: Option<PathBuf>,
     entries: Vec<Entry>,
     truncated: bool,
@@ -43,6 +44,7 @@ impl Default for Library {
         Self {
             previews: super::preview::Previews::default(),
             uploader: crate::streamable::Uploader::default(),
+            recent: super::recent::Recent::default(),
             folder: None,
             entries: vec![],
             truncated: false,
@@ -197,11 +199,15 @@ impl Library {
                         local::probe(&path, cancel).map(ResultData::Video)
                     });
                 }
+                let refreshable = self.folder.is_some() || self.recent.on;
                 if ui
-                    .add_enabled(!busy && self.folder.is_some(), egui::Button::new("Refresh"))
+                    .add_enabled(!busy && refreshable, egui::Button::new("Refresh"))
                     .clicked()
                 {
-                    self.scan(ctx, self.folder.clone().unwrap());
+                    self.recent.reload();
+                    if let Some(folder) = self.folder.clone() {
+                        self.scan(ctx, folder);
+                    }
                 }
             });
             if let Some(folder) = &self.folder {
@@ -211,6 +217,10 @@ impl Library {
                 ));
             }
         });
+        let selected = self.selected.as_ref().map(|video| video.path.as_path());
+        if let Some(path) = self.recent.show(ui, busy, selected) {
+            self.select_file(ctx, path);
+        }
         ui.add_space(SPACE_L);
         card(ui, |ui| {
             ui.horizontal(|ui| {
