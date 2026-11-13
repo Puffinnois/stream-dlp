@@ -12,8 +12,8 @@ use std::{
     time::Duration,
 };
 
-/// The most metadata yt-dlp may print while inspecting a link to another site (each stream).
-const OTHER_METADATA_LIMIT: u64 = 32 * 1024 * 1024;
+/// The most metadata yt-dlp may print while inspecting a link (each stream).
+const METADATA_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub enum Event {
     Loaded(Video),
@@ -103,18 +103,18 @@ fn inspect_resolved(
     cancel: &AtomicBool,
 ) -> Result<Option<Event>, EngineError> {
     let (mut cmd, _session_file) = inspect_command(link, session)?;
-    let mut helper = process::Helper::new(&mut cmd, cancel).time_limit(Duration::from_secs(150));
-    if link.source == Source::Other {
-        helper = helper.output_limit(OTHER_METADATA_LIMIT);
-    }
-    let output = match helper.output() {
+    let output = match process::Helper::new(&mut cmd, cancel)
+        .time_limit(Duration::from_secs(150))
+        .output_limit(METADATA_LIMIT)
+        .output()
+    {
         Ok(output) => output,
         Err(process::Error::Cancelled) => return Ok(None),
         Err(process::Error::TimedOut) => return Err(EngineError::TimedOut(link.source)),
         Err(process::Error::Start(e)) => {
             return Err(EngineError::Helper(format!("Could not start yt-dlp: {e}")));
         }
-        Err(process::Error::TooMuchOutput) if link.source == Source::Other => {
+        Err(process::Error::TooMuchOutput) => {
             return Err(EngineError::Unsupported(
                 "This page lists too much to read. Paste the link to a single video.".into(),
             ));
