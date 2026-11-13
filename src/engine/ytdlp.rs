@@ -1,6 +1,7 @@
 //! Runs yt-dlp to inspect a link and to download one of its formats.
 use super::{
-    CompletedDownload, EngineError, Format, Link, MediaIdentity, Source, Video, media::parse_for,
+    CompletedDownload, EngineError, Format, Link, MediaIdentity, Source, Video,
+    media::{Sound, parse_for},
     sources::other,
 };
 use crate::{process, session::SessionCookies};
@@ -311,9 +312,11 @@ fn run_download(
             Err(error) => return Err(EngineError::Helper(error.to_string())),
         };
         if !status.success() {
-            return Err(link
-                .source
-                .explain(&tail.into_iter().collect::<Vec<_>>().join("\n")));
+            return Err(explain_download(
+                link.source,
+                format.sound(),
+                &tail.into_iter().collect::<Vec<_>>().join("\n"),
+            ));
         }
         let path = final_path.filter(|p| p.is_file()).ok_or_else(|| {
             EngineError::Helper(
@@ -321,6 +324,12 @@ fn run_download(
                     .into(),
             )
         })?;
+        if format.sound().expected() {
+            check_sound(
+                format.sound(),
+                crate::media::local::has_audio(&path, &cancel),
+            )?;
+        }
         Ok(Some(path))
     })();
     let _ = tx.send(match result {
@@ -328,6 +337,29 @@ fn run_download(
         Ok(None) => Event::Cancelled,
         Err(e) => Event::Failed(e),
     });
+}
+
+/// Explains a failed download. Audio that could not be combined with a video-only format has
+/// its own message; everything else is explained by the site's rules.
+fn explain_download(source: Source, sound: Sound, errors: &str) -> EngineError {
+    let lower = errors.to_lowercase();
+    if sound == Sound::Merged
+        && (lower.contains("postprocessing:") || lower.contains("merging of multiple formats"))
+    {
+        EngineError::MissingAudio
+    } else {
+        source.explain(errors)
+    }
+}
+
+/// A saved file that should have sound but has no audio stream is a failed download, never a
+/// silent success. When FFprobe cannot tell, the download stands.
+fn check_sound(sound: Sound, has_audio: Option<bool>) -> Result<(), EngineError> {
+    if sound.expected() && has_audio == Some(false) {
+        Err(EngineError::MissingAudio)
+    } else {
+        Ok(())
+    }
 }
 
 pub fn progress(line: &str) -> Option<(f32, String)> {
@@ -868,6 +900,50 @@ mod tests {
             assert_eq!(file.is_some(), expected);
             assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
         }
+    }
+
+    #[test]
+    fn lost_audio_is_a_failure_and_a_silent_source_is_not() {
+        // A video-only format whose audio could not be combined fails with its own message.
+        for errors in [
+            "ERROR: Postprocessing: Conversion failed!",
+            "ERROR: You have requested merging of multiple formats but ffmpeg is not installed",
+        ] {
+            assert_eq!(
+                explain_download(Source::YouTube, Sound::Merged, errors),
+                EngineError::MissingAudio
+            );
+            // A format that needed no merging keeps the site's explanation.
+            for sound in [Sound::Included, Sound::None, Sound::Unknown] {
+                assert_ne!(
+                    explain_download(Source::YouTube, sound, errors),
+                    EngineError::MissingAudio
+                );
+            }
+        }
+        // A failed audio request is still the site's network error.
+        assert_eq!(
+            explain_download(
+                Source::YouTube,
+                Sound::Merged,
+                "ERROR: unable to download video data: <urlopen error timed out>"
+            ),
+            EngineError::TimedOut(Source::YouTube)
+        );
+        // A saved file without sound fails split and combined formats, never a silent source
+        // or a direct file of unknown sound; an unreadable file does not fail the download.
+        for sound in [Sound::Merged, Sound::Included] {
+            assert_eq!(
+                check_sound(sound, Some(false)),
+                Err(EngineError::MissingAudio)
+            );
+            assert_eq!(check_sound(sound, Some(true)), Ok(()));
+            assert_eq!(check_sound(sound, None), Ok(()));
+        }
+        for sound in [Sound::None, Sound::Unknown] {
+            assert_eq!(check_sound(sound, Some(false)), Ok(()));
+        }
+        assert!(EngineError::MissingAudio.user_message().contains("sound"));
     }
 
     #[test]

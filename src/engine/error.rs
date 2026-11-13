@@ -19,6 +19,9 @@ pub enum EngineError {
     ExpiredSession(Source),
     MissingVideo(Source),
     Drm(Source),
+    /// The format should have had sound, but its audio could not be downloaded or combined
+    /// with the video. A source without audio is never this.
+    MissingAudio,
     /// A helper failed; the text is safe to show.
     Helper(String),
 }
@@ -64,6 +67,7 @@ impl std::fmt::Display for EngineError {
             Self::MissingVideo(Source::Instagram) => write!(f, "No downloadable video was found in this Instagram post. Choose a Reel or a post containing video. Photo-only posts cannot be downloaded."),
             Self::MissingVideo(source) => write!(f, "No downloadable video was found in this {} post.", source.label()),
             Self::Drm(source) => write!(f, "This {} video is DRM-protected and cannot be downloaded.", source.label()),
+            Self::MissingAudio => f.write_str("The sound could not be downloaded or combined with the video, so the download failed. Try again or choose another format. If a copy without sound was left in the folder, delete it before retrying."),
         }
     }
 }

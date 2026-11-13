@@ -101,7 +101,8 @@ impl From<&EngineError> for ErrorKind {
             EngineError::ExpiredSession(_) => Self::ExpiredSession,
             EngineError::MissingVideo(_) => Self::MissingVideo,
             EngineError::Drm(_) => Self::Drm,
-            EngineError::Helper(_) => Self::Helper,
+            // The feedback service knows no separate kind for it.
+            EngineError::Helper(_) | EngineError::MissingAudio => Self::Helper,
         }
     }
 }
