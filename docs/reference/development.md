@@ -99,13 +99,13 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 - `src/feedback.rs`: public feedback: the typed context, text rules and requests; its UI is `src/app/feedback.rs`, its service `services/feedback/` ([reference](public-feedback.md)).
 - `src/usage.rs` (no pages): opt-in usage reports from the Mac version: the typed events, their counts and sending; its UI is `src/app/usage.rs`, its service `services/feedback/` ([reference](usage-reports.md)).
 - `src/dev/` (no egui): the Dev mode setting, the recent-errors log and the dev notes file.
-- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter, Facebook and Instagram (link normalization, share links, offered formats, error explanations); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
+- `src/engine/` (no egui): `sources/` has the per-site rules for YouTube, TikTok, X/Twitter, Facebook and Instagram (link normalization, share links, offered formats, error explanations), and `other.rs` for every other site: its link and destination policy, redirects and limits ([reference](other-sites.md)); `media.rs` the video details and formats; `ytdlp.rs` inspection, download and progress; `error.rs` the typed `EngineError`.
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
 - `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.
 - `src/session/`: session cookie validation, per-platform domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
 - `src/update/`: app updates. `release.rs` reads the latest GitHub release and picks the installer; `installer.rs` downloads and starts it; `mod.rs` holds the hourly check and background download.
-- `src/net.rs`: HTTPS with the system's certificates and proxy, and SHA-256-verified downloads.
+- `src/net.rs`: HTTPS with the system's certificates and proxy, SHA-256-verified downloads, and the redirect probe for other sites.
 - `src/streamable/`: the Streamable website handoff and experimental upload automation.
 - `src/platform.rs`: opening folders, files and links.
 - `Setup tools.ps1`: verified installation and update of external tools.

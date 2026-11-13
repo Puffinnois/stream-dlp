@@ -27,6 +27,16 @@ impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsupported(message) | Self::Helper(message) => f.write_str(message),
+            // Other sites: no site name, since only the link knows it and messages never repeat
+            // the link.
+            Self::SignInNeeded(Source::Other) | Self::ExpiredSession(Source::Other) => f.write_str("This video needs a signed-in account. Signing in is not supported for other sites."),
+            Self::RateLimited(Source::Other) => f.write_str("This site is limiting requests. Wait a while before trying again."),
+            Self::Unavailable(Source::Other) => f.write_str("This video is unavailable or has been removed. Check that it still plays in your browser."),
+            Self::Restricted(Source::Other) => f.write_str("This site refused the request. It may block download tools; check the page in your browser."),
+            Self::Network(Source::Other) => f.write_str("Could not connect to this site. Check the link and your connection, then try again."),
+            Self::TimedOut(Source::Other) => f.write_str("This site took too long to respond. Try again later."),
+            Self::MissingVideo(Source::Other) => f.write_str("No downloadable video was found on this page."),
+            Self::Drm(Source::Other) => f.write_str("This video is DRM-protected and cannot be downloaded."),
             Self::SignInNeeded(Source::YouTube) => f.write_str("YouTube requires sign-in or a verification check. Use Connect session / retry help to import your YouTube session, then retry. YouTube may still restrict this connection or video."),
             Self::SignInNeeded(source) => write!(f, "{} requires sign-in. Import a session for this site and retry.", source.label()),
             Self::RateLimited(source) => write!(

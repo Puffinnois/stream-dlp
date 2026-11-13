@@ -1,10 +1,12 @@
 //! YouTube: watch, Shorts, embed, live and youtu.be links, and its sign-in check.
 
-const HOSTS: [&str; 4] = [
+pub(super) const HOSTS: [&str; 6] = [
     "youtube.com",
     "www.youtube.com",
     "m.youtube.com",
     "music.youtube.com",
+    "youtu.be",
+    "www.youtu.be",
 ];
 
 /// The watch link for the video, without playlist or tracking parameters.
@@ -36,7 +38,7 @@ pub(super) fn normalize(url: &url::Url, host: &str) -> Result<String, &'static s
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
-        .ok_or("Paste a YouTube, TikTok, X, Facebook or Instagram video link.")?;
+        .ok_or("Paste a YouTube video, Shorts or youtu.be link. Playlists and channels are not supported.")?;
     Ok(format!("https://www.youtube.com/watch?v={id}"))
 }
 

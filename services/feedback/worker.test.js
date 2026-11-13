@@ -88,6 +88,16 @@ Deno.test("usage rows hold no sender, and no IP address reaches the database", a
   assertEquals(JSON.stringify(dump.usage_daily).includes(dump.usage_senders[0].sender), false);
 });
 
+Deno.test("other sites report only the word other, never a host", async () => {
+  const env = await service();
+  const event = (subject) => ({ ...REPORT, events: [{ kind: "inspect", subject, result: "ok", count: 1 }] });
+  assertEquals((await postUsage(env, event("other"))).status, 202);
+  for (const [index, subject] of ["example.test", "Generic", "https://example.test/v"].entries()) {
+    assertEquals((await postUsage(env, event(subject), { ip: `203.0.113.${index + 10}` })).status, 400);
+  }
+  assertEquals((await post(env, note(GOOD, { context: { ...CONTEXT, source: "other" } }))).status, 202);
+});
+
 Deno.test("usage values outside the allowlist are refused", async () => {
   const env = await service();
   const event = (fields) => ({ ...REPORT, events: [{ count: 1, ...fields }] });
@@ -183,6 +193,7 @@ Deno.test("fields outside the allowlist are refused", async () => {
     note(GOOD, { context: { ...CONTEXT, page: "C:\\Users\\someone" } }),
     note(GOOD, { context: { ...CONTEXT, version: "1.0.0; drop" } }),
     note(GOOD, { context: { ...CONTEXT, source: 5 } }),
+    note(GOOD, { context: { ...CONTEXT, source: "example.test" } }),
     note(GOOD, { context: { os: "windows", page: "gif" } }),
     note(GOOD, { context: JSON.parse(`{"constructor":"x","version":"1.0.0","os":"windows","page":"gif"}`) }),
     note(GOOD, { context: JSON.parse(`{"__proto__":"x","version":"1.0.0","os":"windows","page":"gif"}`) }),

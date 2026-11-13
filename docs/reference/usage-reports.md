@@ -19,7 +19,7 @@ The app version, operating system, major macOS version and chip generation (`m1`
 | --- | --- | --- |
 | `started` | none | `first`, `clean`, `unclean` (the last session did not close normally) |
 | `helper` | `yt-dlp`, `ffmpeg`, `ffprobe`, `deno` | `ok`, `failed`; tried once per app version |
-| `inspect`, `download` | the site | `ok`, `cancelled`, or the kind of error |
+| `inspect`, `download` | the site: `youtube`, `tiktok`, `x`, `facebook`, `instagram`, or `other` for any other site (never its name or link) | `ok`, `cancelled`, or the kind of error |
 | `page` | the page | `opened` |
 | `folder_picker` | none | `picked`, `dismissed` |
 | `cookie_import` | none | `ok`, `failed` |

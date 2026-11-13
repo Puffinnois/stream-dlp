@@ -1,6 +1,6 @@
 # stream-dlp user guide
 
-stream-dlp downloads YouTube videos, with experimental TikTok, X/Twitter, Facebook and Instagram support, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
+stream-dlp downloads YouTube videos, with experimental TikTok, X/Twitter, Facebook and Instagram support and an experimental mode for other sites, makes GIFs from local videos, and hands videos to Streamable. Windows is the established release; the Apple Silicon Mac version is experimental (see [Mac](#mac)). This guide describes Windows unless otherwise stated.
 
 ## Install
 
@@ -60,9 +60,17 @@ Paste an individual public Reel, watch link, account video or video share link (
 
 Paste a direct Reel (`/reel/…`) or feed post (`/p/…`). For a carousel, choose one video before choosing its quality. Silent videos keep their original video stream. Photo-only posts, stories, profiles and share redirects are outside this workflow. If Instagram asks for sign-in, select **Connect Instagram session…**, import an Instagram cookie export, and retry. Anonymous access can vary between requests.
 
+## Other sites (experimental)
+
+Paste a public `http` or `https` link from any other site, either a page with a video or a video file, and choose **Find video**. The page shows **Other sites (experimental)** under the link. stream-dlp then tries the download tools' readers for hundreds of sites and their fallback page reader, which finds plain video files, videos embedded in a page, and HLS or DASH streams. This is an attempt, not a promise: many sites do not work, and a site that works today can stop working.
+
+When a page holds several videos, stream-dlp lists the first 25 and you choose one; it never downloads a whole page or playlist. Live streams, audio-only results, DRM-protected videos and videos that need an account are refused with a message saying so.
+
+Signing in is not available for other sites: no session, cookie export or Firefox import is used, even when you have connected one for another platform. Links to local or private network addresses (such as `localhost`, a router or a NAS) are refused, and so are links that redirect to one. A link that redirects to YouTube, TikTok, X, Facebook or Instagram is refused too; paste that platform's link itself. File names start with the site's name and address, followed by the title.
+
 ## Sessions for TikTok, X, Facebook and Instagram
 
-Paste the post link, then choose **Connect TikTok session…**, **Connect X / Twitter session…**, **Connect Facebook session…** or **Connect Instagram session…**. Import a Netscape-format cookie export for that platform. TikTok accepts cookies under `tiktok.com`. X accepts `x.com` and `twitter.com`. Facebook accepts `facebook.com` and its subdomains. Instagram accepts `instagram.com` and its subdomains. Each platform has its own in-memory session for inspection and downloading. TikTok and Facebook share links resolve anonymously. To disconnect one platform, paste one of its links, open **Manage**, and choose **Remove session**. Signed-in access to restricted posts is unverified.
+Paste the post link, then choose **Connect TikTok session…**, **Connect X / Twitter session…**, **Connect Facebook session…** or **Connect Instagram session…**. Import a Netscape-format cookie export for that platform. TikTok accepts cookies under `tiktok.com`. X accepts `x.com` and `twitter.com`. Facebook accepts `facebook.com` and its subdomains. Instagram accepts `instagram.com` and its subdomains. Each platform has its own in-memory session for inspection and downloading. TikTok and Facebook share links resolve anonymously. To disconnect one platform, paste one of its links, open **Manage**, and choose **Remove session**. Signed-in access to restricted posts is unverified. Links to [other sites](#other-sites-experimental) never use a session.
 
 ## When YouTube asks you to verify
 

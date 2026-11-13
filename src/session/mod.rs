@@ -75,6 +75,8 @@ impl SessionCookies {
                 Source::Facebook => &["facebook.com"],
                 Source::Instagram => &["instagram.com"],
                 Source::X => &["x.com", "twitter.com"],
+                // Other sites never take a session, so no cookie belongs to them.
+                Source::Other => &[],
             };
             if !domains.iter().any(|base| {
                 domain == *base

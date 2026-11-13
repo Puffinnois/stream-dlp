@@ -46,6 +46,10 @@ impl App {
                 self.error = Some(error.user_message());
             }
             Ok(link) => {
+                if link.source == engine::Source::Other {
+                    // Other sites never take a session, so there is nothing to connect.
+                    self.session_expanded = false;
+                }
                 self.refresh_used = false;
                 self.retry_download = false;
                 self.loaded_link = Some(link.clone());
@@ -154,10 +158,10 @@ impl App {
         self.destination = Some(folder.clone());
         self.error = None;
         self.progress = 0.;
-        self.status = format!(
-            "Connecting to {}…",
-            self.video.as_ref().unwrap().source.label()
-        );
+        self.status = match self.video.as_ref().unwrap().source {
+            engine::Source::Other => "Connecting to the site…".into(),
+            source => format!("Connecting to {}…", source.label()),
+        };
         self.log.clear();
         self.phase = Phase::Downloading;
         self.download_cancel = Arc::new(AtomicBool::new(false));
@@ -201,7 +205,7 @@ impl App {
         page_header(
             ui,
             "Download",
-            "Save a YouTube, TikTok, X, Facebook or Instagram video in the quality you choose.",
+            "Save a video from YouTube, TikTok, X, Facebook, Instagram or another site in the quality you choose.",
         );
         card(ui, |ui| {
             section_title(ui, "Video link");
@@ -213,9 +217,7 @@ impl App {
                 let response = ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.link)
-                        .hint_text(
-                            "Paste a YouTube, TikTok, X, Facebook or Instagram video/share link",
-                        )
+                        .hint_text("Paste a video link from YouTube, TikTok, X, Facebook, Instagram or another site")
                         .desired_width(width)
                         .margin(Vec2::new(SPACE_M, 9.)),
                 );
@@ -232,9 +234,20 @@ impl App {
                     self.inspect();
                 }
             });
+            let other_site = engine::parse_link(&self.link)
+                .is_ok_and(|link| link.source == engine::Source::Other);
+            if other_site {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(semibold(engine::Source::Other.label()).color(WARNING));
+                    ui.label(caption(
+                        "Compatibility varies by site, and signing in is not available.",
+                    ));
+                });
+                return;
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.label(caption(
-                    "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental)",
+                    "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental) · Other sites (experimental)",
                 ));
                 if ui
                     .add_enabled(
@@ -274,16 +287,15 @@ impl App {
             ui.add_space(SPACE_M);
             error_banner(ui, |ui| {
                 ui.colored_label(DANGER, error);
-                if self
-                    .loaded_link
-                    .as_ref()
-                    .is_some_and(|link| engine::parse_link(&self.link).as_ref() == Ok(link))
-                    && ui
-                        .add_enabled(
-                            !self.download_busy(),
-                            egui::Button::new("Connect session / retry help"),
-                        )
-                        .clicked()
+                if self.loaded_link.as_ref().is_some_and(|link| {
+                    link.source != engine::Source::Other
+                        && engine::parse_link(&self.link).as_ref() == Ok(link)
+                }) && ui
+                    .add_enabled(
+                        !self.download_busy(),
+                        egui::Button::new("Connect session / retry help"),
+                    )
+                    .clicked()
                 {
                     self.session_expanded = true;
                 }
