@@ -407,6 +407,32 @@ mod tests {
     }
 
     #[test]
+    fn the_session_link_names_the_pasted_platform_or_hides() {
+        let mut app = App::with_profiles(Vec::new());
+        for (link, source) in [
+            ("", Some(engine::Source::YouTube)),
+            ("  ", Some(engine::Source::YouTube)),
+            // A TikTok profile is refused by TikTok's rules but still offers its session.
+            (
+                "https://www.tiktok.com/@creator",
+                Some(engine::Source::TikTok),
+            ),
+            ("instagram.com/p/Example/", Some(engine::Source::Instagram)),
+            ("not a link", None),
+            ("https://media.example/clip.mp4", None),
+            ("https://youtube.com.example/watch?v=abcdefghijk", None),
+        ] {
+            app.link = link.into();
+            assert_eq!(app.session_source(), source, "{link:?}");
+        }
+        // An expanded panel for a link without a platform does not hide the empty state.
+        app.session_expanded = true;
+        assert!(app.show_empty_state());
+        app.link = "x.com/example/status/1".into();
+        assert!(!app.show_empty_state());
+    }
+
+    #[test]
     fn the_empty_state_gives_way_to_errors_and_the_session_panel() {
         let mut app = App::with_profiles(Vec::new());
         assert!(app.show_empty_state());

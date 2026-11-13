@@ -96,10 +96,15 @@ impl ExportStep {
 }
 
 impl App {
-    pub(super) fn session_source(&self) -> engine::Source {
-        engine::parse_link(&self.link)
-            .map(|link| link.source)
-            .unwrap_or_default()
+    /// The platform whose session the Download page offers: the one owning the pasted host,
+    /// even when its rules refuse the link; YouTube while the field is empty; `None` when the
+    /// text is not a link or names no platform, which hides the session link.
+    pub(super) fn session_source(&self) -> Option<engine::Source> {
+        if self.link.trim().is_empty() {
+            Some(engine::Source::default())
+        } else {
+            engine::named_platform(&self.link)
+        }
     }
 
     pub(super) fn poll_session(&mut self) {
@@ -162,11 +167,13 @@ impl App {
         }
     }
     fn import_session(&mut self, folder: PathBuf) {
+        let Some(source) = self.session_source() else {
+            return;
+        };
         self.refresh_used = false;
         self.session_loading = true;
         self.import_cancel = Arc::new(AtomicBool::new(false));
         self.session_error = None;
-        let source = self.session_source();
         let tx = self.session_tx.clone();
         std::thread::spawn(move || {
             let result = rfd::FileDialog::new()
@@ -264,11 +271,10 @@ impl App {
         });
     }
     pub(super) fn session_panel(&mut self, ui: &mut egui::Ui) {
-        let source = self.session_source();
         // Other sites never take a session: no import, export guide or Firefox refresh.
-        if !self.session_expanded || source == engine::Source::Other {
+        let Some(source) = self.session_source().filter(|_| self.session_expanded) else {
             return;
-        }
+        };
         ui.add_space(SPACE_M);
         card(ui, |ui| {
             ui.horizontal(|ui| {

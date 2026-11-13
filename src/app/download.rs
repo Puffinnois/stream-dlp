@@ -255,16 +255,18 @@ impl App {
                 ui.label(caption(
                     "YouTube videos and Shorts · Public TikTok, X, Facebook and Instagram video links (experimental) · Other sites (experimental)",
                 ));
-                if ui
-                    .add_enabled(
-                        !self.download_busy(),
-                        egui::Link::new(if self.sessions.contains_key(&self.session_source()) {
-                            format!("{} session loaded · Manage", self.session_source().label())
-                        } else {
-                            format!("Connect {} session…", self.session_source().label())
-                        }),
-                    )
-                    .clicked()
+                // Hidden when the text is not a link or its site is not a named platform.
+                if let Some(source) = self.session_source()
+                    && ui
+                        .add_enabled(
+                            !self.download_busy(),
+                            egui::Link::new(if self.sessions.contains_key(&source) {
+                                format!("{} session loaded · Manage", source.label())
+                            } else {
+                                format!("Connect {} session…", source.label())
+                            }),
+                        )
+                        .clicked()
                 {
                     self.session_expanded = true;
                 }
@@ -377,7 +379,8 @@ impl App {
     }
     /// The welcome only makes sense while nothing else is on the page.
     pub(super) fn show_empty_state(&self) -> bool {
-        self.error.is_none() && !self.session_expanded
+        // An expanded session panel stays hidden while the link names no platform.
+        self.error.is_none() && !(self.session_expanded && self.session_source().is_some())
     }
     fn video_card(&mut self, ui: &mut egui::Ui) {
         let video = self.video.as_ref().unwrap().clone();
