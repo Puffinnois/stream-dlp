@@ -53,6 +53,8 @@ pub enum Site {
     X,
     Facebook,
     Instagram,
+    /// Any other site. Only this word is sent: never its host, extractor or link.
+    Other,
 }
 
 impl From<Source> for Site {
@@ -63,6 +65,7 @@ impl From<Source> for Site {
             Source::X => Self::X,
             Source::Facebook => Self::Facebook,
             Source::Instagram => Self::Instagram,
+            Source::Other => Self::Other,
         }
     }
 }
@@ -400,6 +403,21 @@ mod tests {
         let plain = Context::new(Page::Settings, None, None, None);
         let json = serde_json::to_value(&plain).unwrap();
         assert_eq!(json.as_object().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn another_site_is_only_the_word_other() {
+        let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
+        let context = Context::new(
+            Page::Download,
+            Some(Phase::Idle),
+            Some(link.source.into()),
+            Some(ErrorKind::Unsupported),
+        );
+        let json = serde_json::to_string(&context).unwrap();
+        assert!(json.contains(r#""source":"other""#));
+        assert!(!json.contains("example") && !json.contains("watch"));
+        assert!(context.place().contains(" · other · "));
     }
 
     #[test]

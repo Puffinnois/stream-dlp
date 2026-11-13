@@ -1,5 +1,8 @@
 //! Runs yt-dlp to inspect a link and to download one of its formats.
-use super::{CompletedDownload, EngineError, Format, Link, MediaIdentity, Video, media::parse_for};
+use super::{
+    CompletedDownload, EngineError, Format, Link, MediaIdentity, Source, Video, media::parse_for,
+    sources::other,
+};
 use crate::{process, session::SessionCookies};
 use std::{
     collections::VecDeque,
@@ -8,6 +11,9 @@ use std::{
     sync::{Arc, atomic::AtomicBool, mpsc::Sender},
     time::Duration,
 };
+
+/// The most metadata yt-dlp may print while inspecting a link to another site (each stream).
+const OTHER_METADATA_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub enum Event {
     Loaded(Video),
@@ -60,35 +66,10 @@ pub fn inspect(
     tx: Sender<Event>,
     cancel: Arc<AtomicBool>,
 ) {
-    let result = (|| {
-        let Some(link) = link.resolve(&cancel)? else {
-            return Ok(None);
-        };
-        let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
-        if link.source == super::Source::Instagram {
-            // Keep photo entries without formats from aborting inspection of a mixed carousel.
-            cmd.arg("--ignore-no-formats-error");
-        }
-        cmd.args(["--dump-single-json", "--skip-download", "--", &link.url]);
-        let output = match process::Helper::new(&mut cmd, &cancel)
-            .time_limit(Duration::from_secs(150))
-            .output()
-        {
-            Ok(output) => output,
-            Err(process::Error::Cancelled) => return Ok(None),
-            Err(process::Error::TimedOut) => return Err(EngineError::TimedOut(link.source)),
-            Err(process::Error::Start(e)) => {
-                return Err(EngineError::Helper(format!("Could not start yt-dlp: {e}")));
-            }
-            Err(error) => return Err(EngineError::Helper(error.to_string())),
-        };
-        if !output.status.success() {
-            return Err(link
-                .source
-                .explain(&String::from_utf8_lossy(&output.stderr)));
-        }
-        inspection_event(&String::from_utf8_lossy(&output.stdout), &link).map(Some)
-    })();
+    let result = link.resolve(&cancel).and_then(|link| match link {
+        Some(link) => inspect_resolved(&link, session.as_ref(), &cancel),
+        None => Ok(None),
+    });
     let _ = tx.send(match result {
         Ok(Some(event)) => event,
         Ok(None) => Event::Cancelled,
@@ -96,8 +77,60 @@ pub fn inspect(
     });
 }
 
+/// The yt-dlp command that inspects `link`, with the session file it reads.
+fn inspect_command(
+    link: &Link,
+    session: Option<&SessionCookies>,
+) -> Result<(Command, Option<tempfile::NamedTempFile>), EngineError> {
+    let (mut cmd, session_file) = command_for(link, session)?;
+    if link.source == Source::Instagram {
+        // Keep photo entries without formats from aborting inspection of a mixed carousel.
+        cmd.arg("--ignore-no-formats-error");
+    }
+    if link.source == Source::Other {
+        // A page with many videos: read only the first ones.
+        cmd.arg("--playlist-items")
+            .arg(format!("1:{}", other::MAX_ENTRIES));
+    }
+    cmd.args(["--dump-single-json", "--skip-download", "--", &link.url]);
+    Ok((cmd, session_file))
+}
+
+/// Inspects a link whose share link or redirects are already resolved. `None` when cancelled.
+fn inspect_resolved(
+    link: &Link,
+    session: Option<&SessionCookies>,
+    cancel: &AtomicBool,
+) -> Result<Option<Event>, EngineError> {
+    let (mut cmd, _session_file) = inspect_command(link, session)?;
+    let mut helper = process::Helper::new(&mut cmd, cancel).time_limit(Duration::from_secs(150));
+    if link.source == Source::Other {
+        helper = helper.output_limit(OTHER_METADATA_LIMIT);
+    }
+    let output = match helper.output() {
+        Ok(output) => output,
+        Err(process::Error::Cancelled) => return Ok(None),
+        Err(process::Error::TimedOut) => return Err(EngineError::TimedOut(link.source)),
+        Err(process::Error::Start(e)) => {
+            return Err(EngineError::Helper(format!("Could not start yt-dlp: {e}")));
+        }
+        Err(process::Error::TooMuchOutput) if link.source == Source::Other => {
+            return Err(EngineError::Unsupported(
+                "This page lists too much to read. Paste the link to a single video.".into(),
+            ));
+        }
+        Err(error) => return Err(EngineError::Helper(error.to_string())),
+    };
+    if !output.status.success() {
+        return Err(link
+            .source
+            .explain(&String::from_utf8_lossy(&output.stderr)));
+    }
+    inspection_event(&String::from_utf8_lossy(&output.stdout), link).map(Some)
+}
+
 fn inspection_event(json: &str, link: &Link) -> Result<Event, EngineError> {
-    if link.source == super::Source::Instagram {
+    if link.source == Source::Instagram {
         let post: serde_json::Value = serde_json::from_str(json)
             .map_err(|_| EngineError::Helper("Could not read Instagram post metadata.".into()))?;
         if let Some(entries) = post["entries"].as_array() {
@@ -150,10 +183,57 @@ fn inspection_event(json: &str, link: &Link) -> Result<Event, EngineError> {
             return Ok(Event::Entries(videos));
         }
     }
+    if link.source == Source::Other {
+        let page: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| EngineError::Helper(other::HELPER.into()))?;
+        if let Some(entries) = page["entries"].as_array() {
+            // Entries that are not a downloadable video are skipped; when none is left, the
+            // first reason is shown.
+            let mut videos = Vec::new();
+            let mut first_error = None;
+            for (index, entry) in entries.iter().enumerate().take(other::MAX_ENTRIES) {
+                if entry.is_null() {
+                    continue;
+                }
+                match parse_for(&entry.to_string(), link) {
+                    Ok(mut video) => {
+                        video.entry_index = Some(index + 1);
+                        videos.push(video);
+                    }
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            return match videos.len() {
+                0 => Err(first_error.unwrap_or(EngineError::MissingVideo(Source::Other))),
+                1 => Ok(Event::Loaded(videos.remove(0))),
+                _ => Ok(Event::Entries(videos)),
+            };
+        }
+    }
     parse_for(json, link).map(Event::Loaded)
 }
 
 pub fn download(
+    media: MediaIdentity,
+    format: Format,
+    folder: PathBuf,
+    session: Option<SessionCookies>,
+    tx: Sender<Event>,
+    cancel: Arc<AtomicBool>,
+) {
+    // DNS answers can change after inspection: check another site's destination again.
+    if media.source == Source::Other
+        && let Err(error) = other::recheck(&media.source_url)
+    {
+        let _ = tx.send(Event::Failed(error));
+        return;
+    }
+    run_download(media, format, folder, session, tx, cancel);
+}
+
+fn run_download(
     media: MediaIdentity,
     format: Format,
     folder: PathBuf,
@@ -188,6 +268,17 @@ pub fn download(
                 .arg(media.entry_index.unwrap_or(1).to_string())
                 .arg("--match-filter")
                 .arg(format!("id = '{id}'"));
+        }
+        if link.source == Source::Other {
+            // Never a whole collection: only the chosen entry, by position and, when its ID is
+            // safe to quote, by ID.
+            cmd.arg("--playlist-items")
+                .arg(media.entry_index.unwrap_or(1).to_string());
+            if media.entry_index.is_some()
+                && let Some(id) = media.id.as_deref().filter(|id| other::filter_safe_id(id))
+            {
+                cmd.arg("--match-filter").arg(format!("id = '{id}'"));
+            }
         }
         cmd.args(["--newline", "--progress", "--no-simulate", "--no-overwrites", "--windows-filenames", "--trim-filenames", "180", "--progress-template", "download:__PROGRESS__%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s", "--print", "after_move:__FILE__%(filepath)s", "--format"])
             .arg(format.selector()).arg("--paths").arg(&folder)
@@ -290,6 +381,341 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect()
+    }
+
+    #[test]
+    fn other_links_never_receive_any_platform_session() {
+        let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
+        assert_eq!(link.source, Source::Other);
+        assert!(!link.takes_session());
+        for (source, domain) in [
+            (Source::YouTube, ".youtube.com"),
+            (Source::TikTok, ".tiktok.com"),
+            (Source::X, ".x.com"),
+            (Source::Facebook, ".facebook.com"),
+            (Source::Instagram, ".instagram.com"),
+        ] {
+            let jar = SessionCookies::parse_for(
+                &format!(
+                    "# Netscape HTTP Cookie File
+{domain}	TRUE	/	TRUE	0	TEST	fake-test-value
+"
+                ),
+                source,
+            )
+            .unwrap();
+            for (cmd, file) in [
+                command_for(&link, Some(&jar)).unwrap(),
+                inspect_command(&link, Some(&jar)).unwrap(),
+            ] {
+                let args = arguments(&cmd);
+                assert!(file.is_none(), "{source:?}");
+                assert!(!args.iter().any(|a| a == "--cookies"), "{source:?}");
+                assert!(!args.iter().any(|a| a.contains("fake-test-value")));
+                assert!(args.iter().any(|a| a == "--no-cookies"));
+                assert!(args.iter().any(|a| a == "--no-cookies-from-browser"));
+            }
+        }
+        // No cookie can be imported for other sites in the first place.
+        assert!(
+            SessionCookies::parse_for(
+                "# Netscape HTTP Cookie File
+.example.test	TRUE	/	TRUE	0	TEST	fake
+",
+                Source::Other,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn other_inspection_is_unrestricted_but_capped_and_local_files_stay_closed() {
+        let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
+        let (cmd, _) = inspect_command(&link, None).unwrap();
+        let args = arguments(&cmd);
+        assert!(!args.iter().any(|a| a == "--use-extractors"));
+        assert!(!args.iter().any(|a| a == "--enable-file-urls"));
+        assert!(
+            args.windows(2)
+                .any(|a| a[0] == "--playlist-items" && a[1] == "1:25")
+        );
+        assert!(args.windows(2).any(|a| a[0] == "--downloader-args"
+            && a[1] == "ffmpeg_i:-protocol_whitelist http,https,tcp,tls,crypto"));
+        assert_eq!(&args[args.len() - 2..], ["--", link.url.as_str()]);
+    }
+
+    #[test]
+    fn other_pages_offer_at_most_25_videos_and_skip_what_is_not_one() {
+        let link = crate::engine::parse_link("https://videos.example.test/gallery").unwrap();
+        let clip = |id: usize| {
+            serde_json::json!({"id": format!("clip{id}"), "extractor_key": "Generic",
+                "formats": [{"format_id": "0", "protocol": "https", "ext": "mp4"}]})
+        };
+        let mut entries: Vec<_> = (1..=30).map(clip).collect();
+        entries[1]["formats"] =
+            serde_json::json!([{"format_id": "a", "protocol": "https", "ext": "mp3"}]);
+        entries[2]["live_status"] = "is_live".into();
+        entries[3] = serde_json::Value::Null;
+        let page = serde_json::json!({"_type": "playlist", "extractor_key": "Generic", "entries": entries.clone()});
+        let Event::Entries(videos) = inspection_event(&page.to_string(), &link).unwrap() else {
+            panic!("expected a chooser");
+        };
+        assert_eq!(videos.len(), 22);
+        assert_eq!(videos[0].identity().entry_index, Some(1));
+        assert_eq!(videos[1].identity().entry_index, Some(5));
+        assert_eq!(videos.last().unwrap().identity().entry_index, Some(25));
+        assert!(videos.iter().all(|v| v.source == Source::Other));
+        // One video on the page is offered directly, keeping its position.
+        let single = serde_json::json!({"_type": "playlist", "entries": [null, clip(9)]});
+        let Event::Loaded(video) = inspection_event(&single.to_string(), &link).unwrap() else {
+            panic!("expected one video");
+        };
+        assert_eq!(video.identity().entry_index, Some(2));
+        // Nothing usable: the first reason is shown.
+        let audio = serde_json::json!({"_type": "playlist", "entries": [entries[1]]});
+        assert!(matches!(
+            inspection_event(&audio.to_string(), &link),
+            Err(EngineError::Unsupported(message)) if message.contains("audio only")
+        ));
+        let empty = serde_json::json!({"_type": "playlist", "entries": []});
+        assert!(matches!(
+            inspection_event(&empty.to_string(), &link),
+            Err(EngineError::MissingVideo(Source::Other))
+        ));
+        // Nested collections are not opened.
+        let nested = serde_json::json!({"_type": "playlist", "entries": [
+            {"_type": "playlist", "entries": [clip(1)]}
+        ]});
+        assert!(inspection_event(&nested.to_string(), &link).is_err());
+    }
+
+    #[test]
+    fn other_file_names_start_with_the_site_and_keep_the_id() {
+        let template = Source::Other.output_template();
+        assert!(template.starts_with("%(extractor_key).30s %(webpage_url_domain).60s "));
+        assert!(template.ends_with("[%(id)s] [%(format_id)s].%(ext)s"));
+        for source in [
+            Source::YouTube,
+            Source::TikTok,
+            Source::X,
+            Source::Facebook,
+            Source::Instagram,
+        ] {
+            assert_ne!(source.output_template(), template);
+        }
+    }
+
+    /// Serves the files in `root` on localhost until `done` is set: the address and the server.
+    fn serve_folder(
+        root: PathBuf,
+        done: Arc<AtomicBool>,
+    ) -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+        use std::{io::Write, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            while !done.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
+                        let mut request = Vec::new();
+                        while !request.windows(4).any(|w| w == b"\r\n\r\n") && request.len() < 16384
+                        {
+                            let mut chunk = [0; 4096];
+                            let n = stream.read(&mut chunk).unwrap_or(0);
+                            if n == 0 {
+                                break;
+                            }
+                            request.extend_from_slice(&chunk[..n]);
+                        }
+                        let text = String::from_utf8_lossy(&request);
+                        assert!(
+                            !text.contains("fake-test-value"),
+                            "a session reached another site"
+                        );
+                        let name = text
+                            .split_whitespace()
+                            .nth(1)
+                            .unwrap_or("/")
+                            .trim_start_matches('/')
+                            .split('?')
+                            .next()
+                            .unwrap_or("")
+                            .to_owned();
+                        let safe =
+                            !name.contains("..") && !name.contains('/') && !name.contains('\\');
+                        let Some(bytes) =
+                            safe.then(|| std::fs::read(root.join(&name)).ok()).flatten()
+                        else {
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            );
+                            continue;
+                        };
+                        let mime = match name.rsplit('.').next() {
+                            Some("html") => "text/html",
+                            Some("m3u8") => "application/vnd.apple.mpegurl",
+                            Some("ts") => "video/mp2t",
+                            _ => "video/mp4",
+                        };
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            bytes.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes());
+                        if !text.starts_with("HEAD ") {
+                            let _ = stream.write_all(&bytes);
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        (address, server)
+    }
+
+    /// Other sites through the real helpers: a direct video file, a page with an embedded
+    /// `<video>` and an HLS manifest, served from localhost. The pasted-link checks, which refuse
+    /// localhost, are skipped by starting after them, as the YouTube local test does.
+    #[test]
+    #[ignore = "requires installed FFmpeg and yt-dlp, plus localhost sockets"]
+    fn other_sites_local_fixtures_inspect_and_download() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("test-output")
+            .join(format!("other-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ffmpeg = |extra: &[&str]| {
+            let made = isolate(
+                Command::new(crate::tools::path("ffmpeg"))
+                    .current_dir(&root)
+                    .args([
+                        "-y",
+                        "-v",
+                        "error",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "color=c=blue:s=160x90:r=10:d=2",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "sine=frequency=440:duration=2",
+                        "-c:v",
+                        "mpeg4",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-c:a",
+                        "aac",
+                        "-shortest",
+                    ])
+                    .args(extra),
+            )
+            .output()
+            .unwrap();
+            assert!(
+                made.status.success(),
+                "{}",
+                String::from_utf8_lossy(&made.stderr)
+            );
+        };
+        ffmpeg(&["clip.mp4"]);
+        // MPEG-4 Part 2 in MPEG-TS does not survive yt-dlp's MP4 fixup; H.264 does.
+        ffmpeg(&[
+            "-c:v",
+            "libx264",
+            "-f",
+            "hls",
+            "-hls_time",
+            "1",
+            "-hls_list_size",
+            "0",
+            "stream.m3u8",
+        ]);
+        std::fs::write(
+            root.join("page.html"),
+            "<!doctype html><html><head><title>Fixture page</title></head><body>\
+             <video controls src=\"clip.mp4\"></video></body></html>",
+        )
+        .unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let (address, server) = serve_folder(root.clone(), done.clone());
+        let mut saved = Vec::new();
+        for name in ["clip.mp4", "page.html", "stream.m3u8"] {
+            let link = Link {
+                source: Source::Other,
+                url: format!("http://{address}/{name}?fixture=1"),
+            };
+            let video = match inspect_resolved(
+                &link,
+                Some(&crate::session::fake_session()),
+                &AtomicBool::new(false),
+            ) {
+                Ok(Some(Event::Loaded(video))) => video,
+                Ok(Some(Event::Entries(mut videos))) => videos.remove(0),
+                Ok(_) => panic!("{name}: no video"),
+                Err(error) => {
+                    done.store(true, Ordering::Relaxed);
+                    panic!("{name}: {error:?}");
+                }
+            };
+            assert_eq!(video.source, Source::Other);
+            let format = video.formats.iter().find(|f| f.video()).unwrap().clone();
+            let folder = root.join(name.replace('.', "-"));
+            std::fs::create_dir_all(&folder).unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            run_download(
+                video.identity(),
+                format,
+                folder,
+                Some(crate::session::fake_session()),
+                tx,
+                Arc::new(AtomicBool::new(false)),
+            );
+            let path = rx
+                .into_iter()
+                .find_map(|event| match event {
+                    Event::Complete(done) => Some(done.path),
+                    Event::Failed(error) => panic!("{name}: {error:?}"),
+                    _ => None,
+                })
+                .expect("no file");
+            let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
+            // The extractor (Generic, or HTML5MediaEmbed for the page), then the page's domain.
+            assert!(file_name.contains(" 127.0.0.1"), "{file_name}");
+            let probe = isolate(
+                Command::new(crate::tools::path("ffprobe"))
+                    .args([
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "stream=codec_type",
+                        "-of",
+                        "json",
+                    ])
+                    .arg(&path),
+            )
+            .output()
+            .unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+            assert!(
+                json["streams"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|s| s["codec_type"] == "video")
+            );
+            saved.push(file_name);
+        }
+        done.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+        println!("Other-site fixtures saved: {saved:?}");
     }
 
     #[test]

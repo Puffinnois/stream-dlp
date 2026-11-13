@@ -135,6 +135,8 @@ pub struct Video {
     pub formats: Vec<Format>,
     #[serde(default)]
     pub is_live: bool,
+    /// yt-dlp's `live_status`: `is_live`, `is_upcoming`, `was_live`, `not_live`…
+    pub live_status: Option<String>,
     /// yt-dlp's `_type`: `video`, or a playlist or other collection.
     #[serde(rename = "_type")]
     kind: Option<String>,
@@ -262,6 +264,9 @@ fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
                 && f.vcodec.as_deref() != Some("none")
                 && (f.format_id == "http" || f.format_id.starts_with("http-"));
         }
+    }
+    if source == Source::Other {
+        super::sources::other::prepare(&mut video)?;
     }
     if video.collection || video.kind.as_deref().is_some_and(|kind| kind != "video") {
         return Err(EngineError::Unsupported(

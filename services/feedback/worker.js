@@ -28,7 +28,7 @@ const CONTEXT = {
   page: new Set(["download", "videos", "gif", "settings"]),
   os: new Set(["windows", "macos", "linux"]),
   phase: new Set(["idle", "inspecting", "choosing", "picking", "downloading", "done"]),
-  source: new Set(["youtube", "tiktok", "x", "facebook", "instagram"]),
+  source: new Set(["youtube", "tiktok", "x", "facebook", "instagram", "other"]),
   error: new Set([
     "unsupported", "sign_in", "rate_limited", "unavailable", "restricted", "network",
     "timed_out", "expired_session", "missing_video", "drm", "helper", "other",

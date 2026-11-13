@@ -105,6 +105,41 @@ fn answer(mut response: ureq::http::Response<ureq::Body>) -> Result<(u16, String
     Ok((status, body))
 }
 
+/// Why [`location`] got no answer.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProbeError {
+    TimedOut,
+    Failed,
+}
+
+/// One anonymous GET to a page that is not followed when it redirects: the `Location` of a
+/// redirect, or `None` for any other answer, error statuses included (a site may refuse this
+/// client and still work for yt-dlp). The body is not read. Used to check every hop of a link
+/// to another site before a helper opens it.
+pub fn location(url: &str, timeout: Duration) -> Result<Option<String>, ProbeError> {
+    let response = agent()
+        .get(url)
+        .config()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .timeout_global(Some(timeout))
+        .build()
+        .call()
+        .map_err(|error| match error {
+            ureq::Error::Timeout(_) => ProbeError::TimedOut,
+            _ => ProbeError::Failed,
+        })?;
+    if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
+        return Ok(None);
+    }
+    response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .map(|location| Some(location.to_owned()))
+        .ok_or(ProbeError::Failed)
+}
+
 /// A small file (up to 10 MB), such as a license notice.
 pub fn get(url: &str) -> Result<Vec<u8>, String> {
     agent()
@@ -172,6 +207,15 @@ mod tests {
 
     /// Serves `body` once on localhost and returns its URL.
     fn serve(body: &'static [u8]) -> (String, std::thread::JoinHandle<()>) {
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        serve_raw([head.as_bytes(), body].concat())
+    }
+
+    /// Answers one request on localhost with `response` and returns the URL.
+    fn serve_raw(response: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/file", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
@@ -180,14 +224,36 @@ mod tests {
                 .set_read_timeout(Some(Duration::from_secs(10)))
                 .unwrap();
             let _ = stream.read(&mut [0; 4096]).unwrap();
-            let head = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            stream.write_all(head.as_bytes()).unwrap();
-            stream.write_all(body).unwrap();
+            stream.write_all(&response).unwrap();
         });
         (url, server)
+    }
+
+    #[test]
+    fn location_reports_a_redirect_without_following_it() {
+        let end = "Content-Length: 0\r\nConnection: close\r\n\r\n";
+        for (status, header, expected) in [
+            ("302 Found", "Location: /next?a=1\r\n", Some("/next?a=1")),
+            (
+                "308 Permanent Redirect",
+                "Location: https://other.example.test/\r\n",
+                Some("https://other.example.test/"),
+            ),
+            ("200 OK", "", None),
+            ("403 Forbidden", "", None),
+        ] {
+            let (url, server) =
+                serve_raw(format!("HTTP/1.1 {status}\r\n{header}{end}").into_bytes());
+            let answer = location(&url, Duration::from_secs(10));
+            assert_eq!(answer, Ok(expected.map(str::to_owned)), "{status}");
+            server.join().unwrap();
+        }
+        let (url, server) = serve_raw(format!("HTTP/1.1 302 Found\r\n{end}").into_bytes());
+        assert_eq!(
+            location(&url, Duration::from_secs(10)),
+            Err(ProbeError::Failed)
+        );
+        server.join().unwrap();
     }
 
     #[test]

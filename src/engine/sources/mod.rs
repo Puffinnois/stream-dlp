@@ -2,6 +2,7 @@
 //! yt-dlp's errors are explained. A new site is a new module here.
 mod facebook;
 pub(super) mod instagram;
+pub(super) mod other;
 mod tiktok;
 mod x;
 mod youtube;
@@ -17,6 +18,8 @@ pub enum Source {
     X,
     Facebook,
     Instagram,
+    /// Any other public site, tried through yt-dlp's other extractors (experimental).
+    Other,
 }
 
 impl Source {
@@ -27,6 +30,20 @@ impl Source {
             Self::Instagram => "Instagram",
             Self::Facebook => "Facebook",
             Self::X => "X / Twitter",
+            Self::Other => "Other sites (experimental)",
+        }
+    }
+
+    /// The domains a named platform owns, and that stay with it even when its rules refuse a
+    /// link there. `None` for Other.
+    fn domains(self) -> &'static [&'static str] {
+        match self {
+            Self::YouTube => &["youtube.com", "youtu.be", "youtube-nocookie.com"],
+            Self::TikTok => &["tiktok.com"],
+            Self::X => &["x.com", "twitter.com"],
+            Self::Facebook => &["facebook.com", "fb.com"],
+            Self::Instagram => &["instagram.com", "instagr.am"],
+            Self::Other => &[],
         }
     }
 
@@ -38,6 +55,15 @@ impl Source {
             Self::YouTube => &[],
             Self::TikTok => &["--use-extractors", "TikTok"],
             Self::X => &["--use-extractors", "Twitter", "--yes-playlist"],
+            // No extractor restriction: any of yt-dlp's other extractors or its generic one may
+            // answer. Cookies stay off, and FFmpeg, when yt-dlp hands it a stream, may only open
+            // network protocols, never local files or other schemes.
+            Self::Other => &[
+                "--no-cookies",
+                "--no-cookies-from-browser",
+                "--downloader-args",
+                "ffmpeg_i:-protocol_whitelist http,https,tcp,tls,crypto",
+            ],
         }
     }
 
@@ -48,6 +74,11 @@ impl Source {
             Self::Facebook => "Facebook %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
             Self::Instagram => "Instagram %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
             Self::X => "X %(title).140s [%(id)s] [%(format_id)s].%(ext)s",
+            // The extractor names the site; the generic one also adds the page's domain, since
+            // its IDs come from file names that many sites share.
+            Self::Other => {
+                "%(extractor_key).30s %(webpage_url_domain).60s %(title).100s [%(id)s] [%(format_id)s].%(ext)s"
+            }
         }
     }
 
@@ -59,12 +90,16 @@ impl Source {
             Self::X => x::check(video),
             Self::Instagram => instagram::check(video),
             Self::Facebook => facebook::check(video),
+            Self::Other => other::check(video),
         }
     }
 
     /// Explains a failed yt-dlp run from its error output.
     pub(super) fn explain(self, errors: &str) -> EngineError {
         let lower = errors.to_lowercase();
+        if self == Self::Other {
+            return other::explain(&lower);
+        }
         let has = |patterns: &[&str]| patterns.iter().any(|pattern| lower.contains(pattern));
         if has(&["drm protected", "drm-protected"]) {
             EngineError::Drm(self)
@@ -145,7 +180,8 @@ pub struct Link {
 impl Link {
     /// Revalidate the exact destination before attaching a platform cookie jar.
     pub(super) fn takes_session(&self) -> bool {
-        parse_link(&self.url).is_ok_and(|canonical| canonical == *self)
+        self.source != Source::Other
+            && parse_link(&self.url).is_ok_and(|canonical| canonical == *self)
             && !(self.source == Source::Facebook && facebook::is_share(&self.url))
             && !(self.source == Source::TikTok && tiktok::is_short(&self.url))
     }
@@ -156,6 +192,8 @@ impl Link {
             tiktok::resolve(&self.url, cancel)
         } else if self.source == Source::Facebook && facebook::is_share(&self.url) {
             facebook::resolve(&self.url, cancel)
+        } else if self.source == Source::Other {
+            other::resolve(&self.url, cancel)
         } else {
             Ok(Some(self))
         }
@@ -171,9 +209,8 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
         format!("https://{input}")
     };
     let unsupported = |message: &str| EngineError::Unsupported(message.into());
-    let url = url::Url::parse(&full).map_err(|_| {
-        unsupported("Paste a valid YouTube, TikTok, X, Facebook or Instagram video link.")
-    })?;
+    let url = url::Url::parse(&full)
+        .map_err(|_| unsupported("Paste a valid http or https link to a video."))?;
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return Err(unsupported(
             "Paste a standard video link without credentials or a custom port.",
@@ -200,14 +237,49 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
             source: Source::TikTok,
             url,
         })
-    } else {
+    } else if youtube::HOSTS.contains(&host) {
         youtube::normalize(&url, host).map(|url| Link {
             source: Source::YouTube,
+            url,
+        })
+    } else if let Some(source) = NAMED.into_iter().find(|source| {
+        source
+            .domains()
+            .iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    }) {
+        // Another address of a named platform: it stays that platform's, never Other.
+        return Err(EngineError::Unsupported(format!(
+            "This {} address is not supported. Paste a link from the main {} site.",
+            source.label(),
+            source.label()
+        )));
+    } else if let Some(source) = NAMED.into_iter().find(|source| {
+        source.domains().iter().any(|domain| {
+            let marker = format!("{domain}.");
+            host.starts_with(&marker) || host.contains(&format!(".{marker}"))
+        })
+    }) {
+        return Err(EngineError::Unsupported(format!(
+            "This address imitates {}. Paste a link from the real site.",
+            source.label()
+        )));
+    } else {
+        other::normalize(&url).map(|url| Link {
+            source: Source::Other,
             url,
         })
     }
     .map_err(unsupported)
 }
+
+const NAMED: [Source; 5] = [
+    Source::YouTube,
+    Source::TikTok,
+    Source::X,
+    Source::Facebook,
+    Source::Instagram,
+];
 
 #[cfg(test)]
 mod tests {

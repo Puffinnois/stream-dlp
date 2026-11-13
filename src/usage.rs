@@ -691,6 +691,12 @@ mod tests {
             serde_json::json!({"kind": "folder_picker", "result": "dismissed", "count": 1})
         );
         assert_eq!(Event::Page(Page::Gif).entry().subject.unwrap(), "gif");
+        // A link to another site reports only the fixed word: no host, extractor or link.
+        let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
+        let entry = Event::Inspect(link.source.into(), Outcome::Ok).entry();
+        let json = serde_json::to_string(&entry).unwrap();
+        assert_eq!(entry.subject.as_deref(), Some("other"));
+        assert!(!json.contains("example") && !json.contains("watch") && !json.contains("Generic"));
     }
 
     #[test]
