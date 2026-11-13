@@ -287,8 +287,8 @@ embedded page and HLS/DASH results pass, and the bundled yt-dlp, run by hand
 with the app's arguments against local fixtures, found and saved a direct MP4,
 a page's embedded video and an HLS stream; one public sample file inspected as
 a direct video. The `#[ignore]`d end-to-end test through the app's own code
-(`other_sites_local_fixtures_inspect_and_download`) is written but has not run
-yet, and DASH through a real manifest is untested. Nested requests stay open
+(`other_sites_local_fixtures_inspect_and_download`) passed on Windows on
+November 13, 2026; DASH through a real manifest is untested. Nested requests stay open
 because only part of them can be enforced: the pasted link and its HTTP
 redirects are checked, `file://` stays disabled and FFmpeg gets a network-only
 protocol whitelist (both verified against a hostile local playlist), but
