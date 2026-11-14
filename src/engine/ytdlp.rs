@@ -884,6 +884,47 @@ mod tests {
     }
 
     #[test]
+    fn tiktok_and_x_cookie_jars_only_reach_their_own_posts() {
+        for (export, source, own) in [
+            (
+                ".tiktok.com	TRUE	/	TRUE	0	TEST	fake
+",
+                Source::TikTok,
+                "tiktok.com/@creator/video/123",
+            ),
+            (
+                ".x.com	TRUE	/	TRUE	0	TEST	fake
+",
+                Source::X,
+                "x.com/example/status/123",
+            ),
+        ] {
+            let jar = SessionCookies::parse_for(
+                &format!(
+                    "# Netscape HTTP Cookie File
+{export}"
+                ),
+                source,
+            )
+            .unwrap();
+            for (url, expected) in [
+                (own, true),
+                ("https://www.youtube.com/watch?v=abcdefghijk", false),
+                ("vm.tiktok.com/ABC123/", false),
+                ("instagram.com/p/Example", false),
+                ("facebook.com/reel/123", false),
+                ("twitter.com/example/status/123", source == Source::X),
+                ("https://media.example/clip.mp4", false),
+            ] {
+                let link = crate::engine::parse_link(url).unwrap();
+                let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+                assert_eq!(file.is_some(), expected, "{source:?} {url}");
+                assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
+            }
+        }
+    }
+
+    #[test]
     fn facebook_cookie_jar_only_reaches_individual_facebook_links() {
         let jar = SessionCookies::parse_for(
             "# Netscape HTTP Cookie File\n.facebook.com\tTRUE\t/\tTRUE\t0\tTEST\tfake\n",

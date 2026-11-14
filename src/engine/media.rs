@@ -413,6 +413,36 @@ mod tests {
     }
 
     #[test]
+    fn x_and_instagram_entries_without_metadata_fall_back_honestly() {
+        for (url, source, json) in [
+            (
+                "https://x.com/example/status/1",
+                Source::X,
+                r#"{"id":"1","extractor_key":"Twitter","title":null,"uploader":" ","duration":null,
+                    "formats":[{"format_id":"http","protocol":"https","ext":"mp4","height":0}]}"#,
+            ),
+            (
+                "https://www.instagram.com/p/Example/",
+                Source::Instagram,
+                r#"{"id":"Example","extractor_key":"Instagram","title":"","uploader":null,
+                    "formats":[{"format_id":"progressive","protocol":"https","ext":"mp4",
+                    "vcodec":"avc1","acodec":"aac","width":0}]}"#,
+            ),
+        ] {
+            let link = Link {
+                source,
+                url: url.into(),
+            };
+            let video = parse_for(json, &link).unwrap();
+            assert!(video.title.starts_with("Video "), "{}", video.title);
+            assert_eq!(video.creator_label(), "Unknown creator");
+            assert_eq!(video.duration_label(), "Duration unknown");
+            assert_eq!(video.formats[0].quality(), "Video · unknown resolution");
+            assert_eq!(video.formats[0].size(), "Size unknown");
+        }
+    }
+
+    #[test]
     fn valid_and_partial_metadata_keep_useful_details() {
         let mut video = parse_video(
             r#"{"id":"123","uploader":" Creator ","duration":65,
