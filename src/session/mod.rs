@@ -170,6 +170,10 @@ mod tests {
             "notfacebook.com",
             "notx.com",
             "x.com.invalid",
+            "notyoutube.com",
+            "youtube.com.invalid",
+            "nottiktok.com",
+            "tiktok.com.invalid",
         ];
         let mut input = String::from("# HTTP Cookie File\n");
         for domain in domains {

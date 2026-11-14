@@ -374,6 +374,12 @@ mod tests {
             "https://www.tiktok.com.evil.com/@c/video/123",
             "https://www.tiktok.com@evil.com/@c/video/123",
             "https://www.tiktok.com:8080/@c/video/123",
+            "https://name@x.com/example/status/1",
+            "https://x.com:8443/example/status/1",
+            "https://name:secret@www.facebook.com/reel/1",
+            "https://www.facebook.com:8443/reel/1",
+            "https://name@www.instagram.com/p/Example/",
+            "https://www.instagram.com:8443/p/Example/",
         ] {
             assert!(
                 matches!(parse_link(link), Err(EngineError::Unsupported(_))),
@@ -384,7 +390,13 @@ mod tests {
 
     #[test]
     fn errors_keep_platform_and_drop_private_details() {
-        for source in [Source::YouTube, Source::TikTok, Source::X] {
+        for source in [
+            Source::YouTube,
+            Source::TikTok,
+            Source::X,
+            Source::Facebook,
+            Source::Instagram,
+        ] {
             for (raw, expected) in [
                 (
                     "session cookies have expired",

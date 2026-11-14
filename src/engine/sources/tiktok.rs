@@ -294,6 +294,23 @@ mod tests {
     }
 
     #[test]
+    fn tiktok_collections_are_refused_rather_than_downloaded() {
+        let link = parse_link("https://www.tiktok.com/@creator/video/123").unwrap();
+        let entry = serde_json::json!({"id":"123","extractor_key":"TikTok",
+            "formats":[{"format_id":"ok","vcodec":"h264","acodec":"aac"}]});
+        for collection in [
+            serde_json::json!({"_type":"playlist","extractor_key":"TikTok","entries":[entry]}),
+            serde_json::json!({"extractor_key":"TikTok","entries":null,
+                "formats":[{"format_id":"ok","vcodec":"h264","acodec":"aac"}]}),
+        ] {
+            assert!(matches!(
+                crate::engine::media::parse_for(&collection.to_string(), &link),
+                Err(EngineError::Unsupported(_))
+            ));
+        }
+    }
+
+    #[test]
     fn only_muxed_tiktok_video_with_audio_is_offered() {
         let link = parse_link("https://www.tiktok.com/@creator/video/123").unwrap();
         let json = r#"{"id":"123","extractor_key":"TikTok","title":null,"formats":[{"format_id":"ok","width":540,"height":958,"vcodec":"h264","acodec":"aac"},{"format_id":"unknown","vcodec":"h264","acodec":"aac"},{"format_id":"bad","vcodec":"bytevc2","acodec":"aac"},{"format_id":"silent","vcodec":"h264","acodec":"none"}]}"#;

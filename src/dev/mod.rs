@@ -74,6 +74,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_recent_downloads_setting_is_off_unless_saved_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // A file from before the setting existed reads as off, and off is never written.
+        std::fs::write(
+            &path,
+            "{
+  \"dev_mode\": false
+}",
+        )
+        .unwrap();
+        assert!(!Settings::load_from(&path).download_history);
+        let mut settings = Settings::load_from(&path);
+        settings.save_to(&path).unwrap();
+        assert!(
+            !std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("download_history")
+        );
+        settings.download_history = true;
+        settings.save_to(&path).unwrap();
+        assert!(Settings::load_from(&path).download_history);
+        assert_eq!(Settings::load_from(&path).dev_mode, Some(false));
+    }
+
+    #[test]
     fn settings_keep_unset_fields_and_survive_a_bad_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("data/settings.json");
