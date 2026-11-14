@@ -104,7 +104,7 @@ For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run
 - `src/media/` (no egui): GIF encoding, preview frames, and listing and checking local videos with FFmpeg and FFprobe.
 - `src/process.rs`: how every helper runs: no console window, cancellation, time and output limits, and stopping the whole process tree.
 - `src/tools/`: where the bundled helpers are, whether they are all there, and `--check-tools`; `update.rs` installs and updates them from their GitHub releases, as `Setup tools.ps1` does.
-- `src/session/`: session cookie validation, per-platform domain filtering and disposable working files; Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
+- `src/session/`: session cookie validation, per-platform domain filtering and disposable working files, with the startup sweep of files a crash left (`stale.rs`, [reference](session-files.md)); Firefox profile import (`firefox.rs`); the export guide's folders (`export.rs`).
 - `src/update/`: app updates. `release.rs` reads the latest GitHub release and picks the installer; `installer.rs` downloads and starts it; `mod.rs` holds the hourly check and background download.
 - `src/net.rs`: HTTPS with the system's certificates and proxy, SHA-256-verified downloads, and the redirect probe for other sites.
 - `src/streamable/`: the Streamable website handoff and experimental upload automation.
