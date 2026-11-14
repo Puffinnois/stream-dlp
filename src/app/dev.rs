@@ -272,7 +272,9 @@ impl App {
                     "phase": phase,
                     "status": self.status,
                     "error": self.error,
-                    "session": self.sessions.contains_key(&self.session_source()),
+                    "session": self
+                        .session_source()
+                        .is_some_and(|source| self.sessions.contains_key(&source)),
                     "log": log,
                 });
                 ("Download", parts, details)

@@ -242,12 +242,7 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
             source: Source::YouTube,
             url,
         })
-    } else if let Some(source) = NAMED.into_iter().find(|source| {
-        source
-            .domains()
-            .iter()
-            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
-    }) {
+    } else if let Some(source) = owner(host) {
         // Another address of a named platform: it stays that platform's, never Other.
         return Err(EngineError::Unsupported(format!(
             "This {} address is not supported. Paste a link from the main {} site.",
@@ -273,6 +268,32 @@ pub fn parse_link(input: &str) -> Result<Link, EngineError> {
     .map_err(unsupported)
 }
 
+/// The named platform whose domains include `host`, or one of their subdomains.
+fn owner(host: &str) -> Option<Source> {
+    NAMED.into_iter().find(|source| {
+        source
+            .domains()
+            .iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    })
+}
+
+/// The named platform that owns the pasted link's host, even when that platform's rules refuse
+/// the link. `None` when the text is not a link or its host belongs to no named platform; never
+/// [`Source::Other`].
+pub fn named_platform(input: &str) -> Option<Source> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+    let full = if input.starts_with("https://") || input.starts_with("http://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    owner(url::Url::parse(&full).ok()?.host_str()?)
+}
+
 const NAMED: [Source; 5] = [
     Source::YouTube,
     Source::TikTok,
@@ -284,6 +305,63 @@ const NAMED: [Source; 5] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_platform_owns_its_hosts_and_subdomains_but_never_lookalikes() {
+        for (input, source) in [
+            (
+                "https://www.youtube.com/watch?v=abcdefghijk",
+                Source::YouTube,
+            ),
+            ("youtu.be/abcdefghijk", Source::YouTube),
+            (
+                "https://music.youtube.com/watch?v=abcdefghijk",
+                Source::YouTube,
+            ),
+            // Refused by TikTok's rules, still TikTok's.
+            ("https://www.tiktok.com/@creator", Source::TikTok),
+            ("vm.tiktok.com/Example/", Source::TikTok),
+            ("http://mobile.twitter.com/example/status/1", Source::X),
+            ("x.com", Source::X),
+            ("https://web.facebook.com/groups/example", Source::Facebook),
+            ("fb.com/example", Source::Facebook),
+            (
+                "  https://instagram.com/stories/example/1  ",
+                Source::Instagram,
+            ),
+            ("instagr.am/p/Example/", Source::Instagram),
+        ] {
+            assert_eq!(named_platform(input), Some(source), "{input}");
+        }
+        // Every host a platform accepts belongs to it.
+        for (hosts, source) in [
+            (&youtube::HOSTS[..], Source::YouTube),
+            (&tiktok::HOSTS[..], Source::TikTok),
+            (x::HOSTS, Source::X),
+            (facebook::HOSTS, Source::Facebook),
+            (instagram::HOSTS, Source::Instagram),
+        ] {
+            for host in hosts {
+                assert_eq!(named_platform(host), Some(source), "{host}");
+            }
+        }
+        for input in [
+            "",
+            "   ",
+            "not a link at all",
+            "https://",
+            "https://youtube.com.example/watch?v=abcdefghijk",
+            "https://notyoutube.com/watch?v=abcdefghijk",
+            "https://tiktok.com-video.example/@a/video/1",
+            "https://x.com.invalid/a/status/1",
+            "https://fakefacebook.com/reel/1",
+            "https://media.example/clip.mp4",
+            "fb.watch/example",
+            "t.co/example",
+        ] {
+            assert_eq!(named_platform(input), None, "{input:?}");
+        }
+    }
 
     #[test]
     fn deceptive_hosts_credentials_and_ports_are_rejected() {
