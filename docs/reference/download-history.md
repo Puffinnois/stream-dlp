@@ -34,7 +34,7 @@ A download is recorded when it completes (`Event::Complete`), from the completed
 
 ## The section
 
-Shown on My videos only while the setting is on, between the folder card and the folder's videos. Each entry shows its title, platform, a relative or short local time and its folder, with **Remove**; the section has **Clear all**, which asks first. Selecting an entry selects the file exactly as **Choose existing video…** does. Whether each file still exists is checked when the page is opened, on **Refresh**, and after the list changes, not every frame; a missing file stays listed, muted and marked "File moved or deleted", with only **Remove**.
+Shown on My videos only while the setting is on, between the folder card and the folder's videos. Each entry shows its title, platform, a relative or short local time and its folder, with **Remove**; the section has **Clear all**, which asks first. Selecting an entry selects the file exactly as **Choose existing video…** does. Whether each file still exists is checked when the page is opened, on **Refresh**, and after the list changes, never every frame and never on the UI thread: the list shows at once from the saved entries, each as present, and one background worker checks the files and wakes the page when it is done. While it runs, a further change waits for it, and a result for a list that has changed since is dropped, so a slow or unreachable drive delays only the marks and never freezes the page; a missing file stays listed, muted and marked "File moved or deleted", with only **Remove**.
 
 ## Privacy
 
