@@ -10,7 +10,7 @@ A native Windows video downloader for YouTube, with experimental TikTok, X/Twitt
 - Try a Windows package: push a `check/<anything>` branch; the Package check builds and tests both installers.
 - Release: `cargo xtask release <patch|minor|major>` on a clean `main` → `git push --follow-tags` → the Release workflow uploads a **draft** GitHub release → write its notes, press **Publish**.
 - Dev mode (Ctrl+Shift+D) and dev notes (Ctrl+Shift+N): [docs/reference/dev-notes.md](docs/reference/dev-notes.md)
-- Dev data: `%LOCALAPPDATA%\stream-dlp\` (Mac: `~/Library/Application Support/stream-dlp/`): `settings.json` and `dev-notes/`.
+- Dev data: `%LOCALAPPDATA%\stream-dlp\` (Mac: `~/Library/Application Support/stream-dlp/`): `settings.json`, `dev-notes/`, and `history.json` when the optional recent-downloads list is on.
 - Plans: [docs/plans/](docs/plans/); feature backlog: [ROADMAP.md](ROADMAP.md); research and feasibility records: [docs/research/](docs/research/); Streamable upload automation: [docs/reference/automatic-streamable-upload.md](docs/reference/automatic-streamable-upload.md)
 
 Download videos you own or have permission to save. Component licenses: [THIRD-PARTY.md](THIRD-PARTY.md).
