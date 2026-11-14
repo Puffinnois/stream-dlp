@@ -9,13 +9,21 @@ use super::{
 };
 use crate::{feedback::Site, history};
 use eframe::egui::{self, RichText};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc::{self, Receiver, TryRecvError},
+};
 
 struct Row {
     entry: history::Entry,
-    /// Checked when the page is shown or refreshed, not every frame.
+    /// Present until a background check says otherwise. Checked when the page is opened or
+    /// refreshed and when the list changes, never every frame and never on the UI thread, so a
+    /// slow or unreachable drive cannot freeze the page.
     exists: bool,
 }
+
+/// Which saved files still exist, one result per row of the list the check was started for.
+type Found = (u64, Vec<bool>);
 
 pub struct Recent {
     pub on: bool,
@@ -27,6 +35,14 @@ pub struct Recent {
     confirm_off: bool,
     /// The frame this section was last drawn in, to notice the page being opened again.
     last_pass: Option<u64>,
+    /// Counts list changes; a check's result applies only to the list it was started for.
+    generation: u64,
+    /// The one check running, if any.
+    check: Option<Receiver<Found>>,
+    /// The list changed while a check ran: check again when it ends.
+    recheck: bool,
+    /// Repaints the page when a check ends; known once the section has been drawn.
+    ctx: Option<egui::Context>,
 }
 
 impl Default for Recent {
@@ -45,6 +61,10 @@ impl Recent {
             confirm_clear: false,
             confirm_off: false,
             last_pass: None,
+            generation: 0,
+            check: None,
+            recheck: false,
+            ctx: None,
         }
     }
 
@@ -82,10 +102,65 @@ impl Recent {
         self.rows = entries
             .into_iter()
             .map(|entry| Row {
-                exists: entry.path.is_file(),
+                exists: true,
                 entry,
             })
             .collect();
+        self.generation += 1;
+        self.start_check();
+    }
+
+    /// Checks the rows' files on one background worker. While one runs, the next waits for it.
+    fn start_check(&mut self) {
+        if self.check.is_some() {
+            self.recheck = true;
+            return;
+        }
+        self.recheck = false;
+        if self.rows.is_empty() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self.rows.iter().map(|row| row.entry.path.clone()).collect();
+        let (generation, ctx) = (self.generation, self.ctx.clone());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let found = paths.iter().map(|path| path.is_file()).collect();
+            let _ = tx.send((generation, found));
+            if let Some(ctx) = ctx {
+                ctx.request_repaint();
+            }
+        });
+        self.check = Some(rx);
+    }
+
+    /// Takes a finished check's result when one has arrived; the worker wakes the page for it.
+    fn poll_check(&mut self) {
+        let Some(rx) = &self.check else {
+            return;
+        };
+        let found = match rx.try_recv() {
+            Ok(found) => Some(found),
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => None,
+        };
+        self.check = None;
+        if let Some((generation, found)) = found {
+            self.apply_check(generation, found);
+        }
+        if self.recheck {
+            self.start_check();
+        }
+    }
+
+    /// Applies a check to the rows it was started for; a result for an older list is dropped.
+    fn apply_check(&mut self, generation: u64, found: Vec<bool>) -> bool {
+        if generation != self.generation || found.len() != self.rows.len() {
+            return false;
+        }
+        for (row, exists) in self.rows.iter_mut().zip(found) {
+            row.exists = exists;
+        }
+        true
     }
 
     /// Notes a finished download while the list is kept.
@@ -141,11 +216,15 @@ impl Recent {
         if !self.on {
             return None;
         }
+        if self.ctx.is_none() {
+            self.ctx = Some(ui.ctx().clone());
+        }
         let pass = ui.ctx().cumulative_pass_nr();
         if self.last_pass.is_none_or(|last| pass > last + 1) {
             self.reload();
         }
         self.last_pass = Some(pass);
+        self.poll_check();
         let (mut chosen, mut removed) = (None, None);
         ui.add_space(SPACE_L);
         card(ui, |ui| {
@@ -335,7 +414,74 @@ mod tests {
     fn kept(dir: &Path) -> Recent {
         let mut recent = Recent::in_file(Some(dir.join(history::FILE)));
         recent.turn_on();
+        recent.settle();
         recent
+    }
+
+    impl Recent {
+        /// Waits for the background checks, as the page would over the next frames.
+        fn settle(&mut self) {
+            while let Some(rx) = &self.check {
+                let found = rx.recv_timeout(std::time::Duration::from_secs(10));
+                self.check = None;
+                if let Ok((generation, found)) = found {
+                    self.apply_check(generation, found);
+                }
+                if self.recheck {
+                    self.start_check();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rows_show_as_present_until_the_check_and_an_old_check_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path().join("present.mp4");
+        std::fs::write(&present, b"synthetic").unwrap();
+        let mut recent = kept(dir.path());
+        recent.record(present.clone(), "Present", Site::YouTube);
+        recent.settle();
+        assert!(recent.rows[0].exists);
+
+        // The file goes away; Refresh lists it at once as present, then the check flips it.
+        std::fs::remove_file(&present).unwrap();
+        recent.reload();
+        assert!(recent.rows[0].exists, "Shown before any check ends");
+        recent.settle();
+        assert!(!recent.rows[0].exists, "File moved or deleted");
+
+        // A check started for the previous list never applies to the current one.
+        let old = recent.generation;
+        recent.record(dir.path().join("other.mp4"), "Other", Site::X);
+        assert!(!recent.apply_check(old, vec![false, false]));
+        assert!(recent.rows.iter().all(|row| row.exists));
+        assert!(!recent.apply_check(recent.generation, vec![false]));
+        recent.settle();
+        assert_eq!(
+            recent.rows.iter().map(|row| row.exists).collect::<Vec<_>>(),
+            [false, false]
+        );
+    }
+
+    #[test]
+    fn a_list_change_during_a_check_waits_for_it_on_the_one_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut recent = kept(dir.path());
+        // A check that has not ended yet, for the list before the change.
+        let (tx, rx) = mpsc::channel();
+        recent.check = Some(rx);
+        let old = recent.generation;
+        recent.record(dir.path().join("a.mp4"), "A", Site::TikTok);
+        assert!(recent.recheck, "No second worker while one runs");
+        assert!(recent.rows[0].exists);
+        // It ends with a result for the old list: dropped, then the new list is checked.
+        tx.send((old, Vec::new())).unwrap();
+        recent.poll_check();
+        assert!(recent.rows[0].exists);
+        assert!(recent.check.is_some() && !recent.recheck);
+        recent.settle();
+        assert!(!recent.rows[0].exists);
     }
 
     #[test]
@@ -349,6 +495,7 @@ mod tests {
 
         recent.turn_on();
         recent.record(dir.path().join("a.mp4"), "A", Site::TikTok);
+        recent.settle();
         assert!(file.exists());
         assert_eq!(recent.rows.len(), 1);
         assert!(
@@ -374,6 +521,7 @@ mod tests {
         let mut recent = kept(dir.path());
         recent.record(dir.path().join("gone.mp4"), "Gone", Site::Other);
         recent.record(present.clone(), "Present", Site::YouTube);
+        recent.settle();
         assert_eq!(recent.rows.len(), 2);
         assert!(recent.rows[0].exists && !recent.rows[1].exists);
 
