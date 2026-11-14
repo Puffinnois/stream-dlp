@@ -1,6 +1,6 @@
 # stream-dlp feature roadmap
 
-Prepared October 21, 2026, against stream-dlp 0.3.3; "What already exists" updated November 13, 2026 (other sites, U-01).
+Prepared October 21, 2026, against stream-dlp 0.3.3; reconciled with the code on November 13, 2026 (after v0.7.0: other sites, recent downloads, the pasted Streamable link, silent sources).
 
 Task checkboxes track implementation. Firefox automatic session import is now implemented experimentally; see R-01 and A-01/A-02 for its validation limits. Remaining research findings are based on source inspection and upstream documentation unless a live test is explicitly recorded.
 
@@ -34,12 +34,12 @@ The Streamable investigation belongs first so its external dependency is discove
 
 Module by module in the [Source layout](docs/reference/development.md#source-layout).
 
-- Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging, multi-video choice, progress, cancellation, no-overwrite.
-- Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). Other sites never take a session.
-- My videos and previews, with an optional recent-download list (S-01), the GIF converter, and browser-assisted and experimental automatic Streamable uploads (S-02, S-02A).
+- Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging with silent sources saved as video only and lost audio reported as a failure (F-02), multi-video choice, progress, cancellation, no-overwrite.
+- Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). The Download page's session link names the platform of the pasted address. Other sites never take a session.
+- My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: direct Streamable uploads (blocked, S-03/S-04), and destination checks on what yt-dlp fetches after the pasted link for other sites (U-01).
+Still missing: direct Streamable uploads (blocked, S-03/S-04); destination checks on what yt-dlp fetches after the pasted link for other sites, and DASH through a real manifest (U-01); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
 
 ## Feasibility findings
 
@@ -73,11 +73,11 @@ importer was subsequently implemented and tested against the user's explicitly
 authorized profile while Firefox was open. Full authenticated-download acceptance,
 candidate comparison, and the real-browser/Windows matrix remain open.
 
-- [ ] Test the bundled yt-dlp and a candidate updated version on Windows 10/11 with Firefox, Chrome, and Edge.
-- [ ] Cover default and secondary profiles, browser open/closed, missing profile, signed-out profile, locked database, decryption failure, and expired sessions.
+- [ ] Test the bundled yt-dlp and a candidate updated version on Windows 10/11 with Firefox, Chrome, and Edge. *Open (2026-11-13): only the installed helper ran, offline; the candidate was never run and no live Windows 10/11 browser matrix is recorded.*
+- [ ] Cover default and secondary profiles, browser open/closed, missing profile, signed-out profile, locked database, decryption failure, and expired sessions. *Open (2026-11-13): covered by synthetic profiles and unit tests only; no live run of signed-out, decryption-failure or expired-session cases.*
 - [x] Determine whether any supported mechanism can capture a private session; otherwise explicitly retain manual private-window export. No supported extraction established; retain manual export per upstream guidance.
-- [ ] Compare direct browser loading with a helper that imports, filters, and returns only permitted domains before network use. Verify the actual command/output behavior rather than assuming yt-dlp offers a domain-scoped export.
-- [ ] Record browser/version results without session values. Use dedicated test profiles and never inspect a developer's regular browser profile implicitly.
+- [ ] Compare direct browser loading with a helper that imports, filters, and returns only permitted domains before network use. Verify the actual command/output behavior rather than assuming yt-dlp offers a domain-scoped export. *Open (2026-11-13): the native scoped Firefox importer replaced the helper idea; no side-by-side comparison of actual command behavior is recorded.*
+- [ ] Record browser/version results without session values. Use dedicated test profiles and never inspect a developer's regular browser profile implicitly. *Open (2026-11-13): versions are inventoried, but the live result comes from one explicitly authorized profile, not dedicated test profiles.*
 
 **Done when:** there is a documented supported-browser list, a proven session-data path, and a fallback for every failure. If secure scoped import cannot be proven, ship guided import first and retain automation as experimental.
 
@@ -92,7 +92,7 @@ article's 24-hour statement; do not promise a fixed guest retention period.
 Direct upload remains blocked by the documented read-only API.
 
 - [x] Recheck official API documentation and integration options before implementation.
-- [ ] Verify the website's signed-in and signed-out upload flows, file requirements, limits, retention, and resulting link behavior using a small owned sample clip.
+- [ ] Verify the website's signed-in and signed-out upload flows, file requirements, limits, retention, and resulting link behavior using a small owned sample clip. *Open (2026-11-13): guest uploads verified; the signed-in flow, limits and a fixed retention period are unverified.*
 - [x] Determine whether Streamable offers an approved upload integration, and what account authorization it requires. The public API excludes uploads; no supported upload authorization was identified. Any contact with Streamable is a separate user-authorized action.
 - [x] Record separate outcomes for account-based upload, anonymous upload, and browser-assisted sharing.
 
@@ -195,10 +195,10 @@ background import with cancellation and query deadline, import-and-retry, refres
 and manual fallback. Chrome/Edge show guided export. Full clean-machine acceptance
 and the remaining live matrix are not yet complete.
 
-- [ ] Add **Import from browser** alongside manual import, listing only supported installed browsers and available profiles.
-- [ ] Explain the requested browser access before the first import. Store only the user's chosen source preference by default.
-- [ ] Import on a background worker with progress, cancellation, timeout, and actionable failure messages.
-- [ ] On success, retry the pending inspection/download once; prevent repeated automatic authentication loops.
+- [ ] Add **Import from browser** alongside manual import, listing only supported installed browsers and available profiles. *Open (2026-11-13): implemented for Firefox only (Chrome/Edge get the export guide); the phase's clean-machine acceptance has not been run.*
+- [ ] Explain the requested browser access before the first import. Store only the user's chosen source preference by default. *Open (2026-11-13): implemented for Firefox only (Chrome/Edge get the export guide); the phase's clean-machine acceptance has not been run.*
+- [ ] Import on a background worker with progress, cancellation, timeout, and actionable failure messages. *Open (2026-11-13): implemented for Firefox only (Chrome/Edge get the export guide); the phase's clean-machine acceptance has not been run.*
+- [ ] On success, retry the pending inspection/download once; prevent repeated automatic authentication loops. *Open (2026-11-13): implemented for Firefox only (Chrome/Edge get the export guide); the phase's clean-machine acceptance has not been run.*
 
 ### A-02 — Scoped import and lifecycle
 
@@ -207,12 +207,12 @@ expiration filtering and container isolation, memory-only sessions, disposable
 scoped working files, refresh/removal, and optional bounded refresh from the
 connected profile after an authentication error. No all-site database copy is made.
 
-- [ ] Use the proven R-01 mechanism and filter to the approved YouTube domains before storing the session or using it for network operations.
-- [ ] Keep session values in memory and use restricted disposable files only where necessary. If a prototype temporarily materializes broader browser cookies, document that limitation and prove access restrictions and cleanup before accepting that design.
-- [ ] Preserve cleanup on success, failure, cancellation, and normal shutdown; define a safe strategy for stale temporary files after a crash.
-- [ ] Provide **Refresh**, **Remove session**, and a clear loaded/expired/failed status. A parsed cookie file is not proof of a valid signed-in session.
-- [ ] If enabled, refresh only the previously selected source when authentication fails, with bounded retries. Do not scan other profiles silently.
-- [ ] Fall back to manual export for unsupported encryption, private sessions, or cookie rotation problems.
+- [ ] Use the proven R-01 mechanism and filter to the approved YouTube domains before storing the session or using it for network operations. *Open (2026-11-13): the Firefox importer filters to YouTube domains before storing; R-01's mechanism is not yet proven on the live matrix.*
+- [ ] Keep session values in memory and use restricted disposable files only where necessary. If a prototype temporarily materializes broader browser cookies, document that limitation and prove access restrictions and cleanup before accepting that design. *Open (2026-11-13): implemented (memory-only, no all-site copy); awaits the phase's clean-machine acceptance.*
+- [ ] Preserve cleanup on success, failure, cancellation, and normal shutdown; define a safe strategy for stale temporary files after a crash. *Open (2026-11-13): no strategy yet for `stream-dlp-session-*` working files a crash leaves in the temporary folder; nothing removes them at the next start.*
+- [ ] Provide **Refresh**, **Remove session**, and a clear loaded/expired/failed status. A parsed cookie file is not proof of a valid signed-in session. *Open (2026-11-13): implemented for Firefox and manual imports; awaits the phase's clean-machine acceptance.*
+- [ ] If enabled, refresh only the previously selected source when authentication fails, with bounded retries. Do not scan other profiles silently. *Open (2026-11-13): implemented and unit-tested (one refresh per attempt, same profile); awaits the phase's clean-machine acceptance.*
+- [ ] Fall back to manual export for unsupported encryption, private sessions, or cookie rotation problems. *Open (2026-11-13): the manual export guide is offered; live failure cases (encryption, rotation) are untested.*
 
 ### A-03 — Conditional extension investigation
 
@@ -221,8 +221,8 @@ are saved in [Chrome auto-mode options](docs/research/chrome-auto-mode-options.m
 dedicated-profile and assisted-export alternatives, constraints, and resume steps.
 No Chrome automatic integration has been implemented or selected yet.
 
-- [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff.
-- [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment.
+- [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff. *Open (2026-11-13): deferred; options are recorded, nothing is selected or built.*
+- [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment. *Open (2026-11-13): deferred with the extension.*
 
 **Phase acceptance:** at least one advertised browser completes the full connect-and-retry flow on a clean supported Windows machine; unsupported browsers fail helpfully; unrelated cookies are excluded; manual import continues working.
 
@@ -283,9 +283,9 @@ Depends on Phase 1 and experience from at least the first named-platform release
 
 - [x] Route recognized sites to their platform handler; allow other public HTTP(S) URLs through yt-dlp's remaining site-specific extractors and generic fallback.
 - [x] Label this **Other sites (experimental)** and explain that compatibility varies. Universal means an attempt at supported media extraction, not every website.
-- [ ] Support public direct video files and non-DRM HLS/DASH where the existing tools can handle them.
+- [ ] Support public direct video files and non-DRM HLS/DASH where the existing tools can handle them. *Open (2026-11-13): DASH through a real manifest is untested.*
 - [x] Define resource limits for redirects, inspection time, metadata size, and collection size. Keep bulk downloads and arbitrary local/network-resource access outside the initial scope.
-- [ ] Implement the F-01 destination policy for redirects and nested media requests; validate what yt-dlp and FFmpeg actually fetch rather than checking only the pasted URL.
+- [ ] Implement the F-01 destination policy for redirects and nested media requests; validate what yt-dlp and FFmpeg actually fetch rather than checking only the pasted URL. *Open (2026-11-13): yt-dlp's own later requests and DNS changes after the check are not enforced.*
 - [x] Leave authentication off by default and surface meaningful unsupported-site, DRM, and missing-media results.
 
 November 13, 2026, bundled yt-dlp 2026.08.19: implemented in
@@ -361,53 +361,53 @@ handoff remains available. S-03/S-04's direct-API blockers are unchanged.
 - [x] Verify playback in a separate tab before reporting completion; show and copy the returned share link.
 - [x] Test unchanged file bytes, inactive inputs, pre-existing links, and playable output with a local fixture.
 - [x] Perform an explicitly authorized synthetic guest upload through the production runtime on Windows/Edge.
-- [ ] Validate account sign-in, challenges, large/rejected files, and other supported OS/browser combinations.
+- [ ] Validate account sign-in, challenges, large/rejected files, and other supported OS/browser combinations. *Open (2026-11-13): only a synthetic guest upload on Windows/Edge was performed.*
 
 ### S-03 — Conditional direct uploads with a user account
 
 Blocked until R-02 identifies supported upload access.
 
-- [ ] Implement the approved authorization method; use Windows credential storage for persistent secrets and provide disconnect/removal.
-- [ ] Add file upload, byte progress, cancellation, bounded retries, processing status, and the final share link.
-- [ ] Handle quota/size/duration limits, expired authorization, offline failures, and ambiguous completion without blindly creating duplicates.
-- [ ] Keep upload state separate from download state. A failed upload must not turn a successful download into a failed download.
-- [ ] Offer **Download then upload** only as an explicit opt-in after the standalone upload flow is reliable.
+- [ ] Implement the approved authorization method; use Windows credential storage for persistent secrets and provide disconnect/removal. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] Add file upload, byte progress, cancellation, bounded retries, processing status, and the final share link. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] Handle quota/size/duration limits, expired authorization, offline failures, and ambiguous completion without blindly creating duplicates. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] Keep upload state separate from download state. A failed upload must not turn a successful download into a failed download. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] Offer **Download then upload** only as an explicit opt-in after the standalone upload flow is reliable. *Open (2026-11-13): blocked: no supported upload API (R-02).*
 
 ### S-04 — Conditional uploads without a user account
 
 Blocked until supported anonymous upload is verified separately.
 
-- [ ] Confirm the approved anonymous mechanism, limits, retention, ownership, and deletion capabilities.
-- [ ] Explain those constraints before upload; keep cancellation and recovery behavior consistent with account uploads.
-- [ ] If anonymous access is unavailable, show a clear account-required or browser-assisted option.
+- [ ] Confirm the approved anonymous mechanism, limits, retention, ownership, and deletion capabilities. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] Explain those constraints before upload; keep cancellation and recovery behavior consistent with account uploads. *Open (2026-11-13): blocked: no supported upload API (R-02).*
+- [ ] If anonymous access is unavailable, show a clear account-required or browser-assisted option. *Open (2026-11-13): blocked: no supported upload API (R-02).*
 
 Do not embed a shared stream-dlp Streamable account or secret in the executable as a substitute for anonymous uploads.
 
 ### S-05 — Conditional media preparation
 
-- [ ] Use verified Streamable requirements to decide whether a file needs remuxing or conversion.
-- [ ] Prefer the original file or lossless remux when compatible. Offer explicit conversion with progress only when required.
-- [ ] Preserve the original, support cancellation, check disk space, and remove temporary derivatives safely.
+- [ ] Use verified Streamable requirements to decide whether a file needs remuxing or conversion. *Open (2026-11-13): conditional on direct uploads; not started.*
+- [ ] Prefer the original file or lossless remux when compatible. Offer explicit conversion with progress only when required. *Open (2026-11-13): conditional on direct uploads; not started.*
+- [ ] Preserve the original, support cancellation, check disk space, and remove temporary derivatives safely. *Open (2026-11-13): conditional on direct uploads; not started.*
 
 **Direct-upload acceptance, if unblocked:** a supported account upload returns a playable URL after processing; anonymous upload is verified independently; retries, cancellation, credential removal, and temporary-file cleanup pass.
 
 ## Release checks and maintenance
 
-- [ ] Add deterministic tests for URL handling, metadata variants, collection selection, platform-specific errors, cookie isolation, and any new persistent records.
-- [ ] Keep live platform tests opt-in and separate from deterministic tests. Record environmental failures instead of weakening assertions to hide them.
-- [ ] Run `cargo xtask check`, and the existing local pipeline test (`cargo test --locked local_download_pipeline -- --ignored`) for relevant engine changes.
-- [ ] Verify clean Windows operation, long/Unicode paths, redirected Downloads, cancellation, and portable packaging for each shipped capability.
-- [ ] Update the README, in-app help, package description, third-party notices where needed, and supported-platform/browser list.
-- [ ] Validate helper updates through the existing verified setup process; record the tested yt-dlp version for each release and provide a helpful update path when extraction breaks.
-- [ ] For any future direct uploader, test against mock responses first and perform a small authorized real upload before calling it supported.
+- [x] Add deterministic tests for URL handling, metadata variants, collection selection, platform-specific errors, cookie isolation, and any new persistent records. November 13, 2026: audited per platform and area; the missing cases (credentials and ports for X, Facebook and Instagram, X and Instagram missing metadata, TikTok collections, Facebook and Instagram error classes, TikTok and X cookie jars, platform lookalikes in mixed exports, the recent-downloads setting) were added. New features still need their own.
+- [x] Keep live platform tests opt-in and separate from deterministic tests. Record environmental failures instead of weakening assertions to hide them. November 13, 2026: every network, account or real-file test is `#[ignore]`d and run only by name (AGENTS.md); the research records keep environmental failures.
+- [ ] Run `cargo xtask check`, and the existing local pipeline test (`cargo test --locked local_download_pipeline -- --ignored`) for relevant engine changes. *Open (2026-11-13): `cargo xtask check` is required before every commit and runs in CI; the local pipeline run for engine changes is not enforced.*
+- [ ] Verify clean Windows operation, long/Unicode paths, redirected Downloads, cancellation, and portable packaging for each shipped capability. *Open (2026-11-13): CI's Package check covers packaging and cancellation is unit-tested; clean-machine, long/Unicode path and redirected-Downloads checks are not recorded per capability.*
+- [ ] Update the README, in-app help, package description, third-party notices where needed, and supported-platform/browser list. *Open (2026-11-13): a step for every release, not a one-off.*
+- [ ] Validate helper updates through the existing verified setup process; record the tested yt-dlp version for each release and provide a helpful update path when extraction breaks. *Open (2026-11-13): verified tool updates and the update hint exist; release notes do not record the tested yt-dlp version.*
+- [ ] For any future direct uploader, test against mock responses first and perform a small authorized real upload before calling it supported. *Open (2026-11-13): no direct uploader exists yet.*
 
 ## Suggested release boundaries
 
-- **Release A:** shared foundation and the proven browser-session import flow, with manual fallback.
-- **Release B:** TikTok and X/Twitter, each independently validated.
-- **Release C:** Instagram and Facebook, including their required session handling.
-- **Release D:** experimental Other sites mode.
-- **Release E:** current/existing-file selection and browser-assisted Streamable sharing.
+- **Release A:** shared foundation and the proven browser-session import flow, with manual fallback. *Foundation shipped; Firefox import is experimental and unproven on a clean machine.*
+- **Release B:** TikTok and X/Twitter, each independently validated. *Shipped: TikTok in v0.3.9, X in v0.5.0 (validated by v0.6.1).*
+- **Release C:** Instagram and Facebook, including their required session handling. *Shipped in v0.7.0; signed-in recovery unverified.*
+- **Release D:** experimental Other sites mode. *Merged after v0.7.0, not yet released.*
+- **Release E:** current/existing-file selection and browser-assisted Streamable sharing. *File selection and the handoff shipped by v0.3.5; the recent-download list and the pasted link are merged after v0.7.0, not yet released.*
 - **Later, conditional:** direct Streamable uploads, anonymous mode, optional conversion, and download-then-upload automation.
 
 These are scope boundaries, not calendar promises. Estimate work after the three feasibility spikes; unknown browser access and external upload support make firm dates premature. S-01/S-02 can move earlier if sharing is the highest priority.
