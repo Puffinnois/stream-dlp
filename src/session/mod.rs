@@ -1,6 +1,9 @@
 //! Per-platform cookie imports, YouTube Firefox profiles, and the manual export guide.
 pub mod export;
 pub mod firefox;
+mod stale;
+
+pub use stale::remove_stale_session_files;
 
 use crate::engine::Source;
 use std::{
@@ -117,11 +120,17 @@ impl SessionCookies {
         })
     }
 
+    /// A disposable copy for one helper run, removed when dropped. A crash leaves it behind
+    /// for the startup sweep (`stale`), which finds it by its folder and name prefix.
     pub fn temporary_file(&self) -> Result<tempfile::NamedTempFile, String> {
+        self.temporary_file_in(&stale::folder())
+    }
+
+    fn temporary_file_in(&self, folder: &Path) -> Result<tempfile::NamedTempFile, String> {
         let mut file = tempfile::Builder::new()
-            .prefix("stream-dlp-session-")
+            .prefix(stale::PREFIX)
             .suffix(".txt")
-            .tempfile()
+            .tempfile_in(folder)
             .map_err(|_| "Could not create a temporary session file.".to_owned())?;
         file.write_all(self.text.as_bytes())
             .and_then(|_| file.flush())
