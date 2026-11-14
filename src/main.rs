@@ -28,6 +28,7 @@ fn main() -> eframe::Result {
     dev::errors::record_panics();
     let dev_mode = std::env::args().skip(1).any(|arg| arg == "--dev-mode");
     std::thread::spawn(update::remove_stale_installers);
+    std::thread::spawn(session::remove_stale_session_files);
     eframe::run_native(
         "stream-dlp",
         eframe::NativeOptions {
