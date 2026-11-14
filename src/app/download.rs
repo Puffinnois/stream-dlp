@@ -412,7 +412,10 @@ impl App {
                             (FormatFilter::Video, "Video"),
                             (FormatFilter::All, "All"),
                         ] {
-                            if video.source == engine::Source::X && filter == FormatFilter::Audio {
+                            // X offers no audio-only file, and a silent source has none.
+                            if (video.source == engine::Source::X || video.silent())
+                                && filter == FormatFilter::Audio
+                            {
                                 continue;
                             }
                             if ui.selectable_label(self.filter == filter, name).clicked() {
@@ -422,7 +425,9 @@ impl App {
                     });
                 });
             });
-            ui.label(caption(if video.source == engine::Source::X {
+            ui.label(caption(if video.silent() {
+                "This video has no sound · it is saved as video only."
+            } else if video.source == engine::Source::X {
                 "Direct MP4 · saves the original audio when present."
             } else if video.source == engine::Source::TikTok {
                 "Experimental TikTok support · these video formats include audio."
@@ -506,10 +511,10 @@ impl App {
                 "Selected: {} · {}{}",
                 selected.quality(),
                 selected.container_label(),
-                if selected.video() && !selected.direct_video && !selected.audio() {
-                    " + audio (MKV if needed)"
-                } else {
-                    ""
+                match selected.sound() {
+                    engine::Sound::Merged => " + audio (MKV if needed)",
+                    engine::Sound::None => " · no sound",
+                    engine::Sound::Included | engine::Sound::Unknown => "",
                 }
             )));
             ui.add_space(SPACE_S);
@@ -525,6 +530,8 @@ impl App {
                     });
                     ui.label(caption(if video.source == engine::Source::X {
                         "Downloading the selected MP4."
+                    } else if selected.sound() != engine::Sound::Merged {
+                        "Downloading the selected format."
                     } else {
                         "Progress is for the current stream; audio and merging follow."
                     }));

@@ -179,9 +179,60 @@ pub fn probe(path: &Path, cancel: &AtomicBool) -> Result<Video, String> {
     parse_probe(path, meta.len(), &output.stdout)
 }
 
+/// Whether ffprobe's stream list (`-show_entries stream=codec_type -of json`) has an audio stream.
+fn lists_audio(data: &[u8]) -> Option<bool> {
+    #[derive(Deserialize)]
+    struct Streams {
+        streams: Vec<Stream>,
+    }
+    let probe: Streams = serde_json::from_slice(data).ok()?;
+    Some(
+        probe
+            .streams
+            .iter()
+            .any(|s| s.codec_type.as_deref() == Some("audio")),
+    )
+}
+
+/// Whether a just-saved download has an audio stream; `None` when FFprobe cannot tell.
+pub fn has_audio(path: &Path, cancel: &AtomicBool) -> Option<bool> {
+    let output = process::Helper::new(
+        Command::new(crate::tools::path("ffprobe"))
+            .args([
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "json",
+                "-i",
+            ])
+            .arg(path),
+        cancel,
+    )
+    .time_limit(Duration::from_secs(15))
+    .output_limit(65_536)
+    .ignore_stderr()
+    .output()
+    .ok()
+    .filter(|output| output.status.success())?;
+    lists_audio(&output.stdout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_files_with_and_without_audio_streams_are_told_apart() {
+        let with = br#"{"streams":[{"codec_type":"video"},{"codec_type":"audio"}]}"#;
+        assert_eq!(lists_audio(with), Some(true));
+        let without = br#"{"streams":[{"codec_type":"video"},{"codec_type":"data"}]}"#;
+        assert_eq!(lists_audio(without), Some(false));
+        assert_eq!(lists_audio(br#"{"streams":[]}"#), Some(false));
+        assert_eq!(lists_audio(b"not json"), None);
+    }
     #[test]
     fn container_label_names_the_file_type() {
         let video = |path: &str| Video {

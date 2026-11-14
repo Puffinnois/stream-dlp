@@ -9,6 +9,9 @@ pub struct Format {
     pub protocol: Option<String>,
     #[serde(skip)]
     pub direct_video: bool,
+    /// Every format of the source reports no audio: a silent clip, saved as video only.
+    #[serde(skip)]
+    pub silent_source: bool,
     #[serde(default, deserialize_with = "string_or_default")]
     pub ext: String,
     pub height: Option<u32>,
@@ -22,6 +25,26 @@ pub struct Format {
     pub format_note: Option<String>,
     pub language: Option<String>,
     pub has_drm: Option<bool>,
+}
+
+/// The sound a download of a format should end with, decided before it starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The format itself carries audio.
+    Included,
+    /// A video-only format, combined with the best matching audio stream.
+    Merged,
+    /// The source has no audio at all; the video is saved as it is.
+    None,
+    /// A direct file whose codecs the site did not report; saved as it is.
+    Unknown,
+}
+
+impl Sound {
+    /// Whether a saved file without an audio stream means the audio was lost.
+    pub fn expected(self) -> bool {
+        matches!(self, Self::Included | Self::Merged)
+    }
 }
 
 impl Format {
@@ -101,8 +124,19 @@ impl Format {
             .map(str::to_uppercase)
             .unwrap_or_else(|| "Unknown container".into())
     }
+    pub fn sound(&self) -> Sound {
+        if self.audio() {
+            Sound::Included
+        } else if self.silent_source {
+            Sound::None
+        } else if self.video() && !self.direct_video {
+            Sound::Merged
+        } else {
+            Sound::Unknown
+        }
+    }
     pub fn selector(&self) -> String {
-        if self.video() && !self.direct_video && !self.audio() {
+        if self.sound() == Sound::Merged {
             let audio = if self.ext == "mp4" {
                 "bestaudio[ext=m4a]/bestaudio"
             } else if self.ext == "webm" {
@@ -188,6 +222,11 @@ impl Video {
         }
     }
 
+    /// Whether the source has no audio at all, so every format is saved without sound.
+    pub fn silent(&self) -> bool {
+        self.formats.iter().any(|f| f.silent_source)
+    }
+
     pub fn identity(&self) -> MediaIdentity {
         MediaIdentity {
             source: self.source,
@@ -235,8 +274,8 @@ fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
         video.formats.retain(|f| {
             matches!(f.ext.as_str(), "mp4" | "m4a") && f.protocol.as_deref() == Some("https")
         });
-        // A silent entry can still offer DASH video. Only skip merging when
-        // every media format explicitly reports no audio.
+        // A silent entry can still offer DASH video, which is then a direct file. Silence
+        // itself is decided for every site below.
         let silent = video
             .formats
             .iter()
@@ -289,6 +328,15 @@ fn parse_source(json: &str, source: Source) -> Result<Video, EngineError> {
     video
         .formats
         .retain(|f| f.has_drm != Some(true) && (f.video() || f.audio()));
+    // A silent clip: only when every format explicitly reports no audio. A format whose audio
+    // is unreported may still have sound, so it never makes the source silent.
+    let silent = video
+        .formats
+        .iter()
+        .all(|f| f.acodec.as_deref() == Some("none"));
+    for f in &mut video.formats {
+        f.silent_source = silent;
+    }
     video.formats.sort_by(|a, b| {
         b.video()
             .cmp(&a.video())
@@ -487,5 +535,83 @@ mod tests {
         );
         assert_eq!(video.formats[1].selector(), "18");
         assert_eq!(video.formats[2].selector(), "140");
+    }
+
+    #[test]
+    fn silent_sources_save_video_only_and_sources_with_audio_merge_as_before() {
+        // YouTube-style split formats with an audio stream: video-only choices merge audio.
+        let split = parse_video(
+            r#"{"formats":[
+            {"format_id":"137","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none"},
+            {"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a"}]}"#,
+        )
+        .unwrap();
+        assert!(!split.silent());
+        assert_eq!(split.formats[0].sound(), Sound::Merged);
+        assert_eq!(
+            split.formats[0].selector(),
+            "137+(bestaudio[ext=m4a]/bestaudio)"
+        );
+        assert_eq!(split.formats[1].sound(), Sound::Included);
+        // The same split formats with no audio stream at all: a silent clip, saved as is.
+        let silent = parse_video(
+            r#"{"formats":[
+            {"format_id":"137","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none"},
+            {"format_id":"136","ext":"mp4","height":720,"vcodec":"avc1","acodec":"none"}]}"#,
+        )
+        .unwrap();
+        assert!(silent.silent());
+        for format in &silent.formats {
+            assert_eq!(format.sound(), Sound::None);
+            assert!(!format.sound().expected());
+            assert!(!format.selector().contains('+'));
+        }
+        // One format with unreported audio may have sound: the source is not silent.
+        let unsure = parse_video(
+            r#"{"formats":[
+            {"format_id":"137","ext":"mp4","vcodec":"avc1","acodec":"none"},
+            {"format_id":"18","ext":"mp4","vcodec":"avc1"}]}"#,
+        )
+        .unwrap();
+        assert!(!unsure.silent());
+        assert_eq!(unsure.formats[0].sound(), Sound::Merged);
+    }
+
+    #[test]
+    fn combined_and_direct_formats_keep_their_selector_and_say_what_sound_to_expect() {
+        let link = |source, url: &str| Link {
+            source,
+            url: url.into(),
+        };
+        // A combined format reports its audio: the saved file must have it.
+        let muxed = parse_video(
+            r#"{"formats":[{"format_id":"18","ext":"mp4","vcodec":"avc1","acodec":"mp4a"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(muxed.formats[0].sound(), Sound::Included);
+        assert!(muxed.formats[0].sound().expected());
+        assert_eq!(muxed.formats[0].selector(), "18");
+        // A direct file without codec details is saved as it is, with or without sound.
+        let other = link(Source::Other, "https://media.example/clip.mp4");
+        let direct = parse_for(
+            r#"{"formats":[{"format_id":"0","protocol":"https","ext":"mp4"}]}"#,
+            &other,
+        )
+        .unwrap();
+        assert!(!direct.silent());
+        assert_eq!(direct.formats[0].sound(), Sound::Unknown);
+        assert!(!direct.formats[0].sound().expected());
+        assert_eq!(direct.formats[0].selector(), "0");
+        // A direct X file that reports no audio, like an animation, is labelled silent.
+        let x = link(Source::X, "https://x.com/example/status/1");
+        let animation = parse_for(
+            r#"{"id":"1","extractor_key":"Twitter","formats":[
+                {"format_id":"http","protocol":"https","ext":"mp4","vcodec":"avc1","acodec":"none"}]}"#,
+            &x,
+        )
+        .unwrap();
+        assert!(animation.silent());
+        assert_eq!(animation.formats[0].sound(), Sound::None);
+        assert_eq!(animation.formats[0].selector(), "http");
     }
 }

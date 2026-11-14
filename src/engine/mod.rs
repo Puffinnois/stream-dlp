@@ -7,6 +7,6 @@ mod ytdlp;
 pub use error::EngineError;
 #[cfg(test)]
 pub use media::parse_video;
-pub use media::{CompletedDownload, Format, MediaIdentity, Video};
+pub use media::{CompletedDownload, Format, MediaIdentity, Sound, Video};
 pub use sources::{Link, Source, parse_link};
 pub use ytdlp::{Event, download, inspect, progress};
