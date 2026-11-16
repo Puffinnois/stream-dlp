@@ -112,57 +112,66 @@ impl App {
             self.session_loading = false;
             self.browser_importing = false;
             if let Some(import) = result {
-                if let Some(folder) = import.path.as_ref().and_then(|p| p.parent()) {
-                    self.session_folder = folder.to_path_buf();
+                self.finish_import(import);
+            }
+        }
+    }
+
+    /// Adds an imported session and retries the current link or failed download once.
+    pub(super) fn finish_import(&mut self, import: SessionImport) {
+        if let Some(folder) = import.path.as_ref().and_then(|p| p.parent()) {
+            self.session_folder = folder.to_path_buf();
+        }
+        match import.cookies {
+            Ok(session) => {
+                if self.import_cancel.load(Ordering::Relaxed) || self.closing {
+                    self.session_error = Some("Browser import cancelled.".into());
+                    return;
                 }
-                match import.cookies {
-                    Ok(session) => {
-                        if self.import_cancel.load(Ordering::Relaxed) || self.closing {
-                            self.session_error = Some("Browser import cancelled.".into());
-                            return;
-                        }
-                        self.usage
-                            .record(crate::usage::Event::CookieImport { ok: true });
-                        let source = session.source;
-                        self.sessions.insert(source, session);
-                        self.session_files.remove(&source);
-                        if let Some(path) = import.path {
-                            self.session_files.insert(source, path);
-                        }
-                        if source == engine::Source::YouTube {
-                            self.browser_source = import.browser;
-                        }
-                        self.session_error = None;
-                        self.session_expanded = false;
-                        if engine::parse_link(&self.link).is_ok_and(|link| link.source != source) {
-                            return;
-                        }
-                        self.error = None;
-                        self.saved = None;
-                        self.phase = Phase::Idle;
-                        let refresh_used = self.refresh_used;
-                        if self.retry_download
-                            && self.video.is_some()
-                            && self.destination.is_some()
-                            && self.loaded_link.as_ref().is_some_and(|loaded| {
-                                engine::parse_link(&self.link).is_ok_and(|link| link == *loaded)
-                            })
-                        {
-                            self.retry_download = false;
-                            self.start_download(self.destination.clone().unwrap());
-                        } else if engine::parse_link(&self.link).is_ok() && tools::ready() {
-                            self.inspect();
-                        }
-                        self.refresh_used = refresh_used;
-                    }
-                    Err(error) => {
-                        self.usage
-                            .record(crate::usage::Event::CookieImport { ok: false });
-                        crate::dev::errors::record("session", &error);
-                        self.session_error = Some(error);
-                        self.session_expanded = true;
-                    }
+                self.usage
+                    .record(crate::usage::Event::CookieImport { ok: true });
+                let source = session.source;
+                if source == engine::Source::YouTube && !import.from_extension {
+                    // Another import replaces the extension's session: never refresh it.
+                    self.extension.forget_session();
                 }
+                self.sessions.insert(source, session);
+                self.session_files.remove(&source);
+                if let Some(path) = import.path {
+                    self.session_files.insert(source, path);
+                }
+                if source == engine::Source::YouTube {
+                    self.browser_source = import.browser;
+                }
+                self.session_error = None;
+                self.session_expanded = false;
+                if engine::parse_link(&self.link).is_ok_and(|link| link.source != source) {
+                    return;
+                }
+                self.error = None;
+                self.saved = None;
+                self.phase = Phase::Idle;
+                let refresh_used = self.refresh_used;
+                if self.retry_download
+                    && self.video.is_some()
+                    && self.destination.is_some()
+                    && self.loaded_link.as_ref().is_some_and(|loaded| {
+                        engine::parse_link(&self.link).is_ok_and(|link| link == *loaded)
+                    })
+                {
+                    self.retry_download = false;
+                    self.start_download(self.destination.clone().unwrap());
+                } else if engine::parse_link(&self.link).is_ok() && tools::ready() {
+                    self.inspect();
+                }
+                self.refresh_used = refresh_used;
+            }
+            Err(error) => {
+                self.usage
+                    .record(crate::usage::Event::CookieImport { ok: false });
+                crate::dev::errors::record("session", &error);
+                self.session_error = Some(error);
+                self.session_expanded = true;
             }
         }
     }
@@ -185,6 +194,7 @@ impl App {
                     cookies: session::SessionCookies::load(&path, source),
                     path: Some(path),
                     browser: None,
+                    from_extension: false,
                 });
             let _ = tx.send(result);
         });
@@ -201,6 +211,7 @@ impl App {
             let _ = tx.send(Some(SessionImport {
                 path: None,
                 browser: Some(profile),
+                from_extension: false,
                 cookies,
             }));
         });
@@ -231,6 +242,9 @@ impl App {
                 });
         });
         if self.browser_choice != ImportBrowser::Firefox {
+            if self.dev.on {
+                self.extension_controls(ui);
+            }
             ui.label("Direct import for this browser is not available yet. The export guide will help you connect your session.");
             if ui
                 .add_enabled(
@@ -322,6 +336,8 @@ impl App {
                     ui.spinner();
                     ui.label(if self.browser_importing {
                         "Importing YouTube session from Firefox…"
+                    } else if self.extension_refresh.is_some() {
+                        "Asking the browser extension for a fresh YouTube session…"
                     } else {
                         "Choose your session export…"
                     });
@@ -363,6 +379,7 @@ impl App {
                     self.session_files.remove(&source);
                     if source == engine::Source::YouTube {
                         self.browser_source = None;
+                        self.extension.forget_session();
                     }
                     self.retry_download = false;
                     self.session_error = None;

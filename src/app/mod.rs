@@ -1,6 +1,7 @@
 //! The window: shared state, the sidebar, and the frame loop. Each page is its own module.
 mod dev;
 mod download;
+mod extension_panel;
 mod feedback;
 mod gif;
 mod preview;
@@ -99,6 +100,12 @@ pub struct App {
     retry_download: bool,
     auto_refresh: bool,
     refresh_used: bool,
+    /// Dev mode's experimental Chrome/Edge extension connection (`extension_panel`).
+    extension: session::chrome::bridge::Bridge,
+    /// The browsers the extension's host is registered with; read when the panel first shows.
+    extension_registered: Option<Vec<session::chrome::registry::Browser>>,
+    /// A refresh asked of the extension, with the sign-in error to show if none arrives.
+    extension_refresh: Option<Option<String>>,
     export_browser: ExportBrowser,
     export_step: ExportStep,
     log: std::collections::VecDeque<String>,
@@ -107,6 +114,8 @@ pub struct App {
 struct SessionImport {
     path: Option<PathBuf>,
     browser: Option<session::firefox::Profile>,
+    /// Sent by the Chrome/Edge extension.
+    from_extension: bool,
     cookies: Result<session::SessionCookies, String>,
 }
 
@@ -180,6 +189,9 @@ impl App {
             retry_download: false,
             auto_refresh: true,
             refresh_used: false,
+            extension: Default::default(),
+            extension_registered: None,
+            extension_refresh: None,
             export_browser: ExportBrowser::ChromeOrEdge,
             export_step: ExportStep::Browser,
             log: Default::default(),
@@ -211,6 +223,7 @@ impl App {
         self.import_cancel.store(true, Ordering::Relaxed);
     }
     fn poll(&mut self) {
+        self.poll_extension();
         self.poll_session();
         self.poll_download();
     }
@@ -369,6 +382,8 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.cancel_all();
+        // Tells a connected extension and removes the channel file; the registration stays.
+        self.extension.stop();
         self.usage.closed();
     }
 }
@@ -561,6 +576,7 @@ mod tests {
                 .send(Some(SessionImport {
                     path: None,
                     browser: None,
+                    from_extension: false,
                     cookies: Ok(session::fake_session()),
                 }))
                 .unwrap();
@@ -575,6 +591,116 @@ mod tests {
                 "Successful import collapses the connection panel; cancellation keeps it open"
             );
             assert!(app.refresh_used);
+        }
+    }
+
+    mod extension {
+        use super::*;
+        use session::chrome::{channel, framing, messages::ToExtension};
+        use std::net::TcpStream;
+
+        const SESSION: &str = r#"{"type":"session","cookies":[{"domain":".youtube.com","hostOnly":false,"path":"/","secure":true,"httpOnly":true,"expirationDate":4102444800,"name":"TEST","value":"fake"}]}"#;
+
+        fn send(host: &mut TcpStream, json: &str) {
+            std::io::Write::write_all(host, &framing::frame(json.as_bytes())).unwrap();
+        }
+
+        fn poll_until(app: &mut App, done: impl Fn(&App) -> bool) {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !done(app) {
+                assert!(std::time::Instant::now() < deadline, "timed out");
+                std::thread::sleep(Duration::from_millis(10));
+                app.poll();
+            }
+        }
+
+        /// An app with a session from a fake extension connection (the test plays the host).
+        fn connected() -> (App, TcpStream, tempfile::TempDir) {
+            let folder = tempfile::tempdir().unwrap();
+            let mut app = App::with_profiles(Vec::new());
+            app.extension.start(folder.path(), Arc::new(|| {})).unwrap();
+            let mut host = channel::connect(folder.path()).unwrap();
+            send(&mut host, r#"{"type":"hello","protocol":1}"#);
+            send(&mut host, SESSION);
+            poll_until(&mut app, |app| {
+                app.sessions.contains_key(&engine::Source::YouTube)
+            });
+            assert!(app.extension.has_session());
+            for _ in 0..2 {
+                let _: ToExtension = framing::read_message(&mut host).unwrap();
+            }
+            (app, host, folder)
+        }
+
+        #[test]
+        fn a_sign_in_error_asks_the_extension_once_and_imports_its_answer() {
+            let (mut app, mut host, _folder) = connected();
+            app.tx.send(auth_error()).unwrap();
+            app.poll();
+            assert!(app.refresh_used && app.session_loading);
+            assert!(app.error.is_none(), "The error waits for the refresh");
+            assert_eq!(
+                framing::read_message::<ToExtension>(&mut host).unwrap(),
+                ToExtension::Refresh
+            );
+            send(&mut host, SESSION);
+            poll_until(&mut app, |app| !app.session_loading);
+            assert!(app.extension_refresh.is_none());
+            assert!(app.refresh_used, "The refresh budget survives the import");
+            app.tx.send(auth_error()).unwrap();
+            app.poll();
+            assert!(!app.session_loading, "Only one refresh per inspection");
+            assert!(app.error.is_some());
+        }
+
+        #[test]
+        fn a_closed_connection_shows_the_original_error() {
+            let (mut app, mut host, _folder) = connected();
+            app.tx.send(auth_error()).unwrap();
+            app.poll();
+            let _: ToExtension = framing::read_message(&mut host).unwrap();
+            drop(host);
+            poll_until(&mut app, |app| !app.session_loading);
+            assert!(app.error.is_some());
+            assert!(app.sessions.contains_key(&engine::Source::YouTube));
+        }
+
+        #[test]
+        fn disconnect_from_either_side_removes_the_session() {
+            let (mut app, mut host, _folder) = connected();
+            send(&mut host, r#"{"type":"disconnect"}"#);
+            poll_until(&mut app, |app| app.sessions.is_empty());
+            assert!(!app.extension.has_session());
+
+            let (mut app, mut host, _folder) = connected();
+            assert!(app.extension.stop());
+            app.remove_extension_session();
+            assert!(app.sessions.is_empty());
+            assert_eq!(
+                framing::read_message::<ToExtension>(&mut host).unwrap(),
+                ToExtension::Disconnect
+            );
+        }
+
+        #[test]
+        fn another_import_replaces_the_extension_session_and_is_never_refreshed() {
+            let (mut app, mut host, _folder) = connected();
+            app.session_tx
+                .send(Some(SessionImport {
+                    path: None,
+                    browser: None,
+                    from_extension: false,
+                    cookies: Ok(session::fake_session()),
+                }))
+                .unwrap();
+            app.poll();
+            assert!(!app.extension.has_session());
+            app.tx.send(auth_error()).unwrap();
+            app.poll();
+            assert!(!app.session_loading);
+            host.set_read_timeout(Some(Duration::from_millis(300)))
+                .unwrap();
+            assert!(framing::read_message::<ToExtension>(&mut host).is_err());
         }
     }
 }
