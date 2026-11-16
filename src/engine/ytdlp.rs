@@ -1,6 +1,7 @@
 //! Runs yt-dlp to inspect a link and to download one of its formats.
 use super::{
     CompletedDownload, EngineError, Format, Link, MediaIdentity, Source, Video,
+    guard::{Guard, Refusal},
     media::{Sound, parse_for},
     sources::other,
 };
@@ -51,14 +52,44 @@ fn command(
     Ok((cmd, session_file))
 }
 
+/// The yt-dlp command for `link`. With a destination guard (Other links), every request of
+/// yt-dlp and of the FFmpeg it starts goes through the guard: yt-dlp gets it as `--proxy` and
+/// passes it on to FFmpeg, and `NO_PROXY`, which FFmpeg would honour, is removed.
 fn command_for(
     link: &Link,
     session: Option<&SessionCookies>,
+    guard: Option<&Guard>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), EngineError> {
     let (mut cmd, file) =
         command(session.filter(|jar| jar.source == link.source && link.takes_session()))?;
     cmd.args(link.source.arguments());
+    if let Some(guard) = guard {
+        cmd.arg("--proxy")
+            .arg(guard.proxy_url())
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy");
+    }
     Ok((cmd, file))
+}
+
+/// The destination guard for an Other link; `None` for the named platforms, or when a proxy is
+/// set for the system or the environment.
+fn guard_for(source: Source) -> Result<Option<Guard>, EngineError> {
+    if source == Source::Other {
+        Guard::for_other_link()
+    } else {
+        Ok(None)
+    }
+}
+
+/// A helper that failed after the guard refused one of its requests failed because of that
+/// refusal: say so instead of reporting a network or site error.
+fn guarded(guard: Option<&Guard>, error: EngineError) -> EngineError {
+    match guard.and_then(Guard::refusal) {
+        Some(Refusal::Address) => EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into()),
+        Some(Refusal::Port) => EngineError::Unsupported(other::NESTED_PORT.into()),
+        None => error,
+    }
 }
 
 pub fn inspect(
@@ -82,8 +113,9 @@ pub fn inspect(
 fn inspect_command(
     link: &Link,
     session: Option<&SessionCookies>,
+    guard: Option<&Guard>,
 ) -> Result<(Command, Option<tempfile::NamedTempFile>), EngineError> {
-    let (mut cmd, session_file) = command_for(link, session)?;
+    let (mut cmd, session_file) = command_for(link, session, guard)?;
     if link.source == Source::Instagram {
         // Keep photo entries without formats from aborting inspection of a mixed carousel.
         cmd.arg("--ignore-no-formats-error");
@@ -103,7 +135,9 @@ fn inspect_resolved(
     session: Option<&SessionCookies>,
     cancel: &AtomicBool,
 ) -> Result<Option<Event>, EngineError> {
-    let (mut cmd, _session_file) = inspect_command(link, session)?;
+    // Stops, with every connection it holds, when inspection returns.
+    let guard = guard_for(link.source)?;
+    let (mut cmd, _session_file) = inspect_command(link, session, guard.as_ref())?;
     let output = match process::Helper::new(&mut cmd, cancel)
         .time_limit(Duration::from_secs(150))
         .output_limit(METADATA_LIMIT)
@@ -123,9 +157,11 @@ fn inspect_resolved(
         Err(error) => return Err(EngineError::Helper(error.to_string())),
     };
     if !output.status.success() {
-        return Err(link
-            .source
-            .explain(&String::from_utf8_lossy(&output.stderr)));
+        return Err(guarded(
+            guard.as_ref(),
+            link.source
+                .explain(&String::from_utf8_lossy(&output.stderr)),
+        ));
     }
     inspection_event(&String::from_utf8_lossy(&output.stdout), link).map(Some)
 }
@@ -244,7 +280,9 @@ fn run_download(
 ) {
     let link = media.link();
     let result = (|| {
-        let (mut cmd, _session_file) = command_for(&link, session.as_ref())?;
+        // Stops, with every connection it holds, when the download ends or is cancelled.
+        let guard = guard_for(link.source)?;
+        let (mut cmd, _session_file) = command_for(&link, session.as_ref(), guard.as_ref())?;
         if matches!(
             link.source,
             super::Source::X | super::Source::Facebook | super::Source::Instagram
@@ -287,7 +325,13 @@ fn run_download(
         // Raw helper output can include signed URLs, local paths and account details.
         let mut tail = VecDeque::new();
         let mut final_path = None;
+        // FFmpeg's protocol refusal has its own message; segment retries can push it out of
+        // the tail.
+        let mut protocol_refusal = None;
         let status = match process::Helper::new(&mut cmd, &cancel).lines(|_, line| {
+            if line.contains("not on whitelist") {
+                protocol_refusal.get_or_insert_with(|| line.to_owned());
+            }
             if let Some(path) = line.strip_prefix("__FILE__") {
                 final_path = Some(PathBuf::from(path));
             } else {
@@ -312,10 +356,14 @@ fn run_download(
             Err(error) => return Err(EngineError::Helper(error.to_string())),
         };
         if !status.success() {
-            return Err(explain_download(
-                link.source,
-                format.sound(),
-                &tail.into_iter().collect::<Vec<_>>().join("\n"),
+            tail.extend(protocol_refusal);
+            return Err(guarded(
+                guard.as_ref(),
+                explain_download(
+                    link.source,
+                    format.sound(),
+                    &tail.into_iter().collect::<Vec<_>>().join("\n"),
+                ),
             ));
         }
         let path = final_path.filter(|p| p.is_file()).ok_or_else(|| {
@@ -437,8 +485,8 @@ mod tests {
             )
             .unwrap();
             for (cmd, file) in [
-                command_for(&link, Some(&jar)).unwrap(),
-                inspect_command(&link, Some(&jar)).unwrap(),
+                command_for(&link, Some(&jar), None).unwrap(),
+                inspect_command(&link, Some(&jar), None).unwrap(),
             ] {
                 let args = arguments(&cmd);
                 assert!(file.is_none(), "{source:?}");
@@ -463,7 +511,7 @@ mod tests {
     #[test]
     fn other_inspection_is_unrestricted_but_capped_and_local_files_stay_closed() {
         let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
-        let (cmd, _) = inspect_command(&link, None).unwrap();
+        let (cmd, _) = inspect_command(&link, None, None).unwrap();
         let args = arguments(&cmd);
         assert!(!args.iter().any(|a| a == "--use-extractors"));
         assert!(!args.iter().any(|a| a == "--enable-file-urls"));
@@ -473,7 +521,81 @@ mod tests {
         );
         assert!(args.windows(2).any(|a| a[0] == "--downloader-args"
             && a[1] == "ffmpeg_i:-protocol_whitelist http,https,tcp,tls,crypto"));
+        // FFmpeg could only reach a secure stream through the guard with `httpproxy`, which
+        // would let a playlist connect anywhere: HLS stays with yt-dlp's own downloader.
+        assert!(!args.iter().any(|a| a.contains("httpproxy")));
+        assert!(
+            args.windows(2)
+                .any(|a| a[0] == "--downloader" && a[1] == "m3u8:native")
+        );
         assert_eq!(&args[args.len() - 2..], ["--", link.url.as_str()]);
+    }
+
+    #[test]
+    fn a_guarded_command_sends_everything_through_the_guard_without_no_proxy() {
+        let link = crate::engine::parse_link("https://videos.example.test/watch?id=7").unwrap();
+        let guard = Guard::for_tests();
+        for (cmd, _) in [
+            inspect_command(&link, None, Some(&guard)).unwrap(),
+            command_for(&link, None, Some(&guard)).unwrap(),
+        ] {
+            let args = arguments(&cmd);
+            let proxy = args.iter().position(|a| a == "--proxy").unwrap();
+            assert_eq!(args[proxy + 1], guard.proxy_url());
+            assert!(guard.proxy_url().starts_with("http://127.0.0.1:"));
+            if let Some(end) = args.iter().position(|a| a == "--") {
+                assert!(proxy < end);
+            }
+            // FFmpeg honours NO_PROXY; yt-dlp and everything it starts get none.
+            let removed: Vec<_> = cmd
+                .get_envs()
+                .filter(|(_, value)| value.is_none())
+                .map(|(key, _)| key.to_string_lossy().to_ascii_lowercase())
+                .collect();
+            assert!(removed.iter().any(|key| key == "no_proxy"), "{removed:?}");
+            assert!(cmd.get_envs().all(|(_, value)| value.is_none()));
+        }
+        // Without a guard (named platforms, or a system proxy) nothing changes.
+        let (cmd, _) = command_for(&link, None, None).unwrap();
+        assert!(!arguments(&cmd).iter().any(|a| a == "--proxy"));
+        assert_eq!(cmd.get_envs().count(), 0);
+        let youtube =
+            crate::engine::parse_link("https://www.youtube.com/watch?v=abcdefghijk").unwrap();
+        assert!(guard_for(youtube.source).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_refused_nested_request_explains_the_failure() {
+        use std::{io::Write, net::TcpStream};
+        let refuse = |request: &[u8]| {
+            let guard = Guard::for_tests();
+            let address = guard.proxy_url().trim_start_matches("http://").to_owned();
+            let mut client = TcpStream::connect(address).unwrap();
+            client.write_all(request).unwrap();
+            let mut answer = String::new();
+            let _ = client.read_to_string(&mut answer);
+            assert!(answer.starts_with("HTTP/1.1 403 "), "{answer}");
+            guard
+        };
+        let network = EngineError::Network(Source::Other);
+        assert_eq!(guarded(None, network.clone()), network);
+        assert_eq!(guarded(Some(&Guard::for_tests()), network.clone()), network);
+        // A private address and a closed port each have their own message.
+        let guard = refuse(b"CONNECT 192.168.1.1:443 HTTP/1.1\r\n\r\n");
+        let error = guarded(Some(&guard), network.clone());
+        assert_eq!(
+            error,
+            EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into())
+        );
+        let message = error.user_message();
+        assert!(message.contains("private network") && !message.contains("192.168"));
+        let guard = refuse(b"CONNECT media.example.test:22 HTTP/1.1\r\n\r\n");
+        let error = guarded(Some(&guard), network);
+        assert_eq!(error, EngineError::Unsupported(other::NESTED_PORT.into()));
+        let message = error.user_message();
+        assert!(
+            message.contains("port") && !message.contains("22") && !message.contains("example")
+        );
     }
 
     #[test]
@@ -592,6 +714,7 @@ mod tests {
                             Some("html") => "text/html",
                             Some("m3u8") => "application/vnd.apple.mpegurl",
                             Some("ts") => "video/mp2t",
+                            Some("mpd") => "application/dash+xml",
                             _ => "video/mp4",
                         };
                         let head = format!(
@@ -613,12 +736,42 @@ mod tests {
         (address, server)
     }
 
-    /// Other sites through the real helpers: a direct video file, a page with an embedded
-    /// `<video>` and an HLS manifest, served from localhost. The pasted-link checks, which refuse
-    /// localhost, are skipped by starting after them, as the YouTube local test does.
+    /// A private address for the hostile fixtures: a listener that counts connections.
+    fn private_sink() -> (std::net::SocketAddr, Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = hits.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                if stream.is_ok() {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+        (address, hits)
+    }
+
+    /// Clears the guard's test network when the test ends, also on a panic.
+    struct TestNetworkReset;
+
+    impl Drop for TestNetworkReset {
+        fn drop(&mut self) {
+            crate::engine::guard::test_network::set(None);
+        }
+    }
+
+    /// Other sites through the real helpers and the destination guard: a direct video file, a
+    /// page with an embedded `<video>`, an HLS stream and a DASH manifest, served from localhost
+    /// under the public-looking name `fixture.example.test`. The guard's test network resolves
+    /// that name to a public address and routes it to the fixture server; yt-dlp cannot resolve
+    /// it itself, so every request has to go through the guard. Hostile fixtures, pages and
+    /// playlists whose nested requests point at private addresses, must be refused. The
+    /// pasted-link checks, which refuse localhost, are skipped by starting after them.
     #[test]
     #[ignore = "requires installed FFmpeg and yt-dlp, plus localhost sockets"]
     fn other_sites_local_fixtures_inspect_and_download() {
+        use crate::engine::guard::test_network::{self, TestNetwork};
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("test-output")
             .join(format!("other-{}", std::process::id()));
@@ -670,34 +823,110 @@ mod tests {
             "0",
             "stream.m3u8",
         ]);
+        // DASH: separate video and audio representations with templated segments.
+        ffmpeg(&[
+            "-c:v",
+            "libx264",
+            "-g",
+            "10",
+            "-f",
+            "dash",
+            "-seg_duration",
+            "1",
+            "-use_template",
+            "1",
+            "-use_timeline",
+            "1",
+            "manifest.mpd",
+        ]);
         std::fs::write(
             root.join("page.html"),
             "<!doctype html><html><head><title>Fixture page</title></head><body>\
              <video controls src=\"clip.mp4\"></video></body></html>",
         )
         .unwrap();
+        let (sink, hits) = private_sink();
+        // Hostile: a public-looking page whose video is on a name that resolves privately, one
+        // whose video is on a private IP literal, and playlists with a private segment.
+        let page = |name: &str, src: &str| {
+            std::fs::write(
+                root.join(name),
+                format!(
+                    "<!doctype html><html><head><title>Hostile page</title></head><body>\
+                     <video controls src=\"{src}\"></video></body></html>"
+                ),
+            )
+            .unwrap();
+        };
+        page(
+            "hostile-name.html",
+            "http://private.example.test/secret.mp4",
+        );
+        page("hostile-ip.html", &format!("http://{sink}/secret.mp4"));
+        let playlist = std::fs::read_to_string(root.join("stream.m3u8")).unwrap();
+        let segment = playlist
+            .lines()
+            .find(|line| line.ends_with(".ts"))
+            .unwrap()
+            .to_owned();
+        std::fs::write(
+            root.join("hostile.m3u8"),
+            playlist.replace(&segment, &format!("http://{sink}/{segment}")),
+        )
+        .unwrap();
+        // Media on an unprivileged port, by name and by public IP literal: allowed.
+        std::fs::write(
+            root.join("port.m3u8"),
+            playlist.replace(
+                &segment,
+                &format!("http://media.example.test:8080/{segment}"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("ip-port.m3u8"),
+            playlist.replace(&segment, &format!("http://93.184.215.15:8080/{segment}")),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("hostile-name.m3u8"),
+            playlist.replace(&segment, &format!("http://private.example.test/{segment}")),
+        )
+        .unwrap();
+
         let done = Arc::new(AtomicBool::new(false));
         let (address, server) = serve_folder(root.clone(), done.clone());
-        let mut saved = Vec::new();
-        for name in ["clip.mp4", "page.html", "stream.m3u8"] {
-            let link = Link {
-                source: Source::Other,
-                url: format!("http://{address}/{name}?fixture=1"),
-            };
-            let video = match inspect_resolved(
-                &link,
+        let public: std::net::IpAddr = "93.184.215.14".parse().unwrap();
+        let media: std::net::IpAddr = "93.184.215.15".parse().unwrap();
+        test_network::set(Some(TestNetwork {
+            hosts: vec![
+                ("fixture.example.test".into(), public),
+                ("media.example.test".into(), media),
+                ("private.example.test".into(), "127.0.0.1".parse().unwrap()),
+            ],
+            routes: vec![
+                ((public, 80).into(), address),
+                ((media, 8080).into(), address),
+            ],
+        }));
+        let _reset = TestNetworkReset;
+        let link = |name: &str| Link {
+            source: Source::Other,
+            url: format!("http://fixture.example.test/{name}?fixture=1"),
+        };
+        let inspect = |name: &str| {
+            inspect_resolved(
+                &link(name),
                 Some(&crate::session::fake_session()),
                 &AtomicBool::new(false),
-            ) {
-                Ok(Some(Event::Loaded(video))) => video,
-                Ok(Some(Event::Entries(mut videos))) => videos.remove(0),
-                Ok(_) => panic!("{name}: no video"),
-                Err(error) => {
-                    done.store(true, Ordering::Relaxed);
-                    panic!("{name}: {error:?}");
-                }
-            };
-            assert_eq!(video.source, Source::Other);
+            )
+            .map(|event| match event {
+                Some(Event::Loaded(video)) => video,
+                Some(Event::Entries(mut videos)) => videos.remove(0),
+                _ => panic!("{name}: no video"),
+            })
+        };
+        let download = |name: &str, video: Video| {
             let format = video.formats.iter().find(|f| f.video()).unwrap().clone();
             let folder = root.join(name.replace('.', "-"));
             std::fs::create_dir_all(&folder).unwrap();
@@ -710,17 +939,45 @@ mod tests {
                 tx,
                 Arc::new(AtomicBool::new(false)),
             );
-            let path = rx
-                .into_iter()
+            rx.into_iter()
                 .find_map(|event| match event {
-                    Event::Complete(done) => Some(done.path),
-                    Event::Failed(error) => panic!("{name}: {error:?}"),
+                    Event::Complete(done) => Some(Ok(done.path)),
+                    Event::Failed(error) => Some(Err(error)),
                     _ => None,
                 })
-                .expect("no file");
+                .expect("no result")
+        };
+        let mut saved = Vec::new();
+        for name in [
+            "clip.mp4",
+            "page.html",
+            "stream.m3u8",
+            "manifest.mpd",
+            "port.m3u8",
+            "ip-port.m3u8",
+        ] {
+            let video = inspect(name).unwrap_or_else(|error| {
+                done.store(true, Ordering::Relaxed);
+                panic!("{name}: {error:?}");
+            });
+            assert_eq!(video.source, Source::Other);
+            if name == "manifest.mpd" {
+                assert!(
+                    video
+                        .formats
+                        .iter()
+                        .any(|f| f.protocol.as_deref() == Some("http_dash_segments")),
+                    "{:?}",
+                    video.formats
+                );
+            }
+            let path = download(name, video).unwrap_or_else(|error| {
+                done.store(true, Ordering::Relaxed);
+                panic!("{name}: {error:?}");
+            });
             let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
             // The extractor (Generic, or HTML5MediaEmbed for the page), then the page's domain.
-            assert!(file_name.contains(" 127.0.0.1"), "{file_name}");
+            assert!(file_name.contains(" fixture.example.test"), "{file_name}");
             let probe = isolate(
                 Command::new(crate::tools::path("ffprobe"))
                     .args([
@@ -736,15 +993,39 @@ mod tests {
             .output()
             .unwrap();
             let json: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
-            assert!(
-                json["streams"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|s| s["codec_type"] == "video")
-            );
+            let streams = json["streams"].as_array().unwrap();
+            assert!(streams.iter().any(|s| s["codec_type"] == "video"), "{name}");
+            if name.ends_with(".m3u8") || name == "manifest.mpd" {
+                assert!(streams.iter().any(|s| s["codec_type"] == "audio"), "{name}");
+            }
             saved.push(file_name);
         }
+        // Hostile fixtures: refused by the guard, with its own message, whether at inspection or
+        // at download.
+        for name in [
+            "hostile-name.html",
+            "hostile-ip.html",
+            "hostile.m3u8",
+            "hostile-name.m3u8",
+        ] {
+            let error = match inspect(name) {
+                Err(error) => error,
+                Ok(video) => match download(name, video) {
+                    Err(error) => error,
+                    Ok(path) => panic!("{name}: saved {}", path.display()),
+                },
+            };
+            assert_eq!(
+                error,
+                EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into()),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "a private address was reached"
+        );
         done.store(true, Ordering::Relaxed);
         server.join().unwrap();
         println!("Other-site fixtures saved: {saved:?}");
@@ -761,7 +1042,8 @@ mod tests {
             ("https://m.tiktok.com/v/123.html", false),
         ] {
             let link = crate::engine::parse_link(link).unwrap();
-            let (cmd, session) = command_for(&link, Some(&crate::session::fake_session())).unwrap();
+            let (cmd, session) =
+                command_for(&link, Some(&crate::session::fake_session()), None).unwrap();
             let args = arguments(&cmd);
             assert_eq!(session.is_some(), youtube, "{}", link.url);
             assert_eq!(args.iter().any(|a| a == "--cookies"), youtube);
@@ -797,7 +1079,7 @@ mod tests {
             ("https://www.youtube.com/media/clip.mp4", false),
         ] {
             std::fs::write(&info, serde_json::json!({"id":"fixture","title":"fixture","url":url,"ext":"mp4","extractor":"generic","extractor_key":"Generic","webpage_url":url}).to_string()).unwrap();
-            let (mut cmd, _file) = command_for(&link, Some(&jar)).unwrap();
+            let (mut cmd, _file) = command_for(&link, Some(&jar), None).unwrap();
             cmd.arg("--load-info-json")
                 .arg(&info)
                 .args(["--simulate", "--print", "%(cookies)s"]);
@@ -877,7 +1159,7 @@ mod tests {
             ("x.com/example/status/123", false),
         ] {
             let link = crate::engine::parse_link(url).unwrap();
-            let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+            let (cmd, file) = command_for(&link, Some(&jar), None).unwrap();
             assert_eq!(file.is_some(), expected);
             assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
         }
@@ -917,7 +1199,7 @@ mod tests {
                 ("https://media.example/clip.mp4", false),
             ] {
                 let link = crate::engine::parse_link(url).unwrap();
-                let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+                let (cmd, file) = command_for(&link, Some(&jar), None).unwrap();
                 assert_eq!(file.is_some(), expected, "{source:?} {url}");
                 assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
             }
@@ -937,7 +1219,7 @@ mod tests {
             ("x.com/example/status/123", false),
         ] {
             let link = crate::engine::parse_link(url).unwrap();
-            let (cmd, file) = command_for(&link, Some(&jar)).unwrap();
+            let (cmd, file) = command_for(&link, Some(&jar), None).unwrap();
             assert_eq!(file.is_some(), expected);
             assert_eq!(cmd.get_args().any(|arg| arg == "--cookies"), expected);
         }

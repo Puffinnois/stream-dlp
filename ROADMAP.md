@@ -10,10 +10,9 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **U-01** — check what yt-dlp and FFmpeg fetch after the pasted link against the destination policy, and test DASH through a real manifest.
-2. **Release checks** — record the tested yt-dlp version in the release notes, and run the local pipeline test for engine changes.
-3. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
-4. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
+1. **Release checks** — record the tested yt-dlp version in the release notes, and run the local pipeline test for engine changes.
+2. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
+3. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
 
 ## Direction and priorities
 
@@ -42,7 +41,7 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: direct Streamable uploads (blocked, S-03/S-04); destination checks on what yt-dlp fetches after the pasted link for other sites, and DASH through a real manifest (U-01); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
+Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
 
 ## Feasibility findings
 
@@ -286,9 +285,9 @@ Depends on Phase 1 and experience from at least the first named-platform release
 
 - [x] Route recognized sites to their platform handler; allow other public HTTP(S) URLs through yt-dlp's remaining site-specific extractors and generic fallback.
 - [x] Label this **Other sites (experimental)** and explain that compatibility varies. Universal means an attempt at supported media extraction, not every website.
-- [ ] Support public direct video files and non-DRM HLS/DASH where the existing tools can handle them. *Open (2026-11-13): DASH through a real manifest is untested.*
+- [x] Support public direct video files and non-DRM HLS/DASH where the existing tools can handle them. *Done (2026-11-16): a real DASH manifest inspects and downloads through the app's own code.*
 - [x] Define resource limits for redirects, inspection time, metadata size, and collection size. Keep bulk downloads and arbitrary local/network-resource access outside the initial scope.
-- [ ] Implement the F-01 destination policy for redirects and nested media requests; validate what yt-dlp and FFmpeg actually fetch rather than checking only the pasted URL. *Open (2026-11-13): yt-dlp's own later requests and DNS changes after the check are not enforced.*
+- [x] Implement the F-01 destination policy for redirects and nested media requests; validate what yt-dlp and FFmpeg actually fetch rather than checking only the pasted URL. *Done (2026-11-16): every helper request goes through the destination guard; limits: a system or environment proxy turns it off, and HTTPS streams only FFmpeg can download fail.*
 - [x] Leave authentication off by default and surface meaningful unsupported-site, DRM, and missing-media results.
 
 November 13, 2026, bundled yt-dlp 2026.08.19: implemented in
@@ -311,6 +310,26 @@ protocol whitelist (both verified against a hostile local playlist), but
 yt-dlp's own later requests (embeds, manifests, segments, its own redirects)
 are not checked against the address policy, and DNS can change between the
 check and yt-dlp's lookup. See the reference's known limits.
+
+November 16, 2026, bundled yt-dlp 2026.08.19 and FFmpeg N-127911: both open
+items done. A destination guard (`src/engine/guard.rs`), a loopback proxy
+started for each inspection and download of an Other link, now carries every
+request of yt-dlp and of the FFmpeg it starts (`--proxy`, `NO_PROXY` removed).
+It applies the address policy to each request (public names or public IP
+literals, ports 80, 443 or 1024–65535; the pasted link keeps the stricter link
+policy), connects only to the address it checked (no rebinding) and allows one
+request per connection.
+[Experiments](docs/research/other-site-destination-guard.md) showed that
+yt-dlp's own requests, native HLS and native DASH all use the proxy, and that
+FFmpeg reaches HTTPS through it only with `httpproxy`, which would let a
+playlist bypass the guard. So HLS is forced onto yt-dlp's own downloader and
+HTTPS streams that only FFmpeg can download (for example `SAMPLE-AES`) fail
+with their own message. The `#[ignore]`d end-to-end test passed on Windows: a
+direct file, an embedded page, HLS, a real DASH manifest and HLS segments on
+port 8080 (by name and by public IP literal) downloaded through the guard, and hostile pages and playlists pointing at private addresses were
+refused without the private address being reached. When the system or the
+environment sets a proxy, the guard is off and only the pasted link and its
+redirects are checked. Not yet run on the Mac.
 
 **Phase acceptance:** public direct-file, embedded-video, and manifest fixtures work; unsupported pages fail cleanly; arbitrary URLs cannot inherit another platform's credentials.
 

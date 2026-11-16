@@ -57,10 +57,14 @@ impl Source {
             Self::X => &["--use-extractors", "Twitter", "--yes-playlist"],
             // No extractor restriction: any of yt-dlp's other extractors or its generic one may
             // answer. Cookies stay off, and FFmpeg, when yt-dlp hands it a stream, may only open
-            // network protocols, never local files or other schemes.
+            // network protocols, never local files or other schemes. HLS uses yt-dlp's own
+            // downloader, which goes through the destination guard; FFmpeg is left only the
+            // streams yt-dlp cannot read itself (see `guard.rs`).
             Self::Other => &[
                 "--no-cookies",
                 "--no-cookies-from-browser",
+                "--downloader",
+                "m3u8:native",
                 "--downloader-args",
                 "ffmpeg_i:-protocol_whitelist http,https,tcp,tls,crypto",
             ],
