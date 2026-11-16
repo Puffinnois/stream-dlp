@@ -845,6 +845,13 @@ mod tests {
              <video controls src=\"clip.mp4\"></video></body></html>",
         )
         .unwrap();
+        // A page with two videos, for the batch case.
+        std::fs::copy(root.join("clip.mp4"), root.join("second.mp4")).unwrap();
+        std::fs::write(
+            root.join("two.html"),
+            "<!doctype html><html><head><title>Two videos</title></head><body>             <video controls src=\"clip.mp4\"></video>             <video controls src=\"second.mp4\"></video></body></html>",
+        )
+        .unwrap();
         let (sink, hits) = private_sink();
         // Hostile: a public-looking page whose video is on a name that resolves privately, one
         // whose video is on a private IP literal, and playlists with a private segment.
@@ -1000,6 +1007,56 @@ mod tests {
             }
             saved.push(file_name);
         }
+        // Download all on a page with two videos: one after the other, each through the
+        // single-video path into its own file, and never replaced when saved again.
+        let entries = match inspect_resolved(&link("two.html"), None, &AtomicBool::new(false)) {
+            Ok(Some(Event::Entries(entries))) => entries,
+            Ok(Some(Event::Loaded(_))) => panic!("two.html: one video"),
+            Ok(_) => panic!("two.html: no video"),
+            Err(error) => {
+                done.store(true, Ordering::Relaxed);
+                panic!("two.html: {error:?}");
+            }
+        };
+        assert_eq!(entries.len(), 2);
+        let folder = root.join("two-html");
+        std::fs::create_dir_all(&folder).unwrap();
+        let download_all = || {
+            use crate::app::batch::{Batch, State};
+            let sessions = std::collections::HashMap::new();
+            let mut batch = Batch::new(&entries).unwrap().with_download(run_download);
+            let (tx, rx) = std::sync::mpsc::channel();
+            batch.start(folder.clone(), &sessions, &tx);
+            while batch.state() == State::Running {
+                let event = rx
+                    .recv_timeout(Duration::from_secs(120))
+                    .expect("no result");
+                batch.ended(event, &sessions, &tx);
+            }
+            assert_eq!(batch.state(), State::Done);
+            assert_eq!(
+                batch.saved().count(),
+                2,
+                "{:?}",
+                batch.results().iter().map(|f| &f.ended).collect::<Vec<_>>()
+            );
+            batch
+                .saved()
+                .map(|(_, saved)| saved.path.clone())
+                .collect::<Vec<_>>()
+        };
+        let first = download_all();
+        assert_ne!(first[0], first[1]);
+        let modified = |paths: &[PathBuf]| {
+            paths
+                .iter()
+                .map(|path| std::fs::metadata(path).unwrap().modified().unwrap())
+                .collect::<Vec<_>>()
+        };
+        let before = modified(&first);
+        assert_eq!(download_all(), first);
+        assert_eq!(modified(&first), before, "a saved file was replaced");
+
         // Hostile fixtures: refused by the guard, with its own message, whether at inspection or
         // at download.
         for name in [
