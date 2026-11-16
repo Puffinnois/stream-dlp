@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,22 @@ def write_checksum(path):
     path.with_suffix(path.suffix + ".sha256").write_text(f"{sha256(path)}  {path.name}\n")
 
 
+def create_image(volume, image, attempts=4, wait=5):
+    """Creates the disk image. `hdiutil create` sometimes fails with "Resource busy" while the
+    system still holds the new volume (seen on CI runners), so it is retried a few times."""
+    for attempt in range(1, attempts + 1):
+        image.unlink(missing_ok=True)
+        try:
+            run("hdiutil", "create", "-srcfolder", volume, "-volname", "stream-dlp",
+                "-fs", "HFS+", "-format", "UDZO", image)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise
+            print(f"hdiutil create failed (attempt {attempt} of {attempts}); retrying in {wait * attempt} s.")
+            time.sleep(wait * attempt)
+
+
 def build_dmg(app):
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
@@ -42,8 +59,7 @@ def build_dmg(app):
         run("ditto", app, volume / app.name)
         (volume / "Applications").symlink_to("/Applications", target_is_directory=True)
         image = work / "stream-dlp-macOS-arm64-experimental.dmg"
-        run("hdiutil", "create", "-srcfolder", volume, "-volname", "stream-dlp",
-            "-fs", "HFS+", "-format", "UDZO", image)
+        create_image(volume, image)
         run("hdiutil", "verify", image)
         mount = Path(test) / "mounted"
         mount.mkdir()
