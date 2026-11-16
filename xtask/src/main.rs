@@ -1,12 +1,15 @@
 //! Project commands, the counterpart of npm scripts:
 //!
 //! - `cargo xtask check`: formatting, Clippy, the Rust tests and the Deno script tests — what CI runs.
+//! - `cargo xtask pipeline`: the ignored tests that need only the bundled tools and localhost,
+//!   required for engine and media changes ([`pipeline`]).
 //! - `cargo xtask tools`: the bundled helper versions and the release notes' tested yt-dlp line.
 //! - `cargo xtask release <patch|minor|major|X.Y.Z>`: checks that the next version's notes end
 //!   with the tested yt-dlp line for the bundled yt-dlp ([`notes`]), bumps Cargo.toml and
 //!   Cargo.lock, commits `build: bump version to X`, and tags `vX`. `git push --follow-tags` then
 //!   starts the Release workflow, which uploads the build to a draft GitHub release.
 mod notes;
+mod pipeline;
 mod tools;
 
 use std::{
@@ -24,9 +27,13 @@ fn main() -> ExitCode {
         .as_slice()
     {
         ["check"] => check(),
+        ["pipeline"] => pipeline::run(),
         ["tools"] => tools::print_versions(),
         ["release", bump] => release(bump),
-        _ => Err("usage: cargo xtask check | tools | release <patch|minor|major|X.Y.Z>".into()),
+        _ => Err(
+            "usage: cargo xtask check | pipeline | tools | release <patch|minor|major|X.Y.Z>"
+                .into(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
