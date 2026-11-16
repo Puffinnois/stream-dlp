@@ -87,7 +87,8 @@ address check, as DNS answers can change between inspection and download.
   downloadable video are skipped, and when none is left the first reason is shown. Nested
   collections are not opened.
 - Download: only the chosen entry, by `--playlist-items N`, plus `--match-filter id = '…'` when
-  the ID is safe to quote (`A–Z a–z 0–9 _ - .`). A whole collection is never downloaded.
+  the ID is safe to quote (`A–Z a–z 0–9 _ - .`). A whole collection is never downloaded;
+  **Download all** runs this once per listed entry ([download all](download-all.md)).
 - Formats: only `http`, `https`, `m3u8`, `m3u8_native`, `http_dash_segments(_generator)`
   protocols are kept; RTMP, RTSP, MMS, F4M and the rest are dropped. A format without codec
   details in a video container (`mp4`, `webm`, `mkv`…) counts as a video, as the generic

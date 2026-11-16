@@ -38,6 +38,14 @@ impl FormatFilter {
     }
 }
 
+/// The status line while a download connects.
+pub(super) fn connecting(source: engine::Source) -> String {
+    match source {
+        engine::Source::Other => "Connecting to the site…".into(),
+        source => format!("Connecting to {}…", source.label()),
+    }
+}
+
 impl App {
     pub(super) fn inspect(&mut self) {
         match engine::parse_link(&self.link) {
@@ -56,6 +64,7 @@ impl App {
                 self.error = None;
                 self.video = None;
                 self.entries.clear();
+                self.batch = None;
                 self.saved = None;
                 // The last video's "ready" or "cancelled" line must not label the next one.
                 self.status.clear();
@@ -71,6 +80,10 @@ impl App {
     }
     pub(super) fn poll_download(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
+            // A running batch takes the end of each of its downloads.
+            let Some(event) = self.batch_event(event) else {
+                continue;
+            };
             match event {
                 Event::Loaded(video) => {
                     self.report_outcome(Outcome::Ok);
@@ -81,6 +94,7 @@ impl App {
                 }
                 Event::Entries(entries) => {
                     self.report_outcome(Outcome::Ok);
+                    self.batch = super::batch::Batch::new(&entries);
                     self.entries = entries;
                     self.phase = Phase::Choosing;
                 }
@@ -152,7 +166,9 @@ impl App {
             self.usage.record(UsageEvent::FolderPicker {
                 picked: folder.is_some(),
             });
-            if let Some(folder) = folder {
+            if self.batch_picking() {
+                self.batch_folder(folder);
+            } else if let Some(folder) = folder {
                 self.start_download(folder);
             } else {
                 self.phase = Phase::Choosing;
@@ -164,10 +180,7 @@ impl App {
         self.destination = Some(folder.clone());
         self.error = None;
         self.progress = 0.;
-        self.status = match self.video.as_ref().unwrap().source {
-            engine::Source::Other => "Connecting to the site…".into(),
-            source => format!("Connecting to {}…", source.label()),
-        };
+        self.status = connecting(self.video.as_ref().unwrap().source);
         self.log.clear();
         self.phase = Phase::Downloading;
         self.download_cancel = Arc::new(AtomicBool::new(false));
@@ -194,7 +207,7 @@ impl App {
             self.selected = first;
         }
     }
-    fn choose_folder(&mut self) {
+    pub(super) fn choose_folder(&mut self) {
         self.phase = Phase::Picking;
         let tx = self.folder_tx.clone();
         let folder = self.destination.clone();
@@ -327,12 +340,16 @@ impl App {
                     }
                 });
             });
+        } else if self.batch.as_ref().is_some_and(|batch| batch.started()) && self.video.is_none() {
+            self.batch_card(ui);
         } else if !self.entries.is_empty() && self.video.is_none() {
             card(ui, |ui| {
                 section_title(ui, "Choose one video from this post");
+                let busy = self.download_busy();
                 for video in &self.entries {
                     if ui
-                        .add(
+                        .add_enabled(
+                            !busy,
                             egui::Button::new(format!(
                                 "Video {} · {} · {}",
                                 video.entry_index.unwrap_or(1),
@@ -349,6 +366,7 @@ impl App {
                         self.filter = FormatFilter::All;
                     }
                 }
+                self.batch_offer(ui);
             });
         } else if self.video.is_some() {
             if !self.entries.is_empty()
