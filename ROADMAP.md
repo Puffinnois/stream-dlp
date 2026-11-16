@@ -316,16 +316,18 @@ November 16, 2026, bundled yt-dlp 2026.08.19 and FFmpeg N-127911: both open
 items done. A destination guard (`src/engine/guard.rs`), a loopback proxy
 started for each inspection and download of an Other link, now carries every
 request of yt-dlp and of the FFmpeg it starts (`--proxy`, `NO_PROXY` removed).
-It applies the link and address policy to each request, connects only to the
-address it checked (no rebinding) and allows one request per connection.
+It applies the address policy to each request (public names or public IP
+literals, ports 80, 443 or 1024–65535; the pasted link keeps the stricter link
+policy), connects only to the address it checked (no rebinding) and allows one
+request per connection.
 [Experiments](docs/research/other-site-destination-guard.md) showed that
 yt-dlp's own requests, native HLS and native DASH all use the proxy, and that
 FFmpeg reaches HTTPS through it only with `httpproxy`, which would let a
 playlist bypass the guard. So HLS is forced onto yt-dlp's own downloader and
 HTTPS streams that only FFmpeg can download (for example `SAMPLE-AES`) fail
 with their own message. The `#[ignore]`d end-to-end test passed on Windows: a
-direct file, an embedded page, HLS and a real DASH manifest downloaded through
-the guard, and hostile pages and playlists pointing at private addresses were
+direct file, an embedded page, HLS, a real DASH manifest and HLS segments on
+port 8080 (by name and by public IP literal) downloaded through the guard, and hostile pages and playlists pointing at private addresses were
 refused without the private address being reached. When the system or the
 environment sets a proxy, the guard is off and only the pasted link and its
 redirects are checked. Not yet run on the Mac.

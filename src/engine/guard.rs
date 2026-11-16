@@ -1,8 +1,8 @@
 //! The destination guard for other sites: a small forward proxy on 127.0.0.1 that yt-dlp, and
 //! FFmpeg when yt-dlp hands it a stream, send every request through. For each request the guard
-//! looks the host up once, applies the pasted link's rules (`other::normalize` for the scheme,
-//! port and name, `other::checked_addresses` for the addresses) and connects to an address it has
-//! just checked. A nested request (an embed, a manifest, a segment, a key, a redirect) to a local
+//! checks the target (`destination`: a public name or an IP literal, a web or unprivileged port),
+//! looks a name up once, requires every address to be public (`other::checked_addresses`, the
+//! rule of the pasted link) and connects to an address it has just checked. A nested request (an embed, a manifest, a segment, a key, a redirect) to a local
 //! or private address is refused, and so is a name whose DNS answer changes after a check
 //! (rebinding), as no second lookup is made. HTTPS is tunnelled with CONNECT, never decrypted.
 //!
@@ -77,8 +77,10 @@ struct Shared {
     policy: Policy,
     limits: Limits,
     stopping: AtomicBool,
-    /// Requests refused because their destination is not public or fails the link policy.
-    refused: AtomicUsize,
+    /// Requests refused for a local or private destination.
+    refused_address: AtomicUsize,
+    /// Requests refused for their port.
+    refused_port: AtomicUsize,
     active: AtomicUsize,
     /// Every open socket, so stopping can close them and end their threads.
     sockets: Mutex<Vec<(u64, TcpStream)>>,
@@ -142,7 +144,8 @@ impl Guard {
             policy,
             limits,
             stopping: AtomicBool::new(false),
-            refused: AtomicUsize::new(0),
+            refused_address: AtomicUsize::new(0),
+            refused_port: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
             sockets: Mutex::new(Vec::new()),
             next_socket: AtomicU64::new(0),
@@ -171,10 +174,16 @@ impl Guard {
         format!("http://{}", self.address)
     }
 
-    /// Whether a request was refused for its destination. A helper that failed after one was
-    /// refused is explained by that refusal, not as a network failure.
-    pub(in crate::engine) fn refused(&self) -> bool {
-        self.shared.refused.load(Ordering::SeqCst) > 0
+    /// Why a request was refused, if one was: a local or private destination before a port. A
+    /// helper that failed after a refusal is explained by it, not as a network failure.
+    pub(in crate::engine) fn refusal(&self) -> Option<Refusal> {
+        if self.shared.refused_address.load(Ordering::SeqCst) > 0 {
+            Some(Refusal::Address)
+        } else if self.shared.refused_port.load(Ordering::SeqCst) > 0 {
+            Some(Refusal::Port)
+        } else {
+            None
+        }
     }
 }
 
@@ -231,13 +240,22 @@ fn accept(listener: &TcpListener, shared: &Arc<Shared>) {
     shared.close_all();
 }
 
+/// Why the guard refused a request's destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::engine) enum Refusal {
+    /// A local or private address, or a name that is not public.
+    Address,
+    /// A port other than 80, 443 or 1024–65535.
+    Port,
+}
+
 /// Why a request got no tunnel or response from its destination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Answer {
     /// Malformed, too large, too slow, or not a proxy request.
     BadRequest,
-    /// The destination is not public or fails the link policy.
-    Forbidden,
+    /// The destination is refused.
+    Forbidden(Refusal),
     /// The destination could not be looked up or reached.
     BadGateway,
     /// Too many connections.
@@ -247,7 +265,7 @@ enum Answer {
 fn respond(stream: &mut TcpStream, answer: Answer) {
     let status = match answer {
         Answer::BadRequest => "400 Bad Request",
-        Answer::Forbidden => "403 Forbidden",
+        Answer::Forbidden(_) => "403 Forbidden",
         Answer::BadGateway => "502 Bad Gateway",
         Answer::Busy => "503 Service Unavailable",
     };
@@ -260,8 +278,14 @@ fn respond(stream: &mut TcpStream, answer: Answer) {
 fn handle(shared: &Shared, mut client: TcpStream) {
     let id = shared.register(&client);
     if let Err(answer) = serve(shared, &mut client) {
-        if answer == Answer::Forbidden {
-            shared.refused.fetch_add(1, Ordering::SeqCst);
+        match answer {
+            Answer::Forbidden(Refusal::Address) => {
+                shared.refused_address.fetch_add(1, Ordering::SeqCst);
+            }
+            Answer::Forbidden(Refusal::Port) => {
+                shared.refused_port.fetch_add(1, Ordering::SeqCst);
+            }
+            _ => {}
         }
         respond(&mut client, answer);
         // Read a little of what the client is still sending before closing, so the answer is
@@ -360,19 +384,54 @@ fn serve(shared: &Shared, client: &mut TcpStream) -> Result<(), Answer> {
     }
 }
 
-/// Checks `url` with the link policy and looks its host up once: the checked addresses to
-/// connect to, or why not.
+/// Ports a request through the guard may use: the web's defaults and every unprivileged port,
+/// which media servers and CDNs use (8080, 8443…). Ports below 1024 other than 80 and 443 belong
+/// to other services (SSH, mail…).
+fn allowed_port(port: u16) -> bool {
+    matches!(port, 80 | 443 | 1024..)
+}
+
+/// The rule for a request through the guard, looser than the pasted link's (`other::normalize`):
+/// `http` or `https`, an allowed port, and a host that is either a public name or an IP literal.
+/// A name is looked up once; every address must be public. The checked addresses to connect to,
+/// or why not.
 fn destination(shared: &Shared, url: &Url) -> Result<Vec<SocketAddr>, Answer> {
-    other::normalize(url).map_err(|_| Answer::Forbidden)?;
-    let port = url.port_or_known_default().ok_or(Answer::Forbidden)?;
-    match other::checked_addresses(url, &mut |host, port| (shared.policy.lookup)(host, port)) {
-        Ok(addresses) => Ok(addresses
-            .into_iter()
-            .map(|ip| SocketAddr::new(ip, port))
-            .collect()),
-        Err(EngineError::Unsupported(_)) => Err(Answer::Forbidden),
-        Err(_) => Err(Answer::BadGateway),
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(Answer::BadRequest);
     }
+    let port = url.port_or_known_default().ok_or(Answer::BadRequest)?;
+    if !allowed_port(port) {
+        return Err(Answer::Forbidden(Refusal::Port));
+    }
+    let addresses = match url.host() {
+        Some(url::Host::Domain(name)) => {
+            if !other::public_name(name) {
+                return Err(Answer::Forbidden(Refusal::Address));
+            }
+            match other::checked_addresses(url, &mut |host, port| {
+                (shared.policy.lookup)(host, port)
+            }) {
+                Ok(addresses) => addresses,
+                Err(EngineError::Unsupported(_)) => {
+                    return Err(Answer::Forbidden(Refusal::Address));
+                }
+                Err(_) => return Err(Answer::BadGateway),
+            }
+        }
+        Some(url::Host::Ipv4(ip)) => vec![IpAddr::V4(ip)],
+        Some(url::Host::Ipv6(ip)) => vec![IpAddr::V6(ip)],
+        None => return Err(Answer::BadRequest),
+    };
+    if !addresses.iter().copied().all(other::public_address) {
+        return Err(Answer::Forbidden(Refusal::Address));
+    }
+    Ok(addresses
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, port))
+        .collect())
 }
 
 /// Connects to the first of the checked addresses that answers.
@@ -392,8 +451,8 @@ fn connect(shared: &Shared, addresses: &[SocketAddr]) -> Result<TcpStream, Answe
     Err(Answer::BadGateway)
 }
 
-/// `CONNECT host:443`: the link policy allows only the default HTTPS port, so the target is
-/// checked as `https://host/`.
+/// `CONNECT host:port` (a name, an IPv4 literal or a bracketed IPv6 literal), checked as
+/// `https://host:port/`.
 fn tunnel(shared: &Shared, client: &mut TcpStream, head: &Head, rest: &[u8]) -> Result<(), Answer> {
     let (host, port) = head.target.rsplit_once(':').ok_or(Answer::BadRequest)?;
     if host.is_empty()
@@ -403,10 +462,8 @@ fn tunnel(shared: &Shared, client: &mut TcpStream, head: &Head, rest: &[u8]) -> 
     {
         return Err(Answer::BadRequest);
     }
-    if port != "443" {
-        return Err(Answer::Forbidden);
-    }
-    let url = Url::parse(&format!("https://{host}/")).map_err(|_| Answer::BadRequest)?;
+    let port: u16 = port.parse().map_err(|_| Answer::BadRequest)?;
+    let url = Url::parse(&format!("https://{host}:{port}/")).map_err(|_| Answer::BadRequest)?;
     let addresses = destination(shared, &url)?;
     let mut upstream = connect(shared, &addresses)?;
     let upstream_id = shared.register(&upstream);
@@ -535,7 +592,7 @@ fn forward(
     }
     let url = Url::parse(head.target).map_err(|_| Answer::BadRequest)?;
     if url.scheme() != "http" {
-        return Err(Answer::Forbidden);
+        return Err(Answer::BadRequest);
     }
     if head
         .headers
@@ -567,7 +624,11 @@ fn forward(
         url.path(),
         url.query().map(|q| format!("?{q}")).unwrap_or_default(),
         head.version,
-        url.host_str().unwrap_or_default(),
+        // The port only when it is not the default, as clients send it.
+        match url.port() {
+            Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
+            None => url.host_str().unwrap_or_default().to_owned(),
+        },
     );
     for (name, value) in &head.headers {
         if !name.eq_ignore_ascii_case("host") && !hop_by_hop(name, &listed) {
@@ -887,7 +948,7 @@ mod tests {
         assert!(seen.recv_timeout(Duration::from_millis(300)).is_err());
         assert_eq!(*lookups.lock().unwrap(), ["media.example.test"]);
         assert_eq!(*connects.lock().unwrap(), [format!("{PUBLIC}:80")]);
-        assert!(!guard.refused());
+        assert_eq!(guard.refusal(), None);
     }
 
     #[test]
@@ -950,39 +1011,138 @@ mod tests {
                 assert!(answer.starts_with("HTTP/1.1 403 "), "{blocked}: {answer}");
             }
             assert!(connects.lock().unwrap().is_empty(), "{blocked}");
-            assert!(guard.refused(), "{blocked}");
+            assert_eq!(guard.refusal(), Some(Refusal::Address), "{blocked}");
         }
     }
 
     #[test]
-    fn targets_outside_the_link_policy_are_refused_and_malformed_requests_rejected() {
+    fn private_hosts_and_closed_ports_are_refused_for_their_own_reason() {
         let (policy, lookups, connects) = fake_policy(public, echo());
         let guard = Guard::start(policy, LIMITS).unwrap();
-        for forbidden in [
+        for private in [
             "CONNECT 127.0.0.1:443 HTTP/1.1",
+            "CONNECT 192.168.1.1:8443 HTTP/1.1",
             "CONNECT [::1]:443 HTTP/1.1",
+            "CONNECT [fd00::1]:443 HTTP/1.1",
+            "CONNECT [::ffff:10.0.0.1]:443 HTTP/1.1",
             "CONNECT 2130706433:443 HTTP/1.1",
             "CONNECT localhost:443 HTTP/1.1",
-            "CONNECT nas.local:443 HTTP/1.1",
-            "CONNECT media.example.test:8443 HTTP/1.1",
-            "CONNECT media.example.test:80 HTTP/1.1",
+            "CONNECT nas.local:8080 HTTP/1.1",
             "GET http://127.0.0.1/seg.ts HTTP/1.1",
+            "GET http://10.0.0.1:8080/seg.ts HTTP/1.1",
             "GET http://0x7f.1/seg.ts HTTP/1.1",
+            "GET http://[fe80::1]:8080/seg.ts HTTP/1.1",
             "GET http://router.home.arpa/ HTTP/1.1",
-            "GET http://media.example.test:8080/seg.ts HTTP/1.1",
-            "GET http://user:pw@media.example.test/seg.ts HTTP/1.1",
-            "GET https://media.example.test/seg.ts HTTP/1.1",
-            "GET ftp://media.example.test/seg.ts HTTP/1.1",
-            "GET file:///C:/secret HTTP/1.1",
         ] {
-            let answer = exchange(&guard, format!("{forbidden}\r\n\r\n").as_bytes());
-            assert!(answer.starts_with("HTTP/1.1 403 "), "{forbidden}: {answer}");
+            let answer = exchange(&guard, format!("{private}\r\n\r\n").as_bytes());
+            assert!(answer.starts_with("HTTP/1.1 403 "), "{private}: {answer}");
         }
+        assert_eq!(guard.refusal(), Some(Refusal::Address));
+        // Only names are looked up, and none of these was.
+        assert!(lookups.lock().unwrap().is_empty());
+        assert!(connects.lock().unwrap().is_empty());
+
+        let (policy, lookups, connects) = fake_policy(public, echo());
+        let guard = Guard::start(policy, LIMITS).unwrap();
+        for port in [
+            "CONNECT media.example.test:22 HTTP/1.1",
+            "CONNECT media.example.test:25 HTTP/1.1",
+            "CONNECT media.example.test:1023 HTTP/1.1",
+            "CONNECT media.example.test:0 HTTP/1.1",
+            "CONNECT 93.184.215.14:22 HTTP/1.1",
+            "GET http://media.example.test:25/seg.ts HTTP/1.1",
+            "GET http://93.184.215.14:21/seg.ts HTTP/1.1",
+        ] {
+            let answer = exchange(&guard, format!("{port}\r\n\r\n").as_bytes());
+            assert!(answer.starts_with("HTTP/1.1 403 "), "{port}: {answer}");
+        }
+        assert_eq!(guard.refusal(), Some(Refusal::Port));
+        assert!(lookups.lock().unwrap().is_empty());
+        assert!(connects.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn public_ip_literals_and_unprivileged_ports_are_allowed() {
+        for (target, expected) in [
+            ("93.184.215.14:8443", "93.184.215.14:8443"),
+            ("93.184.215.14:443", "93.184.215.14:443"),
+            ("[2606:4700::1111]:443", "[2606:4700::1111]:443"),
+            ("[2606:4700::1111]:8443", "[2606:4700::1111]:8443"),
+            ("media.example.test:8443", "93.184.215.14:8443"),
+            ("media.example.test:443", "93.184.215.14:443"),
+        ] {
+            let (policy, lookups, connects) = fake_policy(public, echo());
+            let guard = Guard::start(policy, LIMITS).unwrap();
+            let mut stream = TcpStream::connect(guard.address).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .write_all(format!("CONNECT {target} HTTP/1.1\r\n\r\n").as_bytes())
+                .unwrap();
+            let mut established = [0; 39];
+            stream.read_exact(&mut established).unwrap();
+            assert!(established.starts_with(b"HTTP/1.1 200 "), "{target}");
+            assert_eq!(*connects.lock().unwrap(), [expected], "{target}");
+            // An IP literal is not looked up.
+            assert_eq!(
+                lookups.lock().unwrap().len(),
+                usize::from(target.starts_with("media.")),
+                "{target}"
+            );
+            assert_eq!(guard.refusal(), None);
+        }
+        for (target, host, expected) in [
+            (
+                "http://media.example.test:8080/seg.ts",
+                "Host: media.example.test:8080\r\n",
+                "93.184.215.14:8080",
+            ),
+            (
+                "http://93.184.215.14:8080/seg.ts",
+                "Host: 93.184.215.14:8080\r\n",
+                "93.184.215.14:8080",
+            ),
+            (
+                "http://[2606:4700::1111]:1024/seg.ts",
+                "Host: [2606:4700::1111]:1024\r\n",
+                "[2606:4700::1111]:1024",
+            ),
+            (
+                "http://media.example.test:80/seg.ts",
+                "Host: media.example.test\r\n",
+                "93.184.215.14:80",
+            ),
+        ] {
+            let (route, seen) = upstream(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+            let (policy, _, connects) = fake_policy(public, route);
+            let guard = Guard::start(policy, LIMITS).unwrap();
+            let answer = exchange(
+                &guard,
+                format!("GET {target} HTTP/1.1\r\nHost: wrong.example.test\r\n\r\n").as_bytes(),
+            );
+            assert!(answer.starts_with("HTTP/1.1 200 "), "{target}: {answer}");
+            let request = seen.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(request.contains(host), "{target}: {request}");
+            assert!(!request.contains("wrong.example"), "{request}");
+            assert_eq!(*connects.lock().unwrap(), [expected], "{target}");
+        }
+    }
+
+    #[test]
+    fn malformed_requests_are_rejected_without_a_lookup() {
+        let (policy, lookups, connects) = fake_policy(public, echo());
+        let guard = Guard::start(policy, LIMITS).unwrap();
         for malformed in [
             &b"GARBAGE\r\n\r\n"[..],
             b"GET /seg.ts HTTP/1.1\r\nHost: media.example.test\r\n\r\n",
             b"CONNECT media.example.test HTTP/1.1\r\n\r\n",
+            b"CONNECT media.example.test:99999 HTTP/1.1\r\n\r\n",
             b"CONNECT media.example.test/x:443 HTTP/1.1\r\n\r\n",
+            b"GET http://user:pw@media.example.test/seg.ts HTTP/1.1\r\n\r\n",
+            b"GET https://media.example.test/seg.ts HTTP/1.1\r\n\r\n",
+            b"GET ftp://media.example.test/seg.ts HTTP/1.1\r\n\r\n",
+            b"GET file:///C:/secret HTTP/1.1\r\n\r\n",
             b"GET http://media.example.test/ HTTP/2\r\n\r\n",
             b"GET http://media.example.test/ HTTP/1.1\r\nno colon\r\n\r\n",
             b"POST http://media.example.test/ HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
@@ -996,15 +1156,15 @@ mod tests {
                 String::from_utf8_lossy(malformed)
             );
         }
-        // Names that fail the policy are never looked up; nothing was connected.
         assert!(lookups.lock().unwrap().is_empty());
         assert!(connects.lock().unwrap().is_empty());
+        assert_eq!(guard.refusal(), None);
         // A name that cannot be resolved is a gateway error, not a refusal.
         let (policy, _, _) = fake_policy(|_, _| Vec::new(), echo());
         let guard = Guard::start(policy, LIMITS).unwrap();
         let answer = exchange(&guard, b"CONNECT gone.example.test:443 HTTP/1.1\r\n\r\n");
         assert!(answer.starts_with("HTTP/1.1 502 "), "{answer}");
-        assert!(!guard.refused());
+        assert_eq!(guard.refusal(), None);
     }
 
     #[test]
@@ -1033,7 +1193,7 @@ mod tests {
         assert!(exchange(&guard, request).starts_with("HTTP/1.1 403 "));
         assert_eq!(lookups.lock().unwrap().len(), 2);
         assert_eq!(connects.lock().unwrap().len(), 1);
-        assert!(guard.refused());
+        assert_eq!(guard.refusal(), Some(Refusal::Address));
     }
 
     #[test]

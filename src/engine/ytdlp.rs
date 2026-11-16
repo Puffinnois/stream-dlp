@@ -1,7 +1,7 @@
 //! Runs yt-dlp to inspect a link and to download one of its formats.
 use super::{
     CompletedDownload, EngineError, Format, Link, MediaIdentity, Source, Video,
-    guard::Guard,
+    guard::{Guard, Refusal},
     media::{Sound, parse_for},
     sources::other,
 };
@@ -85,10 +85,10 @@ fn guard_for(source: Source) -> Result<Option<Guard>, EngineError> {
 /// A helper that failed after the guard refused one of its requests failed because of that
 /// refusal: say so instead of reporting a network or site error.
 fn guarded(guard: Option<&Guard>, error: EngineError) -> EngineError {
-    if guard.is_some_and(Guard::refused) {
-        EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into())
-    } else {
-        error
+    match guard.and_then(Guard::refusal) {
+        Some(Refusal::Address) => EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into()),
+        Some(Refusal::Port) => EngineError::Unsupported(other::NESTED_PORT.into()),
+        None => error,
     }
 }
 
@@ -567,25 +567,35 @@ mod tests {
     #[test]
     fn a_refused_nested_request_explains_the_failure() {
         use std::{io::Write, net::TcpStream};
-        let guard = Guard::for_tests();
+        let refuse = |request: &[u8]| {
+            let guard = Guard::for_tests();
+            let address = guard.proxy_url().trim_start_matches("http://").to_owned();
+            let mut client = TcpStream::connect(address).unwrap();
+            client.write_all(request).unwrap();
+            let mut answer = String::new();
+            let _ = client.read_to_string(&mut answer);
+            assert!(answer.starts_with("HTTP/1.1 403 "), "{answer}");
+            guard
+        };
         let network = EngineError::Network(Source::Other);
-        assert_eq!(guarded(Some(&guard), network.clone()), network);
         assert_eq!(guarded(None, network.clone()), network);
-        let address = guard.proxy_url().trim_start_matches("http://").to_owned();
-        let mut client = TcpStream::connect(address).unwrap();
-        client
-            .write_all(b"CONNECT 192.168.1.1:443 HTTP/1.1\r\n\r\n")
-            .unwrap();
-        let mut answer = String::new();
-        let _ = client.read_to_string(&mut answer);
-        assert!(answer.starts_with("HTTP/1.1 403 "), "{answer}");
-        let error = guarded(Some(&guard), network);
+        assert_eq!(guarded(Some(&Guard::for_tests()), network.clone()), network);
+        // A private address and a closed port each have their own message.
+        let guard = refuse(b"CONNECT 192.168.1.1:443 HTTP/1.1\r\n\r\n");
+        let error = guarded(Some(&guard), network.clone());
         assert_eq!(
             error,
             EngineError::Unsupported(other::NESTED_NOT_PUBLIC.into())
         );
         let message = error.user_message();
         assert!(message.contains("private network") && !message.contains("192.168"));
+        let guard = refuse(b"CONNECT media.example.test:22 HTTP/1.1\r\n\r\n");
+        let error = guarded(Some(&guard), network);
+        assert_eq!(error, EngineError::Unsupported(other::NESTED_PORT.into()));
+        let message = error.user_message();
+        assert!(
+            message.contains("port") && !message.contains("22") && !message.contains("example")
+        );
     }
 
     #[test]
@@ -864,6 +874,20 @@ mod tests {
             playlist.replace(&segment, &format!("http://{sink}/{segment}")),
         )
         .unwrap();
+        // Media on an unprivileged port, by name and by public IP literal: allowed.
+        std::fs::write(
+            root.join("port.m3u8"),
+            playlist.replace(
+                &segment,
+                &format!("http://media.example.test:8080/{segment}"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("ip-port.m3u8"),
+            playlist.replace(&segment, &format!("http://93.184.215.15:8080/{segment}")),
+        )
+        .unwrap();
         std::fs::write(
             root.join("hostile-name.m3u8"),
             playlist.replace(&segment, &format!("http://private.example.test/{segment}")),
@@ -873,12 +897,17 @@ mod tests {
         let done = Arc::new(AtomicBool::new(false));
         let (address, server) = serve_folder(root.clone(), done.clone());
         let public: std::net::IpAddr = "93.184.215.14".parse().unwrap();
+        let media: std::net::IpAddr = "93.184.215.15".parse().unwrap();
         test_network::set(Some(TestNetwork {
             hosts: vec![
                 ("fixture.example.test".into(), public),
+                ("media.example.test".into(), media),
                 ("private.example.test".into(), "127.0.0.1".parse().unwrap()),
             ],
-            routes: vec![((public, 80).into(), address)],
+            routes: vec![
+                ((public, 80).into(), address),
+                ((media, 8080).into(), address),
+            ],
         }));
         let _reset = TestNetworkReset;
         let link = |name: &str| Link {
@@ -919,7 +948,14 @@ mod tests {
                 .expect("no result")
         };
         let mut saved = Vec::new();
-        for name in ["clip.mp4", "page.html", "stream.m3u8", "manifest.mpd"] {
+        for name in [
+            "clip.mp4",
+            "page.html",
+            "stream.m3u8",
+            "manifest.mpd",
+            "port.m3u8",
+            "ip-port.m3u8",
+        ] {
             let video = inspect(name).unwrap_or_else(|error| {
                 done.store(true, Ordering::Relaxed);
                 panic!("{name}: {error:?}");
@@ -959,7 +995,7 @@ mod tests {
             let json: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
             let streams = json["streams"].as_array().unwrap();
             assert!(streams.iter().any(|s| s["codec_type"] == "video"), "{name}");
-            if matches!(name, "stream.m3u8" | "manifest.mpd") {
+            if name.ends_with(".m3u8") || name == "manifest.mpd" {
                 assert!(streams.iter().any(|s| s["codec_type"] == "audio"), "{name}");
             }
             saved.push(file_name);

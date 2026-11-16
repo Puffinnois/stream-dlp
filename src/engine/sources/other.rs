@@ -29,6 +29,8 @@ const LIVE: &str =
     "This is a live or upcoming stream. Try again after the broadcast has ended and been saved.";
 /// A request the download tools made after the pasted link was refused by the destination guard.
 pub(in crate::engine) const NESTED_NOT_PUBLIC: &str = "This page tried to load the video from a local or private network address. stream-dlp only opens public websites.";
+/// A request the download tools made after the pasted link was refused for its port.
+pub(in crate::engine) const NESTED_PORT: &str = "This page tried to load the video from a network port that stream-dlp does not open for other sites.";
 /// yt-dlp handed a secure stream to FFmpeg, which cannot reach it through the destination guard
 /// without a protocol that would let a playlist bypass the guard.
 const FFMPEG_METHOD: &str =
@@ -89,7 +91,7 @@ pub(in crate::engine) fn normalize(url: &Url) -> Result<String, &'static str> {
 
 /// Whether `host` (already lowercased and in punycode, as `url` leaves it) looks like a public
 /// DNS name: at least two labels, a non-numeric top level, and no local or internal ending.
-fn public_name(host: &str) -> bool {
+pub(in crate::engine) fn public_name(host: &str) -> bool {
     let host = host.strip_suffix('.').unwrap_or(host);
     let labels: Vec<_> = host.split('.').collect();
     host.len() <= 253
@@ -940,12 +942,13 @@ mod tests {
             EngineError::Helper(HELPER.into()),
             EngineError::Unsupported(FFMPEG_METHOD.into()),
             EngineError::Unsupported(NESTED_NOT_PUBLIC.into()),
+            EngineError::Unsupported(NESTED_PORT.into()),
             EngineError::Unsupported(NOT_PUBLIC.into()),
         ]
         .iter()
         .map(EngineError::user_message)
         .collect();
-        assert_eq!(messages.len(), 12);
+        assert_eq!(messages.len(), 13);
         let sign_in = EngineError::SignInNeeded(Source::Other).user_message();
         assert!(sign_in.contains("not supported for other sites"));
         assert!(!EngineError::SignInNeeded(Source::Other).needs_session());

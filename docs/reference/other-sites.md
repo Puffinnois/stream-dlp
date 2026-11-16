@@ -123,14 +123,24 @@ commands: [research record](../research/other-site-destination-guard.md).
   removed from yt-dlp's environment, so neither FFmpeg (which honours it) nor anything else
   started by yt-dlp can skip the guard.
 - **What it checks.** For each request: `CONNECT host:port` (HTTPS, tunnelled, never decrypted)
-  or a plain request with an absolute `http://` URI. The target must pass the link policy
-  (`other::normalize`: scheme, no credentials, a DNS name rather than an IP literal, no local
-  name ending, and the default port, so `CONNECT` only to 443 and plain requests only to 80).
-  The guard then looks the host up once and applies the address rule (`other::checked_addresses`,
-  the function `resolve` uses: one private answer refuses), and connects only to an address it
-  has just checked. No second lookup is ever made, which closes DNS rebinding for every request
-  the helpers make, the pasted link included. A refused target gets `403`, a malformed request `400`, a name that
-  cannot be resolved or reached `502`.
+  or a plain request with an absolute `http://` URI. Nested requests follow their own rule
+  (`guard::destination`), looser than the pasted link's, because media servers and CDNs use
+  other ports and bare addresses:
+  - the scheme is `http` or `https` (`CONNECT` counts as `https`), without credentials;
+  - the port is 80, 443 or 1024–65535 (so `:8080` and `:8443` work; SSH, mail and the other
+    services below 1024 do not);
+  - the host is a name that passes the link policy's name rule (`public_name`: no local or
+    internal ending) or an IPv4 or bracketed IPv6 literal;
+  - every address is public (`public_address`, the rule `resolve` uses: one private answer
+    refuses). A name is looked up once (`other::checked_addresses`); an IP literal is checked
+    as it is.
+
+  The guard connects only to an address it has just checked. No second lookup is ever made,
+  which closes DNS rebinding for every request the helpers make, the pasted link included. The
+  forwarded `Host` header carries the port when it is not the default. A refused target gets
+  `403`, a malformed request `400`, a name that cannot be resolved or reached `502`. The pasted
+  link and its redirects keep the stricter link policy (`normalize`: default ports and DNS names
+  only).
 - **One request per connection.** yt-dlp keeps proxy connections alive and sends later requests,
   to any host, over the same connection. The guard forwards exactly one plain request per
   connection: hop-by-hop headers (`Proxy-Connection`, `Connection` and the headers it names,
@@ -142,9 +152,12 @@ commands: [research record](../research/other-site-destination-guard.md).
   response heads up to 64 KB; 15 seconds to send the request head and 15 to connect; a
   connection idle for 60 seconds in both directions is closed. Threads: one listener, one per
   connection and one more per HTTPS tunnel, so at most 65. Only loopback clients are served.
-- **Errors.** When a helper fails after the guard refused one of its requests, the user sees
-  "This page tried to load the video from a local or private network address…", without the
-  host or the link, instead of a network or site error.
+- **Errors.** When a helper fails after the guard refused one of its requests, the user sees why,
+  without the host, the port or the link, instead of a network or site error: "This page tried
+  to load the video from a local or private network address…" for an address or a local name,
+  and "This page tried to load the video from a network port that stream-dlp does not open for
+  other sites." for a port. The guard counts the two reasons separately; an address refusal
+  wins when both happened.
 - **The pre-checks stay.** `resolve` (pasted link and HTTP redirects, with named-platform
   refusal) and `recheck` (before a download) run as before; the guard is an addition.
 
@@ -215,13 +228,15 @@ request from the user's machine to a public address, the same as opening the pag
   `httpproxy`), the guarded command (`--proxy`, `NO_PROXY` removed), the 25-entry cap and the
   file name template (`ytdlp::tests`), and the `other` word in usage and feedback.
 - Guard (`guard::tests`, injected lookup and connections): address classes through the proxy,
-  `CONNECT` and plain HTTP, one request per connection, link-policy targets and malformed
-  requests, rebinding (a lookup that answers public, then private, is used once per request and
+  `CONNECT` and plain HTTP, one request per connection, private hosts and closed ports with
+  their separate reasons, public IPv4 and IPv6 literals and unprivileged ports allowed (with the
+  port in `Host`), malformed requests, rebinding (a lookup that answers public, then private, is used once per request and
   only the checked address is connected), head, connection and time limits, shutdown with open
   tunnels, loopback-only clients, and proxy detection.
 - `other_sites_local_fixtures_inspect_and_download` (`#[ignore]`d, needs the tools and localhost
   sockets) generates a direct MP4, a page with an embedded `<video>`, an HLS stream and a DASH
-  manifest (FFmpeg's dash muxer, video and audio representations), serves them on localhost
+  manifest (FFmpeg's dash muxer, video and audio representations), plus HLS playlists whose
+  segment is on port 8080 by name and by public IP literal, serves them on localhost
   under the name `fixture.example.test`, and runs inspection and download through the real
   helpers and the guard. A test-only network in the guard (`guard::test_network`) resolves that
   name to a public-looking address and routes it to the fixture server; yt-dlp cannot resolve the

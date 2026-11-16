@@ -78,4 +78,6 @@ the app's own code and the real guard, with the fixtures served under a name onl
 test network can resolve. On November 16, 2026 on Windows it passed: the direct file, the page,
 HLS and DASH (merged video and audio) were saved, and two hostile pages and two hostile
 playlists (private name, private IP literal) failed with the guard's message while the private
-listener received no connection.
+listener received no connection. After the review the same day, nested requests may also use a
+public IP literal and ports 1024–65535: two playlists whose segment is on port 8080, by name and
+by public IP literal, were saved too.
