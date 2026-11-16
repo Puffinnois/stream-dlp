@@ -40,7 +40,7 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
+Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03; a Dev mode prototype exists, live acceptance open); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
 
 ## Feasibility findings
 
@@ -220,7 +220,19 @@ connected profile after an authentication error. No all-site database copy is ma
 Deferred Chrome automatic-mode options and the recommended extension prototype
 are saved in [Chrome auto-mode options](docs/research/chrome-auto-mode-options.md), including
 dedicated-profile and assisted-export alternatives, constraints, and resume steps.
-No Chrome automatic integration has been implemented or selected yet.
+The user chose option 1 (companion extension and native messaging).
+
+*Prototype (2026-11-16):* built on `feat/chrome-extension-import` and shown only in Dev mode,
+labelled experimental: the `extension/` folder (MV3, cookies + native messaging, YouTube host
+permissions only), the app's own executable as a per-user native messaging host registered on
+Connect and removed on Disconnect, an authenticated loopback channel to the running app, cookie
+re-filtering through the YouTube session policy, and one bounded refresh from the same
+connection ([reference](docs/reference/chrome-extension.md)). Verified offline only: Rust and
+Deno tests, and the built release executable relaying framed messages directly and through
+`cmd /d /c`. Not yet run in a real Chrome or Edge, and no signed-in YouTube inspection,
+download or refresh through it is proven; the
+[manual acceptance checklist](docs/reference/chrome-extension.md#manual-acceptance-checklist)
+is open. Uninstall does not remove the registration (needs an installer change).
 
 - [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff. *Open (2026-11-13): deferred; options are recorded, nothing is selected or built.*
 - [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment. *Open (2026-11-13): deferred with the extension.*
