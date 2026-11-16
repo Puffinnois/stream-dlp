@@ -10,9 +10,8 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **Release checks** — record the tested yt-dlp version in the release notes, and run the local pipeline test for engine changes.
-2. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
-3. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
+1. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
+2. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
 
 ## Direction and priorities
 
