@@ -292,7 +292,7 @@ impl App {
         });
         ui.label(caption(match batch.quality {
             Quality::Best => {
-                "One after another, each in the best quality it offers, with its sound.".into()
+                "One after another, each in the best quality it offers.".into()
             }
             Quality::AtMost(lines) => format!(
                 "One after another, each at {lines}p or the closest quality below; a video without one gets its smallest."
