@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "stream-dlp YouTube session (experimental)",
+  "version": "0.1.0",
+  "description": "Sends your YouTube session from this browser profile to the stream-dlp app on this computer, only when you press Connect.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt67S2J+mvpbb/KdmIyexUqvyrj2mxnwxde2QWwn7xEha5sJp04UvOpkQiFF1E8ygoUBLUuOQImBesVUw4hrgKRu0MqlfrcL0kuGSviuZluhrPcA+LVjkhrYeFSBE+kA9xFYigm/vbeahj2Vpd9RzsP0RamszEiWnguMBS7Oh73kAjvfn0RwUu7lZCDt3JBSz2ZFthWp2FGYtrC3YAr9zaeDRf+dLwfsm/UKktiLJyYctaLppyP2zsb3MZH8xkKyoc91d4wOZOiqBerOaUPSHWg9o8KbFd/rSUT9R4dxerQiPUg4YGLjaZKHriX5WKxqjzLW4z5WkXJq4NIlzVm35lQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["cookies", "nativeMessaging"],
+  "host_permissions": ["*://*.youtube.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "stream-dlp", "default_popup": "popup.html" }
+}

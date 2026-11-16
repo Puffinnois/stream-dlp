@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>stream-dlp</title>
+  <style>
+    body { font: 13px system-ui, sans-serif; width: 300px; margin: 12px; color: #1d1d1f; }
+    h1 { font-size: 14px; margin: 0 0 4px; }
+    .note { color: #6e6e73; font-size: 12px; margin: 0 0 10px; }
+    #status { margin: 10px 0; min-height: 2.6em; }
+    button { font: inherit; padding: 6px 12px; margin-right: 6px; }
+  </style>
+</head>
+<body>
+  <h1>stream-dlp YouTube session</h1>
+  <p class="note">Experimental. Sends only your YouTube cookies from this profile to the stream-dlp app on this computer, when you press Connect.</p>
+  <div id="status">…</div>
+  <button id="connect">Connect</button>
+  <button id="disconnect">Disconnect</button>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

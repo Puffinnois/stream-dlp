@@ -121,14 +121,14 @@ impl App {
                     } else {
                         Phase::Idle
                     };
-                    if needs_session
-                        && self.auto_refresh
-                        && !self.refresh_used
-                        && !self.closing
-                        && let Some(profile) = self.browser_source.clone()
-                    {
-                        self.import_browser(profile, true);
-                        self.error = None;
+                    if needs_session && self.auto_refresh && !self.refresh_used && !self.closing {
+                        if let Some(profile) = self.browser_source.clone() {
+                            self.import_browser(profile, true);
+                            self.error = None;
+                        } else {
+                            // The extension's own connection, at most once per inspection.
+                            self.refresh_from_extension();
+                        }
                     }
                 }
                 Event::Cancelled => {

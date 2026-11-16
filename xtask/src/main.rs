@@ -125,6 +125,16 @@ fn check() -> Result<(), String> {
             "services/",
         ],
     )?;
+    run(
+        &deno,
+        &[
+            "test",
+            "--no-config",
+            "--no-remote",
+            "--no-prompt",
+            "extension/",
+        ],
+    )?;
     println!("All checks passed.");
     Ok(())
 }

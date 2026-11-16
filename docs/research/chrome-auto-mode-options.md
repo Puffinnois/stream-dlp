@@ -2,10 +2,50 @@
 
 Saved October 21, 2026, for future work on roadmap task A-03.
 
-Status: options researched, **no Chrome automatic integration implemented**.
-The current app offers Firefox automatic import and guided Chrome/Edge export.
-The user requested preserving these options; this record does not commit to an
-implementation or authorize installing an extension or changing browser settings.
+Status (updated 2026-11-16): the user chose **option 1**. A Dev mode prototype of the
+companion extension exists ([reference](../reference/chrome-extension.md)); it is tested
+offline only and not yet run in a real Chrome or Edge. Normal users keep Firefox automatic
+import and the guided Chrome/Edge export. Options 2 and 3 stay recorded as fallbacks.
+
+## Rechecked November 16, 2026 (before building the prototype)
+
+- **Native messaging (Chrome):** registration is still the per-user key
+  `HKCU\Software\Google\Chrome\NativeMessagingHosts\<name>` whose default value names the host
+  manifest (`name`, `description`, `path`, `type: "stdio"`, `allowed_origins` without
+  wildcards). The host receives the caller's origin as its first argument and, on Windows,
+  `--parent-window=<n>` (0 from a service worker); no other arguments can be configured, so the
+  app detects host mode from the origin. Frames: 32-bit native-order length + UTF-8 JSON, at most
+  1 MB from the host, 64 MiB to it. A `connectNative` port keeps the host running until it closes.
+- **Native messaging (Edge):** Edge reads `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\<name>`
+  first and falls back to the Chromium and Chrome keys; only the first manifest found is read.
+  The prototype writes both keys.
+- **Windows launch:** both browsers still start `.exe` hosts through `cmd.exe /d /c` with
+  redirected pipes by default; direct launch needs the `NativeHostsExecutablesLaunchDirectly`
+  policy (Chrome/Edge 120+). GUI-subsystem hosts are allowed. On disconnect the browser closes the
+  pipes and terminates a host that has not exited after about two seconds; if the browser exits
+  first the host may survive, so it must exit on end of input. Verified by experiment
+  (2026-11-16): the app's release executable (`windows` subsystem) relays framed messages through
+  inherited pipes, directly and through `cmd /d /c`, without text-mode translation. Not yet
+  verified with a browser starting it.
+- **MV3 service worker:** since Chrome 105 an open `connectNative` port keeps the worker alive;
+  when the port closes, the worker stops after its usual idle timeout.
+- **cookies API:** needs the `cookies` permission plus host permissions; `getAll({domain})`
+  includes subdomains and returns unpartitioned cookies unless a `partitionKey` is given;
+  incognito has a separate store.
+- **yt-dlp guidance:** unchanged in substance: YouTube rotates account cookies on open tabs
+  (hence the private-window export advice), using an account risks a ban, and PO tokens may be
+  required for some formats. Reading the live profile is therefore not proven to keep working;
+  the prototype's single refresh is the planned answer and must be tested live.
+- Windows App-Bound Encryption and Device Bound Session Credentials were not re-examined. The
+  extension reads cookies through the browser's own API, so App-Bound Encryption does not apply
+  to it; DBSC remains an open risk for reuse outside the browser.
+
+Sources: [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
+[Chrome cookies API](https://developer.chrome.com/docs/extensions/reference/api/cookies),
+[extension service worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle),
+[Edge native messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging),
+[native host launch on Windows](https://textslashplain.com/2023/03/16/improving-native-message-host-reliability-on-windows/),
+[yt-dlp YouTube cookie guidance](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
 
 ## Desired experience
 

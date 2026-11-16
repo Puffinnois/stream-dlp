@@ -1,4 +1,6 @@
-//! Per-platform cookie imports, YouTube Firefox profiles, and the manual export guide.
+//! Per-platform cookie imports, YouTube Firefox profiles, the experimental Chrome/Edge
+//! extension import, and the manual export guide.
+pub mod chrome;
 pub mod export;
 pub mod firefox;
 mod stale;

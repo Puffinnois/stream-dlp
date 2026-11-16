@@ -1,7 +1,8 @@
-//! `cargo xtask pipeline`: the `#[ignore]`d tests that need only the bundled tools and
-//! localhost, run one by one by their full name. Required for changes under `src/engine/`
-//! and `src/media/` (AGENTS.md). Tests that need the network, an account, a browser profile,
-//! the user's own files, a separately started service, or that upload anything stay out.
+//! `cargo xtask pipeline`: builds the app, then runs the `#[ignore]`d tests that need only the
+//! bundled tools, the built app and localhost, one by one by their full name. Required for
+//! changes under `src/engine/` and `src/media/` (AGENTS.md). Tests that need the network, an
+//! account, a browser profile, the user's own files, a separately started service, or that
+//! upload anything stay out.
 use std::{
     env,
     io::{BufRead, BufReader},
@@ -16,6 +17,17 @@ pub const TESTS: &[&str] = &[
     "engine::ytdlp::tests::other_sites_local_fixtures_inspect_and_download",
     "engine::ytdlp::tests::scoped_cookies_follow_helper_request_rules",
     "media::local::tests::local_library_probe_checks_real_video_and_invalid_files",
+    "session::chrome::host::tests::built_app_host_mode_relays_framed_messages",
+];
+
+/// Builds the app itself: the host-mode test runs the built executable.
+const BUILD: [&str; 6] = [
+    "build",
+    "--locked",
+    "-p",
+    "stream-dlp",
+    "--bin",
+    "stream-dlp",
 ];
 
 /// The app's test binary; the pipeline tests live there.
@@ -88,6 +100,14 @@ fn command(args: &[&str]) -> Command {
 pub fn run() -> Result<(), String> {
     for name in ["yt-dlp", "ffmpeg", "ffprobe"] {
         tools::require(name)?;
+    }
+    println!("> cargo {}", BUILD.join(" "));
+    if !command(&BUILD)
+        .status()
+        .map_err(|e| format!("cannot start cargo: {e}"))?
+        .success()
+    {
+        return Err("building the app failed".into());
     }
     let args = list_args();
     println!("> cargo {}", args.join(" "));
@@ -166,7 +186,8 @@ mod tests {
             missing(TESTS, &listed),
             [
                 "engine::ytdlp::tests::other_sites_local_fixtures_inspect_and_download",
-                "engine::ytdlp::tests::scoped_cookies_follow_helper_request_rules"
+                "engine::ytdlp::tests::scoped_cookies_follow_helper_request_rules",
+                "session::chrome::host::tests::built_app_host_mode_relays_framed_messages"
             ]
         );
         assert!(missing(TESTS, TESTS).is_empty());

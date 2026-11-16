@@ -17,6 +17,11 @@ mod usage;
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    // Started by Chrome or Edge for the companion extension: no window, no files, no log.
+    let args: Vec<_> = std::env::args_os().collect();
+    if session::chrome::host::invoked(&args) {
+        std::process::exit(session::chrome::host::run(&args));
+    }
     if std::env::args().skip(1).any(|arg| arg == "--check-tools") {
         if let Err(error) = tools::check() {
             eprintln!("{error}");
