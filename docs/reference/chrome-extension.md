@@ -87,7 +87,15 @@ connection.
 
 ## Trust boundary
 
-The extension, the browser and the host are outside the app's trust boundary. The app:
+The extension, the browser and the host are outside the app's trust boundary. The origin
+argument is not proof that Chrome or Edge started the host: any program running as the same
+user can start `stream-dlp.exe chrome-extension://edngekgkkjhaoohkfddejaoohfaggiac/` and write
+frames to it. The origin check only keeps other extensions (which the browser itself labels
+correctly) out. The channel secret has the same limit: it shuts out other users, not the
+same user's programs. That is why the app treats whatever arrives as untrusted input,
+re-validates every cookie, and only ever builds a session from YouTube's domains. At worst, a
+local program could swap in a different YouTube session, which it could do anyway by writing
+a cookie file for the manual import. The app:
 
 - accepts host connections only on `127.0.0.1` and only after the channel handshake (below);
 - accepts one connection at a time; a second browser or profile gets `busy` and is closed, so
