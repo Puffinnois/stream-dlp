@@ -27,6 +27,12 @@ pub(super) const UNSUPPORTED_SITE: &str = "This site or page is not supported. O
 const AUDIO_ONLY: &str = "This page offers audio only. stream-dlp downloads videos; audio-only results are not supported.";
 const LIVE: &str =
     "This is a live or upcoming stream. Try again after the broadcast has ended and been saved.";
+/// A request the download tools made after the pasted link was refused by the destination guard.
+pub(in crate::engine) const NESTED_NOT_PUBLIC: &str = "This page tried to load the video from a local or private network address. stream-dlp only opens public websites.";
+/// yt-dlp handed a secure stream to FFmpeg, which cannot reach it through the destination guard
+/// without a protocol that would let a playlist bypass the guard.
+const FFMPEG_METHOD: &str =
+    "This stream needs a download method that stream-dlp does not allow for other sites.";
 pub(in crate::engine) const HELPER: &str = "The download tools could not read this page. Other sites are experimental; check that the video plays in your browser, then update the tools in Settings and retry.";
 
 /// Name endings that are never public websites. `.test` is allowed in tests, for fixtures.
@@ -62,7 +68,7 @@ const AUDIO_EXTENSIONS: &[&str] = &["m4a", "mp3", "aac", "opus", "ogg", "oga", "
 
 /// The canonical form of an Other link: the URL without its fragment. The query stays, because
 /// sites need it, and no tracking parameters are removed.
-pub(super) fn normalize(url: &Url) -> Result<String, &'static str> {
+pub(in crate::engine) fn normalize(url: &Url) -> Result<String, &'static str> {
     if !matches!(url.scheme(), "http" | "https")
         || !url.username().is_empty()
         || url.password().is_some()
@@ -111,7 +117,7 @@ fn public_name(host: &str) -> bool {
 /// Whether a helper may connect to `ip`: not loopback, private, link-local, shared (CGNAT),
 /// unique-local, unspecified, multicast, reserved or documentation space, including the IPv4
 /// forms an IPv6 address can carry.
-pub(super) fn public_address(ip: IpAddr) -> bool {
+pub(in crate::engine) fn public_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => public_v4(ip),
         IpAddr::V6(ip) => public_v6(ip),
@@ -166,11 +172,13 @@ fn public_v6(ip: Ipv6Addr) -> bool {
         || s[..4] == [0x100, 0, 0, 0]) // discard
 }
 
-/// Looks up `url`'s host and refuses it unless every address is public.
-fn check_destination(
+/// Looks up `url`'s host once and returns its addresses, refusing it (`Unsupported`) unless every
+/// one is public. A failed or empty lookup is a network error. The destination guard connects
+/// only to addresses this returned, so a later, different DNS answer is never used.
+pub(in crate::engine) fn checked_addresses(
     url: &Url,
     lookup: &mut impl FnMut(&str, u16) -> io::Result<Vec<IpAddr>>,
-) -> Result<(), EngineError> {
+) -> Result<Vec<IpAddr>, EngineError> {
     let host = url
         .host_str()
         .ok_or(EngineError::Unsupported(INVALID.into()))?;
@@ -179,13 +187,20 @@ fn check_destination(
     if addresses.is_empty() {
         return Err(EngineError::Network(Source::Other));
     }
-    if !addresses.into_iter().all(public_address) {
+    if !addresses.iter().copied().all(public_address) {
         return Err(EngineError::Unsupported(NOT_PUBLIC.into()));
     }
-    Ok(())
+    Ok(addresses)
 }
 
-fn system_lookup(host: &str, port: u16) -> io::Result<Vec<IpAddr>> {
+fn check_destination(
+    url: &Url,
+    lookup: &mut impl FnMut(&str, u16) -> io::Result<Vec<IpAddr>>,
+) -> Result<(), EngineError> {
+    checked_addresses(url, lookup).map(drop)
+}
+
+pub(in crate::engine) fn system_lookup(host: &str, port: u16) -> io::Result<Vec<IpAddr>> {
     Ok((host, port)
         .to_socket_addrs()?
         .map(|address| address.ip())
@@ -325,7 +340,12 @@ pub(in crate::engine) fn filter_safe_id(id: &str) -> bool {
 pub(super) fn explain(lower: &str) -> EngineError {
     let has = |patterns: &[&str]| patterns.iter().any(|pattern| lower.contains(pattern));
     let source = Source::Other;
-    if has(&["drm protected", "drm-protected", "drm content"]) {
+    if lower.contains("not on whitelist") {
+        // FFmpeg refused a protocol outside `-protocol_whitelist`: `httpproxy` for a secure
+        // stream behind the destination guard, or a playlist naming a local file or another
+        // scheme.
+        EngineError::Unsupported(FFMPEG_METHOD.into())
+    } else if has(&["drm protected", "drm-protected", "drm content"]) {
         EngineError::Drm(source)
     } else if has(&["unsupported url", "is not a valid url"]) {
         EngineError::Unsupported(UNSUPPORTED_SITE.into())
@@ -888,6 +908,10 @@ mod tests {
                 "ERROR: HTTP Error 403: Forbidden",
                 EngineError::Restricted(Source::Other),
             ),
+            (
+                "[httpproxy @ 0000] Protocol 'httpproxy' not on whitelist 'http,https,tcp,tls,crypto'!\nERROR: ffmpeg exited with code 1",
+                EngineError::Unsupported(FFMPEG_METHOD.into()),
+            ),
             ("ERROR: something new", EngineError::Helper(HELPER.into())),
         ] {
             let error = Source::Other.explain(&format!("{raw}{secret}"));
@@ -914,11 +938,14 @@ mod tests {
             EngineError::Network(Source::Other),
             EngineError::TimedOut(Source::Other),
             EngineError::Helper(HELPER.into()),
+            EngineError::Unsupported(FFMPEG_METHOD.into()),
+            EngineError::Unsupported(NESTED_NOT_PUBLIC.into()),
+            EngineError::Unsupported(NOT_PUBLIC.into()),
         ]
         .iter()
         .map(EngineError::user_message)
         .collect();
-        assert_eq!(messages.len(), 9);
+        assert_eq!(messages.len(), 12);
         let sign_in = EngineError::SignInNeeded(Source::Other).user_message();
         assert!(sign_in.contains("not supported for other sites"));
         assert!(!EngineError::SignInNeeded(Source::Other).needs_session());

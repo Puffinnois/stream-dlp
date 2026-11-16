@@ -1,5 +1,6 @@
 //! The download engine: links, video details and formats, and running yt-dlp. No egui.
 mod error;
+mod guard;
 mod media;
 mod sources;
 mod ytdlp;
