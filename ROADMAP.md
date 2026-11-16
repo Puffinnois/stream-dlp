@@ -10,7 +10,7 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
+No items queued.
 
 ## Direction and priorities
 
