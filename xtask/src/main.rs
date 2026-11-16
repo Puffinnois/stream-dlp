@@ -1,9 +1,17 @@
 //! Project commands, the counterpart of npm scripts:
 //!
 //! - `cargo xtask check`: formatting, Clippy, the Rust tests and the Deno script tests — what CI runs.
-//! - `cargo xtask release <patch|minor|major|X.Y.Z>`: bumps Cargo.toml and Cargo.lock,
-//!   commits `build: bump version to X`, and tags `vX`. `git push --follow-tags` then starts the
-//!   Release workflow, which uploads the build to a draft GitHub release.
+//! - `cargo xtask pipeline`: the ignored tests that need only the bundled tools and localhost,
+//!   required for engine and media changes ([`pipeline`]).
+//! - `cargo xtask tools`: the bundled helper versions and the release notes' tested yt-dlp line.
+//! - `cargo xtask release <patch|minor|major|X.Y.Z>`: checks that the next version's notes end
+//!   with the tested yt-dlp line for the bundled yt-dlp ([`notes`]), bumps Cargo.toml and
+//!   Cargo.lock, commits `build: bump version to X`, and tags `vX`. `git push --follow-tags` then
+//!   starts the Release workflow, which uploads the build to a draft GitHub release.
+mod notes;
+mod pipeline;
+mod tools;
+
 use std::{
     env,
     path::{Path, PathBuf},
@@ -19,8 +27,13 @@ fn main() -> ExitCode {
         .as_slice()
     {
         ["check"] => check(),
+        ["pipeline"] => pipeline::run(),
+        ["tools"] => tools::print_versions(),
         ["release", bump] => release(bump),
-        _ => Err("usage: cargo xtask check | cargo xtask release <patch|minor|major|X.Y.Z>".into()),
+        _ => Err(
+            "usage: cargo xtask check | pipeline | tools | release <patch|minor|major|X.Y.Z>"
+                .into(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -118,9 +131,7 @@ fn check() -> Result<(), String> {
 
 /// The app's bundled Deno in `tools/`, else one on PATH (CI installs it there).
 fn deno() -> Option<String> {
-    let bundled = root()
-        .join("tools")
-        .join(format!("deno{}", env::consts::EXE_SUFFIX));
+    let bundled = tools::path("deno");
     if bundled.is_file() {
         return Some(bundled.to_string_lossy().into_owned());
     }
@@ -149,6 +160,14 @@ fn release(bump: &str) -> Result<(), String> {
     if !output("git", &["tag", "--list", &tag])?.is_empty() {
         return Err(format!("tag {tag} already exists"));
     }
+    let bundled = tools::ytdlp_version()?;
+    let notes_path = notes::path(&root(), &next);
+    let notes = match std::fs::read_to_string(&notes_path) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("cannot read {}: {e}", notes_path.display())),
+    };
+    notes::check(&next, notes.as_deref(), &bundled)?;
     std::fs::write(
         &manifest_path,
         set_package_version(&manifest, &current, &next)?,

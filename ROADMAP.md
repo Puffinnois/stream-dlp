@@ -10,9 +10,8 @@ The phases below group features. They are not the phases 1–4 of the [restructu
 
 The user puts items here, in order. Work on the first one unless told otherwise, and remove it when it is merged. When the list is empty, ask which item to take; do not pick one.
 
-1. **Release checks** — record the tested yt-dlp version in the release notes, and run the local pipeline test for engine changes.
-2. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
-3. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
+1. **A-03** — prototype automatic Chrome/Edge session import ([options](docs/research/chrome-auto-mode-options.md)).
+2. **F-04** (new) — download every video of a multi-video post, as an explicit choice beside choosing one.
 
 ## Direction and priorities
 
@@ -417,10 +416,10 @@ Do not embed a shared stream-dlp Streamable account or secret in the executable 
 
 - [x] Add deterministic tests for URL handling, metadata variants, collection selection, platform-specific errors, cookie isolation, and any new persistent records. November 13, 2026: audited per platform and area; the missing cases (credentials and ports for X, Facebook and Instagram, X and Instagram missing metadata, TikTok collections, Facebook and Instagram error classes, TikTok and X cookie jars, platform lookalikes in mixed exports, the recent-downloads setting) were added. New features still need their own.
 - [x] Keep live platform tests opt-in and separate from deterministic tests. Record environmental failures instead of weakening assertions to hide them. November 13, 2026: every network, account or real-file test is `#[ignore]`d and run only by name (AGENTS.md); the research records keep environmental failures.
-- [ ] Run `cargo xtask check`, and the existing local pipeline test (`cargo test --locked local_download_pipeline -- --ignored`) for relevant engine changes. *Open (2026-11-13): `cargo xtask check` is required before every commit and runs in CI; the local pipeline run for engine changes is not enforced.*
+- [x] Run `cargo xtask check`, and the existing local pipeline test (`cargo test --locked local_download_pipeline -- --ignored`) for relevant engine changes. November 16, 2026: `cargo xtask pipeline` runs the four ignored tests that need only the bundled tools and localhost, each by its exact name, and AGENTS.md requires a passing run for changes under `src/engine/` and `src/media/`. It is a rule for agents, not a CI gate: the Checks workflow has no helpers.
 - [ ] Verify clean Windows operation, long/Unicode paths, redirected Downloads, cancellation, and portable packaging for each shipped capability. *Open (2026-11-13): CI's Package check covers packaging and cancellation is unit-tested; clean-machine, long/Unicode path and redirected-Downloads checks are not recorded per capability.*
 - [ ] Update the README, in-app help, package description, third-party notices where needed, and supported-platform/browser list. *Open (2026-11-13): a step for every release, not a one-off.*
-- [ ] Validate helper updates through the existing verified setup process; record the tested yt-dlp version for each release and provide a helpful update path when extraction breaks. *Open (2026-11-13): verified tool updates and the update hint exist; release notes do not record the tested yt-dlp version.*
+- [x] Validate helper updates through the existing verified setup process; record the tested yt-dlp version for each release and provide a helpful update path when extraction breaks. November 16, 2026: release notes after 0.8.0 end with `Tested with yt-dlp X.`, and `cargo xtask release` refuses when that line is missing or names another version than the bundled yt-dlp; `cargo xtask tools` prints the line. Verified tool updates and the update hint already existed.
 - [ ] For any future direct uploader, test against mock responses first and perform a small authorized real upload before calling it supported. *Open (2026-11-13): no direct uploader exists yet.*
 
 ## Suggested release boundaries

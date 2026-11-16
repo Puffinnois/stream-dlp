@@ -3,6 +3,6 @@ name = "xtask"
 version = "0.0.0"
 edition = "2024"
 publish = false
-description = "Project commands: cargo xtask check | release"
+description = "Project commands: cargo xtask check | pipeline | tools | release"
 
 [dependencies]
