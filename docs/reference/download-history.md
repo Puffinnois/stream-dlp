@@ -30,7 +30,7 @@ An optional list of finished downloads on the **My videos** page (S-01). The cod
 
 ## Recording
 
-A download is recorded when it completes (`Event::Complete`), from the completed path, the selected video's title and the link's platform. A failed write shows a short message on the Download and My videos pages and in Settings, without the file's path; the download stays successful.
+A download is recorded when it completes (`Event::Complete`), from the completed path, the selected video's title and the link's platform. A download-all batch records each saved video the same way, with that entry's title, as it is saved; failed and cancelled entries are not recorded. A failed write shows a short message on the Download and My videos pages and in Settings, without the file's path; the download stays successful.
 
 ## The section
 

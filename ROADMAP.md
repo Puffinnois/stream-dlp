@@ -34,7 +34,7 @@ The Streamable investigation belongs first so its external dependency is discove
 
 Module by module in the [Source layout](docs/reference/development.md#source-layout).
 
-- Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging with silent sources saved as video only and lost audio reported as a failure (F-02), multi-video choice, progress, cancellation, no-overwrite.
+- Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging with silent sources saved as video only and lost audio reported as a failure (F-02), multi-video choice with an explicit download-all (F-04), progress, cancellation, no-overwrite.
 - Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). The Download page's session link names the platform of the pasted address. Other sites never take a session.
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
@@ -140,7 +140,7 @@ regression tests pass unchanged.
 
 - [x] Carry media ID, source URL, extractor identity, and platform with metadata and completed-file results.
 - [x] Handle absent titles, uploader, duration, resolution, and size with useful fallbacks; avoid showing `0p` for unknown resolution.
-- [x] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection.
+- [x] Handle direct playable media and yt-dlp collection results explicitly. For multi-video posts, let the user choose one video; do not silently pick the first or download an entire collection. (F-04 adds saving the listed videos as an explicit choice.)
 - [x] Keep format selection and audio merging shared, including audio-less source clips where valid. Distinguish those from failed audio retrieval.
 - [x] Include source identity in filenames or collision handling so identical IDs from different platforms cannot falsely reuse an unrelated completed file.
 
@@ -183,6 +183,21 @@ verified from fixtures only.
 - [x] Redact cookies, sensitive URL parameters, and account details from logs and displayed raw errors.
 
 **Phase acceptance:** YouTube retains its existing behavior; fixtures for other sites parse correctly; session-isolation tests and the local download/merge/cancel pipeline pass. No new network-backed feature is declared supported from fixtures alone.
+
+### F-04 — Download all videos of a multi-video post
+
+Depends on F-02. Keeps F-02's rule (never silently pick the first, never download a whole collection) and adds one explicit choice beside choosing one video. [Reference](docs/reference/download-all.md).
+
+- [x] Offer **Download all N videos** under the existing chooser; nothing downloads until it is pressed, and choosing one entry works as before.
+- [x] Download the listed entries one after another, each through the single-entry download path (session and platform rules, Other-sites limits and destination guard, sound decision and lost-sound check, no-overwrite, file names); never one yt-dlp run for the collection.
+- [x] Scope: exactly the entries the chooser shows, at most 25; no nested collections, playlists or profile feeds.
+- [x] One quality for the batch, chosen before it starts (Best, 1080p, 720p, 480p), with a per-entry fallback.
+- [x] Progress names the running entry (**Video 2 of 4**); Cancel stops it and the rest and keeps the saved files.
+- [x] A failed entry does not stop the batch; the end lists saved files with their actions and failures with their messages; a batch with nothing saved is a failure.
+- [x] Recent downloads records each saved file; usage reports and feedback gain nothing that identifies a post.
+- [ ] Verify live multi-video posts on X, Instagram, Facebook and other sites. *Open (2026-11-16): unverified. Only deterministic tests with a stand-in download and the local fixture pipeline (a page with two videos saved through the real helpers and the destination guard, then saved again without replacing either file) have run; no real post or account was used.*
+
+November 16, 2026: implemented in `src/app/batch.rs`; the engine is unchanged. Automatic session refresh does not run during a batch: a sign-in error fails that entry with its usual message. Two entries that would get the same file name save only the first; the second is reported as a failure instead of as a save.
 
 ## Phase 2 — Assisted automatic YouTube sessions
 
@@ -448,7 +463,7 @@ These are scope boundaries, not calendar promises. Estimate work after the three
 
 Recommended defaults are: one pasted URL with automatic platform detection; individual-video downloads; browser imports initiated by the user; sessions kept in memory; no credentials for Other sites; existing-file browsing available without history; and Streamable browser assistance until a supported upload path is proven.
 
-Future scope decisions include which browsers to advertise, whether to build an extension, whether to persist optional history, and whether multi-video posts later gain a download-all action. Additional feature ideas can be appended as separate tasks with dependencies and acceptance criteria.
+Future scope decisions include which browsers to advertise, whether to build an extension, and whether to persist optional history. Multi-video posts gained an explicit download-all action in F-04, limited to the listed entries; bulk downloading of playlists, profiles or feeds stays out of scope. Additional feature ideas can be appended as separate tasks with dependencies and acceptance criteria.
 
 ## Dev release channel (October 21, 2026; removed October 30, 2026)
 

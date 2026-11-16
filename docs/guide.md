@@ -20,6 +20,14 @@ container, and size use unknown labels. Unknown duration and resolution are not
 shown as zero. Estimated stream sizes keep a `~` prefix; files smaller than 1 MB
 show `<1 MB`.
 
+### Posts with several videos
+
+When a post holds several videos (an X post, an Instagram carousel, a Facebook post or a page under other sites), stream-dlp lists them. Choose one to pick its quality as usual, or save them all: choose a quality under the list (**Best**, **1080p**, **720p** or **480p**) and click **Download all N videos**, then pick the folder. Nothing is downloaded until you click it.
+
+The videos are saved one after another, never at the same time, each exactly as if you had chosen it on its own: the same session and site rules, sound check and file names, and existing files are never replaced. **Best** saves each video in the best quality it offers; a height saves each video in that quality or the closest one below it, or in its smallest quality when it offers none that small. A portrait video counts by its shorter side, so 1080 × 1920 is 1080p.
+
+While it runs, the page shows which video is downloading (**Video 2 of 4**) with its progress. **Cancel** stops that video and the ones after it; the videos already saved are kept. A video that fails does not stop the others. At the end the page lists each saved file, with **Make GIF** and **Upload on Streamable** for it, and each video that failed with its reason; **Open folder** opens the folder. When none of the videos could be saved, the page shows an error instead. With **Recent downloads** turned on, each saved video is added to the list. Only the videos in the list can be saved together: never more than 25, and never a playlist, profile or other collection.
+
 ## X / Twitter posts (experimental)
 
 Paste a public HTTPS post link from `x.com`, `twitter.com`, or
@@ -28,8 +36,9 @@ a share query. For a shortened link, open it in your browser first and copy
 the full post address.
 
 For a post with multiple videos, pick one video before choosing its MP4
-quality and destination. **Choose another video from this post** returns to
-the list. MP4 files retain their original audio when present. Downloads use
+quality and destination, or save them all (see
+[Posts with several videos](#posts-with-several-videos)). **Choose another
+video from this post** returns to the list. MP4 files retain their original audio when present. Downloads use
 anonymous access by default. Photo-only posts, external embeds, live streams, and posts
 that require a signed-in account are outside the supported scope.
 
@@ -58,13 +67,13 @@ Paste an individual public Reel, watch link, account video or video share link (
 
 ## Instagram (experimental)
 
-Paste a direct Reel (`/reel/…`) or feed post (`/p/…`). For a carousel, choose one video before choosing its quality. Silent videos keep their original video stream. Photo-only posts, stories, profiles and share redirects are outside this workflow. If Instagram asks for sign-in, select **Connect Instagram session…**, import an Instagram cookie export, and retry. Anonymous access can vary between requests.
+Paste a direct Reel (`/reel/…`) or feed post (`/p/…`). For a carousel, choose one video before choosing its quality, or save every video in it (see [Posts with several videos](#posts-with-several-videos)). Silent videos keep their original video stream. Photo-only posts, stories, profiles and share redirects are outside this workflow. If Instagram asks for sign-in, select **Connect Instagram session…**, import an Instagram cookie export, and retry. Anonymous access can vary between requests.
 
 ## Other sites (experimental)
 
 Paste a public `http` or `https` link from any other site, either a page with a video or a video file, and choose **Find video**. The page shows **Other sites (experimental)** under the link. stream-dlp then tries the download tools' readers for hundreds of sites and their fallback page reader, which finds plain video files, videos embedded in a page, and HLS or DASH streams. This is an attempt, not a promise: many sites do not work, and a site that works today can stop working.
 
-When a page holds several videos, stream-dlp lists the first 25 and you choose one; it never downloads a whole page or playlist. Live streams, audio-only results, DRM-protected videos and videos that need an account are refused with a message saying so.
+When a page holds several videos, stream-dlp lists the first 25: you choose one, or save the listed ones one after another (see [Posts with several videos](#posts-with-several-videos)). It never downloads a whole page or playlist. Live streams, audio-only results, DRM-protected videos and videos that need an account are refused with a message saying so.
 
 Signing in is not available for other sites: no session, cookie export or Firefox import is used, even when you have connected one for another platform. Links to local or private network addresses (such as `localhost`, a router or a NAS) are refused, and so are links that redirect to one. The same check covers everything the download tools fetch for the page afterwards: a page or stream that loads its video, or part of it, from a local or private address is refused with a message saying so. A few unusual encrypted streams need a download method stream-dlp does not allow for other sites and are refused too. When your computer or its environment is set to use a proxy, the check covers only the pasted link and its redirects. A link that redirects to YouTube, TikTok, X, Facebook or Instagram is refused too; paste that platform's link itself. File names start with the site's name and address, followed by the title.
 
