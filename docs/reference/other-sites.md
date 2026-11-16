@@ -107,49 +107,102 @@ unavailable (404/410), rate-limited (429), network, timeout, refused (403) and h
 Each has its own message (`EngineError`'s `Display`), and none repeats the link, the host, the
 extractor or helper output. Usage reports and feedback carry only the word `other`.
 
-## What is and is not enforced on nested requests
+## Destination guard for nested requests
 
-The checks above cover the pasted link and its HTTP redirects. What yt-dlp and FFmpeg fetch
-after that is only partly under the app's control. Validated with the bundled yt-dlp 2026.08.19
-and a local fixture server:
+The checks above cover the pasted link and its HTTP redirects. Everything yt-dlp and FFmpeg
+fetch after that (embedded players, iframes, API endpoints, yt-dlp's own redirects, manifests,
+segments, keys) goes through the destination guard, `src/engine/guard.rs`. Experiments and their
+commands: [research record](../research/other-site-destination-guard.md).
 
-Enforced:
+- **What it is.** A forward proxy written with the standard library, bound to `127.0.0.1` on a
+  free port. It starts for one inspection or one download of an Other link and stops when the
+  helper ends or is cancelled: the listener closes and every open connection is shut down, so
+  its threads end too (one still looking up or connecting ends within those limits). Nothing listens while the app is idle, and the named platforms never use it.
+- **How the helpers use it.** yt-dlp gets `--proxy http://127.0.0.1:<port>`. yt-dlp passes the
+  proxy to FFmpeg in `http_proxy` when it hands FFmpeg a stream. `NO_PROXY` and `no_proxy` are
+  removed from yt-dlp's environment, so neither FFmpeg (which honours it) nor anything else
+  started by yt-dlp can skip the guard.
+- **What it checks.** For each request: `CONNECT host:port` (HTTPS, tunnelled, never decrypted)
+  or a plain request with an absolute `http://` URI. The target must pass the link policy
+  (`other::normalize`: scheme, no credentials, a DNS name rather than an IP literal, no local
+  name ending, and the default port, so `CONNECT` only to 443 and plain requests only to 80).
+  The guard then looks the host up once and applies the address rule (`other::checked_addresses`,
+  the function `resolve` uses: one private answer refuses), and connects only to an address it
+  has just checked. No second lookup is ever made, which closes DNS rebinding for every request
+  the helpers make, the pasted link included. A refused target gets `403`, a malformed request `400`, a name that
+  cannot be resolved or reached `502`.
+- **One request per connection.** yt-dlp keeps proxy connections alive and sends later requests,
+  to any host, over the same connection. The guard forwards exactly one plain request per
+  connection: hop-by-hop headers (`Proxy-Connection`, `Connection` and the headers it names,
+  `Keep-Alive`, `Upgrade`, `TE`, `Trailer`, `Expect`, proxy credentials) are dropped, both sides
+  are told `Connection: close`, a request body is forwarded only up to its `Content-Length`
+  (`Transfer-Encoding` in a request is refused), and the connection is closed after the
+  response.
+- **Limits.** 32 client connections at once (more get `503`); request heads up to 16 KB and
+  response heads up to 64 KB; 15 seconds to send the request head and 15 to connect; a
+  connection idle for 60 seconds in both directions is closed. Threads: one listener, one per
+  connection and one more per HTTPS tunnel, so at most 65. Only loopback clients are served.
+- **Errors.** When a helper fails after the guard refused one of its requests, the user sees
+  "This page tried to load the video from a local or private network address…", without the
+  host or the link, instead of a network or site error.
+- **The pre-checks stay.** `resolve` (pasted link and HTTP redirects, with named-platform
+  refusal) and `recheck` (before a download) run as before; the guard is an addition.
 
-- `file://` URLs: yt-dlp refuses them unless `--enable-file-urls` is given, which the app never
-  does. An HLS playlist naming a `file:///` segment fails with yt-dlp's native downloader.
-- FFmpeg as downloader: yt-dlp hands FFmpeg some streams (forced, or HLS features its own
-  downloader lacks). The app passes `--downloader-args "ffmpeg_i:-protocol_whitelist
-  http,https,tcp,tls,crypto"`, so FFmpeg cannot open local files or other protocols from a
-  remote playlist; FFmpeg's HLS demuxer also refuses segment names with unexpected extensions.
-  A normal HLS stream still downloads through FFmpeg with this whitelist.
-- Non-HTTP formats are dropped before download (above), so RTMP/RTSP/MMS are never attempted.
-- Merging and fixups only read the local files yt-dlp just wrote.
+### FFmpeg and HTTPS
 
-Not enforced (known limits):
+FFmpeg reaches an HTTPS address through a proxy only with its `httpproxy` protocol. Adding
+`httpproxy` to the protocol whitelist would open a hole: FFmpeg's HLS demuxer accepts any
+protocol whose name starts with `http`, and a playlist segment `httpproxy://<private
+address>/…` made FFmpeg connect straight to that address (reproduced). So the whitelist stays
+`http,https,tcp,tls,crypto`, and an HTTPS stream that FFmpeg would download fails closed. To keep
+FFmpeg out of the way, Other links get `--downloader m3u8:native`: HLS uses yt-dlp's own
+downloader, which goes through the guard, and FFmpeg only gets what that downloader hands on.
+FFmpeg's protocol refusal ("not on whitelist") has its own message: "This stream needs a download
+method that stream-dlp does not allow for other sites."
 
-- **yt-dlp's own requests are not restricted by destination.** yt-dlp follows redirects again,
-  fetches embedded players, iframes, API endpoints, manifests, segments and keys, and none of
-  these is checked against the address policy. A public page that embeds or redirects to a
-  private address (for example a router at `192.168.1.1`), or a manifest whose segments point
-  there, makes yt-dlp request it from the user's machine. yt-dlp has no option to restrict
-  destinations, and doing it would need a filtering proxy in front of every helper request,
-  which the app does not have.
-- **DNS can change after the check (rebinding).** The app resolves the host, then yt-dlp
-  resolves it again on its own. A name that answers a public address first and a private one
-  later passes the check. `recheck` narrows the window before a download but cannot close it.
-- **The redirect probe sees only HTTP redirects.** Meta refresh, JavaScript redirects and
-  links inside the page are followed, if at all, by yt-dlp unchecked.
-- **The probe and yt-dlp may see different answers.** Sites that redirect by user agent,
-  cookies or region can send yt-dlp somewhere the probe did not go.
+With `m3u8:native` forced, these HLS variants stayed with yt-dlp's downloader (bundled yt-dlp
+2026.08.19): a plain TS playlist, AES-128 encryption with a key file, fMP4 segments with
+`EXT-X-MAP`, byte-range TS and byte-range fMP4 in a single file. DASH (`http_dash_segments`)
+uses yt-dlp's downloader by default.
+
+These still go to FFmpeg, and over HTTPS they fail with the message above (known limit):
+
+- encryption methods yt-dlp does not decrypt itself, such as `SAMPLE-AES` without a DRM key
+  format (yt-dlp: "Unsupported features have been detected; extraction will be delegated to
+  ffmpeg");
+- live playlists (no `EXT-X-ENDLIST`), which inspection already refuses as live;
+- any format whose protocol yt-dlp hands to FFmpeg directly; the protocols allowed for Other
+  links (`http`, `https`, `m3u8`, `m3u8_native`, `http_dash_segments(_generator)`) do not, once
+  `m3u8` is set to native.
+
+Plain `http://` streams that reach FFmpeg still work, through the guard.
+
+## What is still not enforced (known limits)
+
+- **A system or environment proxy turns the guard off.** When a proxy is set, found the way
+  yt-dlp finds one (`ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY` in either case; then on Windows
+  the Internet settings `ProxyEnable` and `ProxyServer`, on macOS `scutil --proxy` with HTTP or
+  HTTPS enabled), the helpers keep using that proxy and the guard is not started: chaining
+  proxies is not supported. The address checks then apply only to the pasted link and its HTTP
+  redirects, on the names the app resolves, not to where the proxy connects. PAC files and
+  automatic proxy detection are used by neither yt-dlp nor the app, so they do not count.
+- **Meta refresh, JavaScript redirects and links inside a page** are still followed, if at all,
+  by yt-dlp, without the named-platform refusal of `resolve`, but every request they cause is
+  now address-checked by the guard.
+- **The redirect probe itself can be rebound.** `resolve` checks a name's addresses, then the
+  probe (`net::location`, ureq) looks the name up again to send its one GET, so a name that
+  changes its answer in between can make that single anonymous request reach a private address.
+  It reads no body and sends no cookies; the helpers' requests go through the guard either way.
+- **The probe and yt-dlp may see different answers.** Sites that redirect by user agent, cookies
+  or region can send yt-dlp somewhere the probe did not go; the guard still checks where.
 - **Other extractors run anonymously but run.** A page embedding a YouTube, TikTok, X, Facebook
   or Instagram player reaches that platform's extractor through Other, without a session and
-  without that platform's extra rules (photo posts, share-link checks).
-- **Proxies.** The probe and yt-dlp use the system's proxy settings; when a proxy is set, the
-  address check applies to the name the app resolves, not to where the proxy connects.
+  without that platform's extra rules (photo posts, share-link checks). Its requests go through
+  the guard like any other.
+- **HTTPS streams that only FFmpeg can download** fail (above).
 
-These limits are why the mode is labelled experimental and why it never carries credentials:
-the worst case is an anonymous request from the user's machine, the same as opening the page in
-a browser, not a leaked session.
+The mode stays experimental and never carries credentials: the worst case is an anonymous
+request from the user's machine to a public address, the same as opening the page in a browser.
 
 ## How to test
 
@@ -157,14 +210,26 @@ a browser, not a leaked session.
   (`other::tests`), every address class, redirects (cap, loop, cancellation, private hop,
   platform hop, DNS failure) with an injected lookup and fetch, the redirect probe against a
   local socket (`net::tests`), formats and fixtures for a direct file, an embedded page and an
-  HLS/DASH result, live/audio-only/DRM refusal, error mapping, session isolation, the inspection
-  arguments, the 25-entry cap and the file name template (`ytdlp::tests`), and the `other` word
-  in usage and feedback.
+  HLS/DASH result, live/audio-only/DRM refusal, error mapping (guard refusal and FFmpeg protocol
+  refusal included), session isolation, the inspection arguments (`m3u8:native`, no
+  `httpproxy`), the guarded command (`--proxy`, `NO_PROXY` removed), the 25-entry cap and the
+  file name template (`ytdlp::tests`), and the `other` word in usage and feedback.
+- Guard (`guard::tests`, injected lookup and connections): address classes through the proxy,
+  `CONNECT` and plain HTTP, one request per connection, link-policy targets and malformed
+  requests, rebinding (a lookup that answers public, then private, is used once per request and
+  only the checked address is connected), head, connection and time limits, shutdown with open
+  tunnels, loopback-only clients, and proxy detection.
 - `other_sites_local_fixtures_inspect_and_download` (`#[ignore]`d, needs the tools and localhost
-  sockets) generates a direct MP4, a page with an embedded `<video>` and an HLS stream, serves
-  them on localhost and runs inspection and download through the real helpers. It starts after
-  the pasted-link checks, which refuse localhost; there is no loopback allowance in the policy.
-  Run it by name only:
+  sockets) generates a direct MP4, a page with an embedded `<video>`, an HLS stream and a DASH
+  manifest (FFmpeg's dash muxer, video and audio representations), serves them on localhost
+  under the name `fixture.example.test`, and runs inspection and download through the real
+  helpers and the guard. A test-only network in the guard (`guard::test_network`) resolves that
+  name to a public-looking address and routes it to the fixture server; yt-dlp cannot resolve the
+  name itself, so the downloads prove that every request went through the guard. Hostile
+  fixtures, pages and HLS playlists whose video or segment is on a name that resolves to
+  127.0.0.1 or on a 127.0.0.1 literal, must fail with the guard's message, and a listener on the
+  private address must receive no connection. It starts after the pasted-link checks, which
+  refuse localhost. Run it by name only:
   `cargo test other_sites_local_fixtures_inspect_and_download -- --ignored`.
 - `a_live_public_link_resolves_through_the_destination_policy` (`#[ignore]`d) resolves the
   public link in `STREAM_DLP_OTHER_TEST_URL`. Use a well-known public sample video, and record
