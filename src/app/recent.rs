@@ -406,12 +406,12 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::{Page, Phase};
     use super::*;
     use crate::engine;
 
-    fn kept(dir: &Path) -> Recent {
+    pub(in crate::app) fn kept(dir: &Path) -> Recent {
         let mut recent = Recent::in_file(Some(dir.join(history::FILE)));
         recent.turn_on();
         recent.settle();

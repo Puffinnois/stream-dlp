@@ -1,4 +1,6 @@
 //! The window: shared state, the sidebar, and the frame loop. Each page is its own module.
+// `pub(crate)` for the batch case of the engine's local fixture pipeline.
+pub(crate) mod batch;
 mod dev;
 mod download;
 mod extension_panel;
@@ -65,6 +67,8 @@ pub struct App {
     loaded_link: Option<engine::Link>,
     video: Option<Video>,
     entries: Vec<Video>,
+    /// Download all the entries: offered beside the chooser, then running or ended.
+    batch: Option<batch::Batch>,
     selected: usize,
     filter: FormatFilter,
     phase: Phase,
@@ -151,6 +155,7 @@ impl App {
             loaded_link: None,
             video: None,
             entries: Vec::new(),
+            batch: None,
             selected: 0,
             filter: FormatFilter::All,
             phase: Phase::Idle,
