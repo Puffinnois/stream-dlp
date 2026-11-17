@@ -432,4 +432,77 @@ mod tests {
         rig.bridge.forget_session();
         assert!(!rig.bridge.request_refresh(Instant::now()));
     }
+
+    /// The app's side of the manual acceptance checklist without the window: registers the
+    /// built app for this Windows user (the real keys, removed again at the end), listens in
+    /// the real `native-host` folder and prints what a browser's extension does for
+    /// `STREAM_DLP_EXTENSION_LIVE_SECONDS` seconds. After an import it asks for one refresh.
+    /// Prints states and messages only, never cookie data. Do not run it while a stream-dlp
+    /// on this machine is connected to the extension: both use the same folder and keys.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "writes this user's native messaging registration; needs STREAM_DLP_EXTENSION_LIVE_SECONDS and a browser with the extension loaded"]
+    fn live_browser_extension_session() {
+        use crate::session::chrome::{folder, registry};
+        let seconds: u64 = std::env::var("STREAM_DLP_EXTENSION_LIVE_SECONDS")
+            .expect("Set STREAM_DLP_EXTENSION_LIVE_SECONDS explicitly")
+            .parse()
+            .unwrap();
+        let exe = std::env::var_os("STREAM_DLP_HOST_EXE").map_or_else(
+            || {
+                let test = std::env::current_exe().unwrap();
+                test.parent()
+                    .and_then(|deps| deps.parent())
+                    .unwrap()
+                    .join("stream-dlp.exe")
+            },
+            std::path::PathBuf::from,
+        );
+        assert!(
+            exe.is_file(),
+            "Build the app first: cargo build --locked --bin stream-dlp"
+        );
+        let folder = folder().unwrap();
+        registry::register(&mut registry::UserRegistry, &folder, &exe).unwrap();
+        let mut bridge = Bridge::default();
+        bridge.start(&folder, Arc::new(|| {})).unwrap();
+        println!("registered and listening");
+        let start = Instant::now();
+        let (mut note, mut connected, mut refresh_at) = (None, false, None);
+        while start.elapsed() < Duration::from_secs(seconds) {
+            let unix_now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            for update in bridge.poll(unix_now, Instant::now()) {
+                let at = start.elapsed().as_secs();
+                match update {
+                    Update::Imported(Ok(_)) => {
+                        println!("[{at}s] session imported");
+                        // The extension answers a refresh at most once every 10 seconds.
+                        refresh_at.get_or_insert(Instant::now() + Duration::from_secs(12));
+                    }
+                    Update::Imported(Err(error)) => println!("[{at}s] session refused: {error}"),
+                    Update::ClearSession => println!("[{at}s] session cleared"),
+                    Update::RefreshFailed => println!("[{at}s] refresh failed"),
+                }
+            }
+            if refresh_at.is_some_and(|at| Instant::now() > at) {
+                refresh_at = Some(Instant::now() + Duration::from_secs(3600));
+                println!(
+                    "refresh requested: {}",
+                    bridge.request_refresh(Instant::now())
+                );
+            }
+            if bridge.note != note || bridge.connected() != connected {
+                (note, connected) = (bridge.note.clone(), bridge.connected());
+                let at = start.elapsed().as_secs();
+                println!("[{at}s] connected={connected} note={note:?}");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        println!("stopping; held a session: {}", bridge.stop());
+        registry::unregister(&mut registry::UserRegistry, &folder).unwrap();
+        assert!(registry::registered(&registry::UserRegistry, &folder).is_empty());
+    }
 }
