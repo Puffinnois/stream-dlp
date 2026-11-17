@@ -167,7 +167,7 @@ pub struct Video {
     pub duration: Option<f64>,
     #[serde(default)]
     pub formats: Vec<Format>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bool_or_default")]
     pub is_live: bool,
     /// yt-dlp's `live_status`: `is_live`, `is_upcoming`, `was_live`, `not_live`…
     pub live_status: Option<String>,
@@ -254,6 +254,11 @@ fn nonblank(value: Option<&str>) -> Option<&str> {
 
 fn string_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
+/// Some sites report `null` where others report `false`.
+fn bool_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(d)?.unwrap_or_default())
 }
 
 fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
@@ -553,6 +558,15 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn a_null_live_flag_reads_as_not_live() {
+        let video = parse_video(
+            r#"{"is_live":null,"formats":[{"format_id":"18","vcodec":"avc1","acodec":"mp4a"}]}"#,
+        )
+        .unwrap();
+        assert!(!video.is_live);
     }
 
     #[test]
