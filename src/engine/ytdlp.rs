@@ -1597,7 +1597,7 @@ mod tests {
         );
         download(
             video.identity(),
-            format,
+            format.clone(),
             output,
             Some(crate::session::fake_session()),
             tx,
@@ -1644,6 +1644,48 @@ mod tests {
             "Verified saved file with video + audio: {}",
             saved.display()
         );
+        // The same download into folders a real Downloads location can be: one with
+        // non-ASCII names, and one longer than Windows' classic 260-character path limit.
+        let unicode = saved.parent().unwrap().join("Vidéos 動画 ñ ✓");
+        let long = saved
+            .parent()
+            .unwrap()
+            .join("p".repeat(120))
+            .join("q".repeat(120));
+        for folder in [unicode, long] {
+            std::fs::create_dir_all(&folder).unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            download(
+                video.identity(),
+                format.clone(),
+                folder.clone(),
+                None,
+                tx,
+                Arc::new(AtomicBool::new(false)),
+            );
+            let length = folder.to_string_lossy().chars().count();
+            let path = rx
+                .iter()
+                .find_map(|event| match event {
+                    Event::Complete(result) => Some(result.path),
+                    Event::Failed(error) => {
+                        panic!("Download into a {length}-character folder failed: {error}")
+                    }
+                    _ => None,
+                })
+                .expect("No completion event");
+            assert!(path.starts_with(&folder) && path.is_file());
+            let probe = isolate(
+                Command::new(crate::tools::path("ffprobe"))
+                    .args(["-v", "error", "-show_entries", "stream=codec_type"])
+                    .arg(&path),
+            )
+            .output()
+            .unwrap();
+            let streams = String::from_utf8_lossy(&probe.stdout);
+            assert!(streams.contains("codec_type=video") && streams.contains("codec_type=audio"));
+            println!("Verified a download into a {length}-character folder.");
+        }
         let (cancel_tx, cancel_rx) = std::sync::mpsc::channel();
         download(
             video.identity(),
