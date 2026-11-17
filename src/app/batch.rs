@@ -896,4 +896,57 @@ mod tests {
         assert_eq!(app.batch.as_ref().unwrap().state(), State::Cancelled);
         assert!(app.batch.as_ref().unwrap().started());
     }
+
+    /// A real post or page through inspection and the batch, with the real download, at 480p
+    /// or the closest each entry offers. Prints positions, outcomes and sizes only: no link,
+    /// title or file name.
+    #[test]
+    #[ignore = "requires STREAM_DLP_BATCH_TEST_URL, a permitted post or page with 2 to 25 videos, internet and installed tools"]
+    fn live_post_saves_every_listed_video() {
+        let link = engine::parse_link(&std::env::var("STREAM_DLP_BATCH_TEST_URL").unwrap())
+            .unwrap_or_else(|error| panic!("{error}"));
+        println!("site: {:?}", link.source);
+        let (tx, rx) = mpsc::channel();
+        engine::inspect(link, None, tx.clone(), Arc::new(AtomicBool::new(false)));
+        let entries = loop {
+            match rx.recv_timeout(Duration::from_secs(200)).unwrap() {
+                Event::Entries(entries) => break entries,
+                Event::Loaded(_) => panic!("One video, not a post with several"),
+                Event::Failed(error) => panic!("{}", error.user_message()),
+                _ => {}
+            }
+        };
+        println!("listed: {}", entries.len());
+        let mut batch = Batch::new(&entries).expect("2 to 25 entries");
+        batch.quality = Quality::AtMost(480);
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-output");
+        std::fs::create_dir_all(&root).unwrap();
+        let folder = tempfile::tempdir_in(root).unwrap();
+        let sessions = HashMap::new();
+        batch.start(folder.path().to_owned(), &sessions, &tx);
+        while batch.state() == State::Running {
+            let event = rx.recv_timeout(Duration::from_secs(900)).unwrap();
+            batch.ended(event, &sessions, &tx);
+        }
+        assert_eq!(batch.state(), State::Done);
+        let mut paths = Vec::new();
+        for finished in batch.results() {
+            match &finished.ended {
+                Ended::Saved(saved) => {
+                    let size = std::fs::metadata(&saved.path).unwrap().len();
+                    println!("video {}: saved, {size} bytes", finished.entry + 1);
+                    assert!(size > 0);
+                    paths.push(saved.path.clone());
+                }
+                Ended::Failed { message, .. } => {
+                    println!("video {}: failed: {message}", finished.entry + 1)
+                }
+                Ended::Cancelled => println!("video {}: cancelled", finished.entry + 1),
+            }
+        }
+        assert_eq!(paths.len(), batch.total(), "Every listed video is saved");
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), batch.total(), "Each in its own file");
+    }
 }

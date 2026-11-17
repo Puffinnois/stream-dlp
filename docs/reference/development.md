@@ -90,6 +90,8 @@ error), or `animated` (checks for a silent,
 multi-frame MP4). Run
 `cargo test --locked x_authorized_production_pipeline -- --ignored`.
 
+For a post or page with several videos, set `STREAM_DLP_BATCH_TEST_URL` to a permitted one (2 to 25 videos) and run `cargo test --locked live_post_saves_every_listed_video -- --ignored --nocapture`: it inspects the link and saves every listed video through the download-all batch ([reference](download-all.md#tests)).
+
 For Facebook acceptance, set `STREAM_DLP_FACEBOOK_TEST_URL` to a permitted video with sound and run `cargo test --locked facebook_authorized_production_pipeline -- --ignored`. It inspects through the app backend, downloads one format and decodes both streams.
 
 For Instagram, set `STREAM_DLP_INSTAGRAM_TEST_URL` to a permitted sample and run `cargo test --locked instagram_authorized_production_pipeline -- --ignored`. `STREAM_DLP_INSTAGRAM_TEST_CASE` accepts `single` (a clip with audio), `carousel` (save the second selectable video), or `photo` (expect no downloadable video). The app keeps the selected playlist position and verifies its media ID on download.
