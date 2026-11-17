@@ -39,7 +39,7 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03; a Dev mode prototype exists, live acceptance open); signed-in Streamable and platform session cases. Everything after v0.7.0 above is merged but not yet released.
+Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03; a Dev mode prototype exists, live acceptance open); signed-in Streamable and platform session cases. Other sites, recent downloads, the pasted Streamable link and silent sources shipped in v0.8.0; download-all (F-04), the destination guard and the Dev mode extension prototype in v0.9.0.
 
 ## Feasibility findings
 
@@ -248,8 +248,8 @@ download or refresh through it is proven; the
 [manual acceptance checklist](docs/reference/chrome-extension.md#manual-acceptance-checklist)
 is open. Uninstall does not remove the registration (needs an installer change).
 
-- [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff. *Open (2026-11-13): deferred; options are recorded, nothing is selected or built.*
-- [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment. *Open (2026-11-13): deferred with the extension.*
+- [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff. *Open (2026-11-17): option 1 was selected and its prototype shipped in Dev mode with v0.9.0 (above); the evaluation ends with the manual acceptance checklist, which has not been run.*
+- [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment. *Open (2026-11-17): permissions and the fixed ID are recorded in the reference; maintenance and distribution (store listing, shipping `extension/` in releases, removal on uninstall) are not estimated.*
 
 **Phase acceptance:** at least one advertised browser completes the full connect-and-retry flow on a clean supported Windows machine; unsupported browsers fail helpfully; unrelated cookies are excluded; manual import continues working.
 
@@ -453,8 +453,8 @@ Do not embed a shared stream-dlp Streamable account or secret in the executable 
 - **Release A:** shared foundation and the proven browser-session import flow, with manual fallback. *Foundation shipped; Firefox import is experimental and unproven on a clean machine.*
 - **Release B:** TikTok and X/Twitter, each independently validated. *Shipped: TikTok in v0.3.9, X in v0.5.0 (validated by v0.6.1).*
 - **Release C:** Instagram and Facebook, including their required session handling. *Shipped in v0.7.0; signed-in recovery unverified.*
-- **Release D:** experimental Other sites mode. *Merged after v0.7.0, not yet released.*
-- **Release E:** current/existing-file selection and browser-assisted Streamable sharing. *File selection and the handoff shipped by v0.3.5; the recent-download list and the pasted link are merged after v0.7.0, not yet released.*
+- **Release D:** experimental Other sites mode. *Shipped in v0.8.0; the destination guard for nested requests in v0.9.0.*
+- **Release E:** current/existing-file selection and browser-assisted Streamable sharing. *File selection and the handoff shipped by v0.3.5; the recent-download list and the pasted link shipped in v0.8.0.*
 - **Later, conditional:** direct Streamable uploads, anonymous mode, optional conversion, and download-then-upload automation.
 
 These are scope boundaries, not calendar promises. Estimate work after the three feasibility spikes; unknown browser access and external upload support make firm dates premature. S-01/S-02 can move earlier if sharing is the highest priority.
