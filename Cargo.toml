@@ -1,6 +1,6 @@
 [package]
 name = "stream-dlp"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.93"
 description = "A native YouTube, TikTok, X, Facebook and Instagram video downloader for Windows and macOS"
