@@ -24,6 +24,7 @@ type JobResult = (u64, Result<ResultData, String>);
 
 pub struct Library {
     previews: super::preview::Previews,
+    pub player: super::player::Player,
     pub uploader: crate::streamable::Uploader,
     pub recent: super::recent::Recent,
     /// The link pasted back after the manual handoff, for the selected file only.
@@ -45,6 +46,7 @@ impl Default for Library {
         let (tx, rx) = mpsc::channel();
         Self {
             previews: super::preview::Previews::default(),
+            player: super::player::Player::default(),
             uploader: crate::streamable::Uploader::default(),
             recent: super::recent::Recent::default(),
             pasted: crate::streamable::PastedLink::default(),
@@ -95,10 +97,21 @@ impl Library {
             return;
         }
         self.selected = None;
+        if !self.player.is_open(&path) {
+            self.player.close();
+        }
         self.pasted.keep_only(Some(&path));
         self.job(ctx, move |cancel| {
             local::probe(&path, cancel).map(ResultData::Video)
         });
+    }
+    /// Starts playing a listed video at once; its details follow when the file is checked.
+    fn play(&mut self, ctx: &egui::Context, path: PathBuf) {
+        if self.uploader.status.active {
+            return;
+        }
+        self.player.open(ctx, path.clone());
+        self.select_file(ctx, path);
     }
     fn scan(&mut self, ctx: &egui::Context, folder: PathBuf) {
         self.job(ctx, move |cancel| {
@@ -142,6 +155,7 @@ impl Library {
             match result {
                 Ok(ResultData::Folder(folder, entries, truncated)) => {
                     self.previews.clear();
+                    self.player.close();
                     self.folder = Some(folder);
                     self.entries = entries;
                     self.truncated = truncated;
@@ -251,6 +265,7 @@ impl Library {
                 ui.label("Showing the first 1,000 videos found. Choose a smaller folder to see other files.");
             }
             let mut chosen = None;
+            let mut played = None;
             egui::ScrollArea::vertical()
                 .id_salt("local_videos")
                 .max_height(330.)
@@ -260,11 +275,14 @@ impl Library {
                         let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
                         let selected = self.selected.as_ref().is_some_and(|v| v.path == entry.path);
                         ui.horizontal(|ui| {
-                            let preview =
-                                self.previews
-                                    .show(ui, &entry.path, None, egui::vec2(136., 76.5));
-                            if preview.on_hover_text("Select video").clicked() && !busy {
-                                chosen = Some(entry.path.clone());
+                            let preview = super::player::thumbnail(
+                                ui,
+                                &mut self.previews,
+                                &entry.path,
+                                egui::vec2(136., 76.5),
+                            );
+                            if preview.on_hover_text("Play video").clicked() && !busy {
+                                played = Some(entry.path.clone());
                             }
                             let mut button = egui::Button::new(format!(
                                 "{name}  ·  {:.1} MB",
@@ -285,7 +303,9 @@ impl Library {
                         });
                     }
                 });
-            if let Some(path) = chosen {
+            if let Some(path) = played {
+                self.play(ctx, path);
+            } else if let Some(path) = chosen {
                 self.select_file(ctx, path);
             }
             if self.busy {
@@ -299,22 +319,23 @@ impl Library {
                 ctx.request_repaint_after(Duration::from_millis(80));
             }
         });
-        if let Some(video) = &self.selected {
+        // A video started from the list plays before its check has finished.
+        let shown = self
+            .selected
+            .as_ref()
+            .map(|video| video.path.clone())
+            .or_else(|| self.player.current().map(PathBuf::from));
+        if let Some(path) = shown {
             ui.add_space(SPACE_L);
             card(ui, |ui| {
                 section_title(ui, "Selected video");
                 ui.label(semibold(
-                    video.path.file_name().unwrap_or_default().to_string_lossy(),
+                    path.file_name().unwrap_or_default().to_string_lossy(),
                 ));
-                let width = ui.available_width().min(480.);
-                if self
-                    .previews
-                    .show(ui, &video.path, None, egui::vec2(width, width * 9. / 16.))
-                    .on_hover_text("Play video")
-                    .clicked()
-                {
-                    self.error = crate::platform::open_target(video.path.as_os_str()).err();
-                }
+                self.player.show(ui, &mut self.previews, &path);
+                let Some(video) = &self.selected else {
+                    return;
+                };
                 let duration = video
                     .duration
                     .map(|s| format!("{s:.1} seconds"))
@@ -325,7 +346,8 @@ impl Library {
                     video.bytes as f64 / 1_000_000.
                 ));
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("Play video").clicked() {
+                    if ui.button("Open in player").clicked() {
+                        self.player.suspend();
                         self.error = crate::platform::open_target(video.path.as_os_str()).err();
                     }
                     if ui.button("Show file").clicked() {

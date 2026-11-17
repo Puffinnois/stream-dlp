@@ -13,6 +13,13 @@ pub const EXTENSIONS: &[&str] = &[
     "wmv",
 ];
 
+/// Whether the file's name ends like a video's.
+pub fn is_video(path: &Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| EXTENSIONS.iter().any(|e| s.eq_ignore_ascii_case(e)))
+}
+
 #[derive(Debug)]
 pub struct Entry {
     pub path: PathBuf,
@@ -55,11 +62,7 @@ pub fn scan(folder: &Path, cancel: &AtomicBool) -> Result<(Vec<Entry>, bool), St
             continue;
         };
         let path = item.path();
-        if !path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| EXTENSIONS.iter().any(|e| s.eq_ignore_ascii_case(e)))
-        {
+        if !is_video(&path) {
             continue;
         }
         let Ok(meta) = item.metadata() else {

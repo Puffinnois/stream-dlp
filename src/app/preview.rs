@@ -13,7 +13,9 @@ use std::{
     time::Duration,
 };
 
-const CACHE_LIMIT: usize = 24;
+const CACHE_LIMIT: usize = 48;
+/// Frames extracted at once, each by a single-threaded FFmpeg.
+const WORKERS: usize = 3;
 
 #[derive(Clone, PartialEq, Eq)]
 struct Key(PathBuf, Option<u64>);
@@ -31,7 +33,8 @@ pub struct Previews {
     cache: VecDeque<(Key, Result<egui::TextureHandle, String>)>,
     tx: mpsc::Sender<FrameResult>,
     rx: mpsc::Receiver<FrameResult>,
-    active: bool,
+    /// The frames being extracted.
+    active: Vec<Key>,
     generation: u64,
     cancel: Arc<AtomicBool>,
 }
@@ -42,7 +45,7 @@ impl Default for Previews {
             cache: VecDeque::new(),
             tx,
             rx,
-            active: false,
+            active: Vec::new(),
             generation: 0,
             cancel: Arc::new(AtomicBool::new(false)),
         }
@@ -56,8 +59,20 @@ impl Drop for Previews {
 impl Previews {
     pub fn clear(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        self.cancel = Arc::new(AtomicBool::new(false));
         self.generation += 1;
+        self.active.clear();
         self.cache.clear();
+    }
+
+    /// The poster of `path` when it is already loaded, for painting without a widget.
+    pub fn cached(&self, path: &Path) -> Option<egui::TextureId> {
+        let key = Key::new(path, None);
+        self.cache
+            .iter()
+            .find(|(k, _)| *k == key)
+            .and_then(|(_, texture)| texture.as_ref().ok())
+            .map(egui::TextureHandle::id)
     }
 
     pub fn show(
@@ -68,8 +83,8 @@ impl Previews {
         size: egui::Vec2,
     ) -> egui::Response {
         while let Ok((generation, key, result)) = self.rx.try_recv() {
-            self.active = false;
             if generation == self.generation {
+                self.active.retain(|active| *active != key);
                 let texture = result.map(|rgb| {
                     ui.ctx().load_texture(
                         "video-preview",
@@ -118,9 +133,8 @@ impl Previews {
                 egui::FontId::proportional(TEXT_CAPTION),
                 egui::Color32::LIGHT_GRAY,
             );
-            if !self.active {
-                self.active = true;
-                self.cancel = Arc::new(AtomicBool::new(false));
+            if self.active.len() < WORKERS && !self.active.contains(&key) {
+                self.active.push(key.clone());
                 let (tx, cancel, generation, ctx) = (
                     self.tx.clone(),
                     self.cancel.clone(),
@@ -148,14 +162,14 @@ mod tests {
     #[test]
     fn stale_results_are_discarded_and_texture_cache_is_bounded() {
         let mut previews = Previews::default();
-        previews.active = true;
+        previews.active.push(Key::new(Path::new("old"), None));
         previews.clear();
         // An invalid old frame must be discarded before attempting texture upload.
         previews
             .tx
             .send((0, Key::new(Path::new("old"), None), Ok(vec![])))
             .unwrap();
-        for i in 0..30 {
+        for i in 0..CACHE_LIMIT + 6 {
             previews
                 .tx
                 .send((
@@ -168,11 +182,12 @@ mod tests {
         let ctx = egui::Context::default();
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                previews.show(ui, Path::new("29"), None, egui::vec2(136., 76.5));
+                let last = format!("{}", CACHE_LIMIT + 5);
+                previews.show(ui, Path::new(&last), None, egui::vec2(136., 76.5));
             });
         });
         assert_eq!(previews.cache.len(), CACHE_LIMIT);
-        assert!(!previews.active);
+        assert!(previews.active.is_empty());
         assert!(
             previews
                 .cache

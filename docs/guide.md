@@ -122,8 +122,7 @@ Both download yt-dlp, FFmpeg/ffprobe, and Deno directly from their official GitH
 Open **GIF converter** in the sidebar, or **Make GIF** after downloading a video.
 Selecting a video shows a large frame preview. Move **Clip start** to preview your
 chosen moment, or use **Play source video** to open it in your system player.
-**My videos** shows thumbnails for videos in an added folder and a larger preview
-for the selected video. Previews load locally in the background as you browse.
+Previews load locally in the background.
 Choose a local video, set the start time and duration (0.1–60 seconds), then choose
 Small file, Balanced, or High quality. Expand **Advanced settings** to adjust the maximum dimension (160–960 px),
 frame rate (5–30 fps), palette colors, dithering, and looping before **Save GIF…**.
@@ -140,11 +139,35 @@ Shorter clips, smaller dimensions, and lower frame rates usually save the most s
 
 Open the **My videos** page from the sidebar, then **Add video folder…** to list the videos
 in a folder. Switch between **Download** and **My videos** without losing the
-current download or folder selection. Select a video to check its container, duration, and size, then use
-**Play video** or **Show file**. **Refresh** reloads the folder after files change.
+current download or folder selection. Each video has a thumbnail: click it to play
+the video right there, or click its name to select it and check its container, duration,
+and size. **Open in player** opens it in your system player and **Show file** shows it
+in its folder. **Refresh** reloads the folder after files change.
 The list includes up to 1,000 video filenames in that folder, without scanning
 subfolders. The folder selection lasts for this app session. **Choose existing
 video…** also works without adding a folder.
+
+### Play a video in the app
+
+A finished download shows its picture on the **Download** page, and every video on
+**My videos** has a thumbnail. Click one and it plays in place:
+
+- Click the picture, press **Space** or use the button on the left to pause and play.
+- Click or drag the position bar to move through the video; the picture follows
+  while you drag. The **←** and **→** keys move 5 seconds.
+- Drag the level next to the speaker for the volume, or click the speaker (or press
+  **M**) to mute. The keys work while the pointer is over the player.
+- The button on the right opens the video in your system player, for full screen
+  or anything else the app's player does not do.
+
+After **Download all**, each saved video has its own thumbnail to play it. Only one
+video plays at a time, and it pauses when you switch to another page.
+
+Playing happens on your computer with the bundled FFmpeg; nothing is uploaded and
+the file is never changed. The picture is shown at up to 960 pixels on its longer
+side, whatever the file's resolution. On a Mac the player has no sound yet: use the
+button on the right to hear a video in your system player. A very large video
+(4K at a high frame rate) may skip frames on a slow computer; its sound keeps playing.
 
 ### Recent downloads (optional)
 
