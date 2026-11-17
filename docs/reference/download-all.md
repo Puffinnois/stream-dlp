@@ -28,4 +28,13 @@ The offer sits under the chooser's list: a quality row and **Download all N vide
 
 ## Tests
 
-Deterministic tests in `src/app/batch.rs` use a stand-in download: order, a failure in the middle, every entry failed, cancel during an entry and as one completes, per-entry quality fallback, a second entry reporting the first one's file, the 25-entry limit, a silent entry beside one with sound, per-site sessions, recent-download records and drawing. The local fixture pipeline (`other_sites_local_fixtures_inspect_and_download`, in `cargo xtask pipeline`) saves a page with two videos through the real helpers and the destination guard, then saves it again into the same folder and checks that neither file was replaced. Live multi-video posts on X, Instagram and Facebook are not verified.
+Deterministic tests in `src/app/batch.rs` use a stand-in download: order, a failure in the middle, every entry failed, cancel during an entry and as one completes, per-entry quality fallback, a second entry reporting the first one's file, the 25-entry limit, a silent entry beside one with sound, per-site sessions, recent-download records and drawing. The local fixture pipeline (`other_sites_local_fixtures_inspect_and_download`, in `cargo xtask pipeline`) saves a page with two videos through the real helpers and the destination guard, then saves it again into the same folder and checks that neither file was replaced.
+
+`live_post_saves_every_listed_video` (ignored; run it by name with `STREAM_DLP_BATCH_TEST_URL` set to a permitted post or page with 2 to 25 videos) inspects the link and runs the batch with the real download at 480p. It prints each entry's position, outcome and size, never a link, title or file name, and passes only when every listed video is saved in its own file.
+
+Live results, November 17, 2026 (Windows 11, bundled yt-dlp 2026.08.19, no session):
+
+- **X:** a post with four videos and a post with two: every video saved, each in its own file.
+- **Other sites:** a public page listing 25 videos and one listing six: the batch ran every entry in order, saved the ones the site served (six of 25, two of six) and reported the rest with "This site is limiting requests…" without stopping. The site answered the quick successive downloads with its rate limit; the batch has no pause or retry between entries.
+- **Instagram:** a public carousel stopped at inspection with "Instagram requires sign-in"; a batch on Instagram needs an imported session and is not verified.
+- **Facebook:** a post link with several videos is refused before inspection ("Paste an individual Facebook Reel, watch, video or video share link…"). No accepted Facebook link form with several videos is known, so the batch is not verified there and may never be offered.
