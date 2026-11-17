@@ -22,6 +22,7 @@ use std::{
 
 const MAX_WIDTH: f32 = 720.;
 const MAX_HEIGHT: f32 = 520.;
+const MIN_HEIGHT: f32 = 160.;
 /// The control strip under the picture.
 const STRIP: f32 = 44.;
 const BACKDROP: Color32 = Color32::BLACK;
@@ -456,14 +457,18 @@ impl Player {
             return;
         };
         session.advance(&ctx, gain);
+        // A tall picture still leaves the strip inside the part of the page that is visible.
+        let room = (ui.clip_rect().height() - STRIP - 2. * SPACE_M).max(MIN_HEIGHT);
         let target = session.aspect.map_or(poster_height, |aspect| {
-            (width / aspect).clamp(width * 0.3, MAX_HEIGHT)
+            (width / aspect).max(width * 0.3).min(MAX_HEIGHT.min(room))
         });
         let height = ctx.animate_value_with_time(height_id, target, 0.16);
         let (rect, _) =
             ui.allocate_exact_size(Vec2::new(width, height + STRIP), egui::Sense::hover());
-        if std::mem::take(&mut session.reveal) {
+        // Brought into view when opened, and kept there while the box takes the picture's shape.
+        if session.reveal {
             ui.scroll_to_rect(rect, None);
+            session.reveal = session.aspect.is_none() || height != target;
         }
         let picture = Rect::from_min_size(rect.min, Vec2::new(width, height));
         let strip = Rect::from_min_max(picture.left_bottom(), rect.max);

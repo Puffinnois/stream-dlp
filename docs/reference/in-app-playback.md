@@ -4,7 +4,7 @@ Playing a local video inside the app (S-06): on the Download page after a downlo
 
 ## What the person sees
 
-`Player::show(ui, previews, path)` is the player for one file. Until it is clicked it is that file's poster (the `preview` widget's frame) with a play mark; a click opens the file and plays from the start. Lists use `player::thumbnail`, the same poster and mark in a small size.
+`Player::show(ui, previews, path)` is the player for one file. The picture is at most 720 wide and 520 high, and never taller than the visible part of the page, so the strip under it stays in view. Until it is clicked it is that file's poster (the `preview` widget's frame) with a play mark; a click opens the file and plays from the start. Lists use `player::thumbnail`, the same poster and mark in a small size.
 
 - **Download page**: under **Download complete**, for a saved file whose name ends like a video's (`media::local::is_video`; an audio-only download gets no player).
 - **Download all**: each saved video has a thumbnail; clicking it puts the player under that entry.
@@ -87,4 +87,14 @@ Generated clips (FFmpeg's test pattern and a tone, in the ignored `test-output/`
 
 The time is from opening the file to showing the frame at 5.00 s, so what exceeds five seconds is the start: 0.1 to 0.2 s. In a traced run every frame was shown within 5 ms of the sound's position. Before the catch-up rule the debug build fell 1.1 s behind the sound on the 60 fps clip, and before the warm-up the first video of a process waited about half a second on its first frame for the sound output.
 
-Not verified: nobody has watched the picture or heard the sound in the app's window (the tests play at no volume and draw without a window), real downloads were not played, and the Mac build was not compiled with this change.
+### In the window, November 17, 2026 (Windows 11, debug build)
+
+The same generated clips on My videos, driven by hand in the app's window, with the level of the app's own Windows audio session read every quarter second:
+
+- The four thumbnails appeared within a few seconds of choosing the folder. Clicking one scrolled to the player and played it; clicking another switched at once.
+- Play and pause by the button, a click on the picture and Space; a click on the position bar; a drag along it, which shows each moment and its time; ← and →; the replay mark at the end. A seek to 23:50 of the 30-minute file showed its frame within a second.
+- Sound: a steady level for exactly the clip's seven seconds, nothing while muted, the level again when unmuted, and about 0.15 of it at a volume near 0.4 (the level squared). AAC in MP4 and Opus in WebM and MKV all played. The file without sound showed the greyed speaker and no level.
+- Leaving the page and coming back left the video paused on its picture.
+- Found and fixed there: a portrait video made the player taller than a small window and pushed the strip out of view. Its height is now limited to the visible part of the page, and the page keeps the player in view while it takes the picture's shape.
+
+Not verified: no person has listened to it (the level proves a signal of the right size and duration, not how it sounds), the Download page's and download-all's players were not shown with a real download, real downloads were not played, and nothing was run on a Mac (its build passes CI).
