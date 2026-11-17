@@ -66,6 +66,7 @@ impl App {
                 self.entries.clear();
                 self.batch = None;
                 self.saved = None;
+                self.player.close();
                 // The last video's "ready" or "cancelled" line must not label the next one.
                 self.status.clear();
                 self.progress = 0.;
@@ -562,6 +563,12 @@ impl App {
                     if let Some(saved) = &self.saved {
                         ui.label(format!("Saved from {}", saved.media.source.label()));
                         ui.label(caption(saved.path.display().to_string()));
+                        // An audio-only download has no picture to play.
+                        if crate::media::local::is_video(&saved.path) {
+                            ui.add_space(SPACE_XS);
+                            self.player.show(ui, &mut self.previews, &saved.path);
+                            ui.add_space(SPACE_XS);
+                        }
                     }
                     if let Some(error) = &self.library.recent.error {
                         ui.label(caption(error).color(DANGER));

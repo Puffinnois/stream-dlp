@@ -17,6 +17,8 @@ pub const TESTS: &[&str] = &[
     "engine::ytdlp::tests::other_sites_local_fixtures_inspect_and_download",
     "engine::ytdlp::tests::scoped_cookies_follow_helper_request_rules",
     "media::local::tests::local_library_probe_checks_real_video_and_invalid_files",
+    "media::playback::tests::local_playback_decodes_seeks_and_stops",
+    "app::player::tests::local_player_plays_pauses_seeks_and_ends",
     "session::chrome::host::tests::built_app_host_mode_relays_framed_messages",
 ];
 
@@ -187,6 +189,8 @@ mod tests {
             [
                 "engine::ytdlp::tests::other_sites_local_fixtures_inspect_and_download",
                 "engine::ytdlp::tests::scoped_cookies_follow_helper_request_rules",
+                "media::playback::tests::local_playback_decodes_seeks_and_stops",
+                "app::player::tests::local_player_plays_pauses_seeks_and_ends",
                 "session::chrome::host::tests::built_app_host_mode_relays_framed_messages"
             ]
         );

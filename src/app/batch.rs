@@ -501,6 +501,7 @@ impl App {
         let mut back = false;
         let mut gif = None;
         let mut upload = None;
+        let mut play = None;
         card(ui, |ui| {
             if let Some(entry) = batch.running() {
                 section_title(ui, format!("Downloading all {total} videos"));
@@ -543,7 +544,25 @@ impl App {
                 match &finished.ended {
                     Ended::Saved(saved) => {
                         ui.label(caption(saved.path.display().to_string()));
+                        let playable = crate::media::local::is_video(&saved.path);
+                        if playable && self.player.is_open(&saved.path) {
+                            self.player.show(ui, &mut self.previews, &saved.path);
+                        }
                         ui.horizontal(|ui| {
+                            if playable
+                                && !self.player.is_open(&saved.path)
+                                && super::player::thumbnail(
+                                    ui,
+                                    &mut self.previews,
+                                    &saved.path,
+                                    egui::vec2(96., 54.),
+                                )
+                                .on_hover_text("Play video")
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                play = Some(saved.path.clone());
+                            }
                             if ui
                                 .add_enabled(!self.gif.busy, egui::Button::new("Make GIF").small())
                                 .clicked()
@@ -582,6 +601,9 @@ impl App {
             self.download_cancel.store(true, Ordering::Relaxed);
             self.status = "Cancelling…".into();
         }
+        if let Some(path) = play {
+            self.player.open(ui.ctx(), path);
+        }
         if let Some(path) = gif {
             self.gif.select_file(ui.ctx(), path);
             self.page = Page::Gif;
@@ -593,6 +615,7 @@ impl App {
         if back {
             let quality = self.batch.as_ref().map(|batch| batch.quality);
             self.batch = Batch::new(&self.entries);
+            self.player.close();
             if let (Some(batch), Some(quality)) = (&mut self.batch, quality) {
                 batch.quality = quality;
             }

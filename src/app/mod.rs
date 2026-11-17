@@ -6,6 +6,7 @@ mod download;
 mod extension_panel;
 mod feedback;
 mod gif;
+mod player;
 mod preview;
 mod recent;
 mod session_panel;
@@ -56,6 +57,9 @@ pub struct App {
     page: Page,
     library: videos::Library,
     gif: gif::Converter,
+    /// The Download page's player for the video just saved, and its posters.
+    player: player::Player,
+    previews: preview::Previews,
     updater: update::Updater,
     tool_update: tools::ToolUpdate,
     dev: dev::DevTools,
@@ -144,6 +148,8 @@ impl App {
             page: Page::Download,
             library: videos::Library::default(),
             gif: gif::Converter::default(),
+            player: player::Player::default(),
+            previews: preview::Previews::default(),
             updater: update::Updater::default(),
             tool_update: tools::ToolUpdate::default(),
             dev: dev::DevTools::new(crate::dev::Settings::default(), false),
@@ -326,6 +332,15 @@ impl eframe::App for App {
         self.library.poll();
         self.gif.poll();
         self.tool_update.poll();
+        // A player keeps FFmpeg open: none while the tools are replaced or the app closes,
+        // and only the shown page's video plays.
+        let stop = self.closing || self.tool_update.active;
+        if stop || self.page != Page::Download {
+            self.player.suspend();
+        }
+        if stop || self.page != Page::Videos {
+            self.library.player.suspend();
+        }
         if self.busy() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
@@ -387,6 +402,8 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.cancel_all();
+        self.player.close();
+        self.library.player.close();
         // Tells a connected extension and removes the channel file; the registration stays.
         self.extension.stop();
         self.usage.closed();

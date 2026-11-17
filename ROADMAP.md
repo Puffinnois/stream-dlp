@@ -36,6 +36,7 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 
 - Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging with silent sources saved as video only and lost audio reported as a failure (F-02), multi-video choice with an explicit download-all (F-04), progress, cancellation, no-overwrite.
 - Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). The Download page's session link names the platform of the pasted address. Other sites never take a session.
+- In-app playback of a finished download and of any video on My videos, with sound on Windows (S-06).
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
@@ -382,6 +383,18 @@ November 13, 2026: an optional **Recent downloads** list, off by default
 `history.json`; entries can be removed or the list cleared, moved or deleted files
 stay listed and muted, and selecting one works like choosing an existing video
 ([reference](docs/reference/download-history.md)).
+
+### S-06 — Play videos in the app
+
+Depends on S-01. Requested November 17, 2026: the downloaded video is visible in the app and plays there, and so does every video on My videos; it has to feel seamless, reactive and fast. [Reference](docs/reference/in-app-playback.md).
+
+- [x] A player widget of its own (`src/app/player.rs`): poster, play/pause, position bar with seeking and dragging, volume and mute, keyboard, and a button for the system player.
+- [x] Frames from the bundled FFmpeg on a worker thread, at most three ahead of the picture; no media library and no new dependency. Nothing decodes or waits on the UI thread; seeking and switching videos stop the previous helpers at once.
+- [x] Sound on Windows through the system's wave output, declared by hand; the picture follows the sound's clock.
+- [x] Download page: the saved video plays under **Download complete**; each video a download-all saved has a thumbnail that plays it.
+- [x] My videos: a thumbnail per video that plays it at once, thumbnails loaded three at a time in the background.
+- [ ] Sound on macOS. *Open (2026-11-17): the Mac build plays the picture only. It needs an output written for macOS (or an audio crate, which is a dependency to decide on) and the PCM encoder in the Mac FFmpeg build.*
+- [ ] Watch and listen on real downloads on Windows and on a Mac. *Open (2026-11-17): on Windows, generated H.264, VP9 and AV1 clips with AAC and Opus sound were played in the app's window on My videos, with the app's sound level measured ([results](docs/reference/in-app-playback.md#in-the-window-november-17-2026-windows-11-debug-build)). No person has listened, no real download was played, the Download page's player was not shown live, and the Mac build was only compiled and checked by CI.*
 
 ### S-02 — Browser-assisted Streamable workflow
 

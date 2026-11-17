@@ -49,7 +49,9 @@ The bundled FFmpeg is built for local stream copying and merging, the GIF
 converter, and video previews. It has no external codec libraries; besides the
 system zlib, its only encoders are the built-in PNG, GIF, and raw video ones those
 features need, plus MPEG-4/AAC for the local test. Other video/audio conversion is
-outside this release's scope. Downloaded codecs are not guaranteed to play in
+outside this release's scope. Videos play in the app without sound on a Mac for now
+(the picture only; [reference](reference/in-app-playback.md#sound)), and AV1 videos
+do not play or preview in the app; open them in your system player. Downloaded codecs are not guaranteed to play in
 QuickTime. The local test uses the built-in MPEG-4/AAC encoders to avoid requiring
 Homebrew or hardware encoding.
 

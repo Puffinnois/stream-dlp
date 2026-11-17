@@ -3,8 +3,9 @@
 //! process tree.
 use std::{
     io::{self, Read},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, ChildStdout, Command, ExitStatus, Stdio},
     sync::{
+        Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, RecvTimeoutError},
     },
@@ -58,6 +59,60 @@ impl Drop for Owned {
         if !matches!(self.0.try_wait(), Ok(Some(_))) {
             stop(&mut self.0);
         }
+    }
+}
+
+/// A helper whose output is read while it runs, for playback. A worker thread starts it and
+/// reads; `stop`, from any thread, ends it at once. Only the helper itself is stopped, without
+/// the process-tree walk that takes [`stop`] a moment, so it must start no programs of its own.
+#[derive(Default)]
+pub struct Running {
+    stopped: AtomicBool,
+    child: Mutex<Option<Child>>,
+}
+
+impl Running {
+    /// Starts `command` with stdin and stderr closed and returns its stdout.
+    pub fn start(&self, command: &mut Command) -> Result<ChildStdout, Error> {
+        let mut child = isolate(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(Error::Start)?;
+        let stdout = child.stdout.take();
+        let mut slot = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+        // `stop` sets the flag before it takes the lock, so one that came first is seen here.
+        if self.stopped() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Error::Cancelled);
+        }
+        *slot = Some(child);
+        stdout.ok_or(Error::Cancelled)
+    }
+
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        let child = self
+            .child
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(mut child) = child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -373,6 +428,26 @@ mod tests {
         cancel.store(true, Ordering::Relaxed);
         assert!(matches!(
             Helper::new(&mut Command::new("stream-dlp-missing-helper"), &cancel).output(),
+            Err(Error::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn a_running_helper_is_read_while_it_runs_and_stops_at_once() {
+        let running = Running::default();
+        let mut stdout = running.start(&mut shell(PRINT)).unwrap();
+        let mut text = String::new();
+        stdout.read_to_string(&mut text).unwrap();
+        assert_eq!(text.replace("\r\n", "\n"), "one\ntwo\n");
+
+        let running = Running::default();
+        running.start(&mut shell(WAIT)).unwrap();
+        let start = Instant::now();
+        running.stop();
+        assert!(start.elapsed() < Duration::from_secs(4));
+        assert!(running.stopped());
+        assert!(matches!(
+            running.start(&mut shell(PRINT)),
             Err(Error::Cancelled)
         ));
     }
