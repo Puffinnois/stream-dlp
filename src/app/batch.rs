@@ -19,11 +19,17 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::Sender,
     },
+    time::{Duration, Instant},
 };
 
 /// The most videos one batch saves: the cap Other sites already put on a page's list. A post
 /// that lists more is not offered a batch.
 const MOST: usize = 25;
+
+/// How long a video waits before its one retry after the site limited requests.
+const RETRY_PAUSE: Duration = Duration::from_secs(15);
+/// How long each later video waits once the site has limited requests in this batch.
+const NEXT_PAUSE: Duration = Duration::from_secs(5);
 
 /// Runs one video's download and sends its events: [`engine::download`], or a test's stand-in.
 pub(crate) type Download =
@@ -106,6 +112,15 @@ pub(crate) struct Finished {
     pub(crate) ended: Ended,
 }
 
+/// Why the running entry waits before its download starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Pause {
+    /// The site limited requests for this video: it is tried once more after the wait.
+    Retry,
+    /// The site limited requests earlier in the batch: the next video starts after the wait.
+    Next,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum State {
     /// Offered beside the chooser; nothing runs.
@@ -128,6 +143,14 @@ pub(crate) struct Batch {
     /// One per ended entry, in order; the next entry to start is the one after the last.
     results: Vec<Finished>,
     state: State,
+    /// The running entry was already tried again after a rate limit.
+    retried: bool,
+    /// The site limited requests in this batch: later entries start after a pause.
+    limited: bool,
+    /// The wait the running entry started with.
+    pause: Option<Pause>,
+    retry_pause: Duration,
+    next_pause: Duration,
 }
 
 impl Batch {
@@ -142,12 +165,20 @@ impl Batch {
             folder: None,
             results: Vec::new(),
             state: State::Ready,
+            retried: false,
+            limited: false,
+            pause: None,
+            retry_pause: RETRY_PAUSE,
+            next_pause: NEXT_PAUSE,
         })
     }
 
+    /// A stand-in download, and no waiting.
     #[cfg(test)]
     pub(crate) fn with_download(mut self, download: Download) -> Self {
         self.download = download;
+        self.retry_pause = Duration::ZERO;
+        self.next_pause = Duration::ZERO;
         self
     }
 
@@ -175,6 +206,25 @@ impl Batch {
     pub(crate) fn running(&self) -> Option<usize> {
         (self.state == State::Running).then_some(self.results.len())
     }
+    /// The wait the running entry started with, and its length.
+    pub(crate) fn pause(&self) -> Option<(Pause, Duration)> {
+        let pause = self.pause.filter(|_| self.state == State::Running)?;
+        Some((
+            pause,
+            match pause {
+                Pause::Retry => self.retry_pause,
+                Pause::Next => self.next_pause,
+            },
+        ))
+    }
+    /// Whether `event` ends the running entry's first attempt with a rate limit, which
+    /// [`Self::ended`] answers with one more attempt instead of a failure.
+    pub(crate) fn will_retry(&self, event: &Event) -> bool {
+        self.state == State::Running
+            && !self.retried
+            && !self.cancel.load(Ordering::Relaxed)
+            && matches!(event, Event::Failed(engine::EngineError::RateLimited(_)))
+    }
     pub(crate) fn saved(&self) -> impl Iterator<Item = (usize, &CompletedDownload)> {
         self.results
             .iter()
@@ -199,11 +249,13 @@ impl Batch {
         self.results.clear();
         self.cancel = Arc::new(AtomicBool::new(false));
         self.state = State::Running;
+        (self.retried, self.limited, self.pause) = (false, false, None);
         self.advance(sessions, tx);
     }
 
     /// Records how the running entry's download ended and starts the next one, unless the
-    /// batch was cancelled. Events that do not end a download are ignored.
+    /// batch was cancelled. An entry the site limited is first tried once more, after a pause.
+    /// Events that do not end a download are ignored.
     pub(crate) fn ended(
         &mut self,
         event: Event,
@@ -213,6 +265,11 @@ impl Batch {
         let Some(entry) = self.running() else {
             return;
         };
+        if self.will_retry(&event) {
+            (self.retried, self.limited) = (true, true);
+            self.advance(sessions, tx);
+            return;
+        }
         let ended = match event {
             Event::Complete(saved) => match self.saved().find(|(_, s)| s.path == saved.path) {
                 // yt-dlp never replaces a file, so a second entry with the same file name is
@@ -235,6 +292,7 @@ impl Batch {
         };
         let cancelled = matches!(ended, Ended::Cancelled);
         self.results.push(Finished { entry, ended });
+        self.retried = false;
         if cancelled {
             self.state = State::Cancelled;
         } else {
@@ -243,7 +301,8 @@ impl Batch {
     }
 
     /// Starts the next entry through the single-video download path, with its own site's
-    /// session only, or ends the batch.
+    /// session only, or ends the batch. After a rate limit the download starts after a pause,
+    /// which Cancel ends.
     fn advance(&mut self, sessions: &HashMap<Source, SessionCookies>, tx: &Sender<Event>) {
         let next = self.results.len();
         if self.cancel.load(Ordering::Relaxed) {
@@ -257,8 +316,24 @@ impl Batch {
         let format = video.formats[self.quality.pick(video)].clone();
         let media = video.identity();
         let session = sessions.get(&media.source).cloned();
+        self.pause = if self.retried {
+            Some(Pause::Retry)
+        } else {
+            self.limited.then_some(Pause::Next)
+        };
+        let wait = self.pause().map_or(Duration::ZERO, |(_, wait)| wait);
         let (tx, cancel, download) = (tx.clone(), self.cancel.clone(), self.download);
-        std::thread::spawn(move || download(media, format, folder, session, tx, cancel));
+        std::thread::spawn(move || {
+            let until = Instant::now() + wait;
+            while Instant::now() < until {
+                if cancel.load(Ordering::Relaxed) {
+                    let _ = tx.send(Event::Cancelled);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50).min(until - Instant::now()));
+            }
+            download(media, format, folder, session, tx, cancel)
+        });
     }
 }
 
@@ -340,7 +415,17 @@ impl App {
             && let Some(entry) = batch.running()
         {
             self.progress = 0.;
-            self.status = super::download::connecting(batch.entry(entry).source);
+            self.status = match batch.pause() {
+                Some((Pause::Retry, wait)) if !wait.is_zero() => format!(
+                    "The site is limiting requests. Trying this video once more in {} seconds…",
+                    wait.as_secs()
+                ),
+                Some((Pause::Next, wait)) if !wait.is_zero() => format!(
+                    "The site limited requests. Starting this video in {} seconds…",
+                    wait.as_secs()
+                ),
+                _ => super::download::connecting(batch.entry(entry).source),
+            };
             self.log.clear();
         }
     }
@@ -356,8 +441,11 @@ impl App {
         {
             return Some(event);
         }
-        // Usage counts each video as the download it is; nothing names the post.
+        // Usage counts each video as the download it is; nothing names the post. A rate
+        // limit that is tried again is not an outcome yet.
+        let retrying = self.batch.as_ref().is_some_and(|b| b.will_retry(&event));
         match &event {
+            _ if retrying => {}
             Event::Complete(_) => self.report_outcome(Outcome::Ok),
             Event::Failed(error) => {
                 self.report_outcome(Outcome::Failed(error.into()));
@@ -895,6 +983,67 @@ mod tests {
         }
         assert_eq!(app.batch.as_ref().unwrap().state(), State::Cancelled);
         assert!(app.batch.as_ref().unwrap().started());
+    }
+
+    fn limited() -> Event {
+        Event::Failed(engine::EngineError::RateLimited(Source::Other))
+    }
+
+    #[test]
+    fn a_rate_limited_entry_is_tried_once_more_and_later_entries_pause() {
+        let mut run = Run::new(&entries(Source::Other, 3));
+        assert_eq!(run.start(), "1 hd None");
+        assert_eq!(run.batch.pause(), None);
+        assert!(run.batch.will_retry(&limited()));
+        assert!(!run.batch.will_retry(&failed()), "Only a rate limit");
+        run.end(limited());
+        // The same entry again, not a failure and not the next one.
+        assert_eq!(run.next_start(), "1 hd None");
+        assert!(run.batch.results().is_empty());
+        assert_eq!(run.batch.running(), Some(0));
+        assert_eq!(
+            run.batch.pause().map(|(pause, _)| pause),
+            Some(Pause::Retry)
+        );
+        // Limited again: now it is a failure with the usual message, and the batch goes on.
+        assert!(!run.batch.will_retry(&limited()), "One retry");
+        run.end(limited());
+        assert_eq!(run.next_start(), "2 hd None");
+        assert_eq!(run.batch.pause().map(|(pause, _)| pause), Some(Pause::Next));
+        assert!(matches!(
+            &run.batch.results()[0].ended,
+            Ended::Failed { message, kind: ErrorKind::RateLimited }
+                if message.contains("limiting requests")
+        ));
+        // The next entry has its own retry, and a retry that works is a normal save.
+        run.end(limited());
+        assert_eq!(run.next_start(), "2 hd None");
+        run.end(saved(&run.folder, 2));
+        assert_eq!(run.next_start(), "3 hd None");
+        run.end(saved(&run.folder, 3));
+        assert_eq!(run.batch.state(), State::Done);
+        assert_eq!(run.batch.pause(), None);
+        let order: Vec<_> = run.batch.saved().map(|(entry, _)| entry).collect();
+        assert_eq!(order, [1, 2]);
+        // A new run of the same batch starts without the earlier run's pauses.
+        assert_eq!(run.start(), "1 hd None");
+        assert_eq!(run.batch.pause(), None);
+    }
+
+    #[test]
+    fn cancel_during_the_pause_starts_nothing() {
+        let mut run = Run::new(&entries(Source::Other, 2));
+        run.batch.retry_pause = Duration::from_secs(60);
+        assert_eq!(run.start(), "1 hd None");
+        run.end(limited());
+        assert!(run.nothing_started(), "Waiting, not downloading");
+        run.batch.cancel_flag().store(true, Ordering::Relaxed);
+        assert!(!run.batch.will_retry(&limited()));
+        let event = run.rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(event, Event::Cancelled));
+        run.end(event);
+        assert_eq!(run.batch.state(), State::Cancelled);
+        assert!(run.nothing_started());
     }
 
     /// A real post or page through inspection and the batch, with the real download, at 480p

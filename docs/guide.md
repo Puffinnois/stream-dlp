@@ -22,7 +22,7 @@ show `<1 MB`.
 
 ### Posts with several videos
 
-When a post holds several videos (an X post, an Instagram carousel, a Facebook post or a page under other sites), stream-dlp lists them. Choose one to pick its quality as usual, or save them all: choose a quality under the list (**Best**, **1080p**, **720p** or **480p**) and click **Download all N videos**, then pick the folder. Nothing is downloaded until you click it.
+When a post holds several videos (an X post, an Instagram carousel, a Facebook post or a page under other sites), stream-dlp lists them. Choose one to pick its quality as usual, or save them all: choose a quality under the list (**Best**, **1080p**, **720p** or **480p**) and click **Download all N videos**, then pick the folder. Nothing is downloaded until you click it. When a site answers that it is limiting requests, that video is tried once more after 15 seconds and the following videos each start after a 5-second pause; Cancel also stops the waiting.
 
 The videos are saved one after another, never at the same time, each exactly as if you had chosen it on its own: the same session and site rules, sound check and file names, and existing files are never replaced. **Best** saves each video in the best quality it offers; a height saves each video in that quality or the closest one below it, or in its smallest quality when it offers none that small. A portrait video counts by its shorter side, so 1080 × 1920 is 1080p.
 
