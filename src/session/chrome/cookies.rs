@@ -59,13 +59,14 @@ pub fn to_session(cookies: &[ChromeCookie], now: u64) -> Result<SessionCookies, 
             cookie.value,
         ));
     }
-    SessionCookies::parse_for(&text, Source::YouTube).map_err(|error| {
-        if error.starts_with("No ") {
-            "No usable YouTube session was found. Sign in to YouTube in this browser profile, then press Connect in the extension again.".into()
-        } else {
-            INVALID.into()
-        }
-    })
+    const SIGNED_OUT: &str = "No usable YouTube session was found. Sign in to YouTube in this browser profile, then press Connect in the extension again.";
+    match SessionCookies::parse_for(&text, Source::YouTube) {
+        // A signed-out profile has YouTube cookies too; they are not a session.
+        Ok(session) if session.has_youtube_sign_in() => Ok(session),
+        Ok(_) => Err(SIGNED_OUT.into()),
+        Err(error) if error.starts_with("No ") => Err(SIGNED_OUT.into()),
+        Err(_) => Err(INVALID.into()),
+    }
 }
 
 #[cfg(test)]
@@ -95,7 +96,7 @@ mod tests {
     #[test]
     fn keeps_youtube_cookies_and_drops_other_domains_and_lookalikes() {
         let mut list = vec![
-            cookie(".youtube.com", "GOOD_DOMAIN"),
+            cookie(".youtube.com", "LOGIN_INFO"),
             cookie("www.youtube.com", "GOOD_HOST"),
             cookie(".M.YouTube.com", "GOOD_UPPER"),
         ];
@@ -113,7 +114,7 @@ mod tests {
         list[1].http_only = true;
         list[1].expiration_date = None;
         let text = text(&to_session(&list, NOW).unwrap());
-        assert!(text.contains(".youtube.com\tTRUE\t/\tTRUE\t4102444800\tGOOD_DOMAIN\t"));
+        assert!(text.contains(".youtube.com\tTRUE\t/\tTRUE\t4102444800\tLOGIN_INFO\t"));
         assert!(text.contains("#HttpOnly_www.youtube.com\tFALSE\t/\tTRUE\t0\tGOOD_HOST\t"));
         assert!(text.contains(".m.youtube.com\tTRUE\t"));
         assert!(!text.contains("FOREIGN"));
@@ -128,7 +129,12 @@ mod tests {
         let nameless = cookie(".youtube.com", "");
         let text = text(
             &to_session(
-                &[expired, fraction, nameless, cookie(".youtube.com", "OK")],
+                &[
+                    expired,
+                    fraction,
+                    nameless,
+                    cookie(".youtube.com", "LOGIN_INFO"),
+                ],
                 NOW,
             )
             .unwrap(),
@@ -155,7 +161,7 @@ mod tests {
         for change in cases {
             let mut bad = cookie(".youtube.com", "PRIVATE_NAME");
             change(&mut bad);
-            let error = match to_session(&[cookie(".youtube.com", "OK"), bad], NOW) {
+            let error = match to_session(&[cookie(".youtube.com", "LOGIN_INFO"), bad], NOW) {
                 Ok(_) => panic!("A hostile cookie was accepted"),
                 Err(error) => error,
             };
@@ -165,7 +171,7 @@ mod tests {
 
     #[test]
     fn too_many_cookies_or_none_usable_are_refused() {
-        let many = vec![cookie(".youtube.com", "MANY"); MAX_COOKIES + 1];
+        let many = vec![cookie(".youtube.com", "SID"); MAX_COOKIES + 1];
         assert!(to_session(&many, NOW).is_err());
         assert!(to_session(&many[..MAX_COOKIES], NOW).is_ok());
         let error = to_session(&[cookie(".example.com", "OTHER")], NOW)
@@ -173,5 +179,20 @@ mod tests {
             .unwrap();
         assert!(error.contains("Sign in to YouTube"));
         assert!(to_session(&[], NOW).is_err());
+    }
+
+    #[test]
+    fn a_signed_out_profile_is_not_a_session() {
+        // What a browser holds for youtube.com before anyone signs in.
+        let signed_out = [
+            cookie(".youtube.com", "VISITOR_INFO1_LIVE"),
+            cookie(".youtube.com", "YSC"),
+            cookie(".youtube.com", "PREF"),
+        ];
+        let error = to_session(&signed_out, NOW).err().unwrap();
+        assert!(error.contains("Sign in to YouTube"));
+        let mut signed_in = signed_out.to_vec();
+        signed_in.push(cookie(".youtube.com", "__Secure-3PSID"));
+        assert!(to_session(&signed_in, NOW).is_ok());
     }
 }

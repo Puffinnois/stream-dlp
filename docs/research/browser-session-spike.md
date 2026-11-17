@@ -46,6 +46,34 @@ cargo test --locked authorized_firefox_profile_import -- --ignored
 Remove-Item Env:STREAM_DLP_FIREFOX_PROFILE
 ```
 
+## Live run on dedicated profiles (November 17, 2026)
+
+Windows 11 (build 26300), Firefox 160.0, cookie database schema 17. Two throwaway
+profiles were created outside the checkout for this run (one with a space and a
+non-ASCII letter in its folder name), each opened headless with `-no-remote` on
+YouTube's home page, never signed in, and deleted afterwards. No regular profile
+was read. `authorized_firefox_profile_import` was run by name against each:
+
+| Case | Result |
+| --- | --- |
+| Firefox open (active WAL), signed out | Read succeeded; see below |
+| Firefox closed (processes ended, WAL left behind), signed out | Same |
+| Profile folder with a space and a non-ASCII letter | Same as an ASCII path |
+| Profile folder that Firefox never started (no `cookies.sqlite`) | "This Firefox profile is no longer available…" |
+| Folder that does not exist | Same message |
+
+A signed-out profile holds YouTube visitor and consent cookies (six rows here), so
+before this run the importer accepted it and the panel showed a loaded session.
+The Firefox import and the extension import now require one of YouTube's account
+cookies (`SessionCookies::has_youtube_sign_in`) and otherwise answer "No usable
+YouTube session was found. Sign in to YouTube…"; the rerun against the same
+profiles gave that message. A manual `cookies.txt` import is unchanged.
+
+Still not run: a signed-in profile on these versions, expired or rotated sessions,
+an authenticated inspect and download, Windows 10, a clean machine, and Chrome or
+Edge (see [the extension reference](../reference/chrome-extension.md)). Signing
+in needs the maintainer: an agent must not enter account credentials.
+
 The sections below preserve the earlier CLI feasibility findings. Statements about
 the then-unimplemented helper and manual-only support describe that earlier spike;
 the native implementation above supersedes those product decisions.

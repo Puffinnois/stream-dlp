@@ -122,6 +122,25 @@ impl SessionCookies {
         })
     }
 
+    /// Whether the jar holds one of the cookies YouTube sets only for a signed-in account.
+    /// A signed-out browser profile still has YouTube cookies (visitor and consent ones), so
+    /// the automatic browser imports use this to tell it from a session.
+    pub(crate) fn has_youtube_sign_in(&self) -> bool {
+        const SIGN_IN: [&str; 7] = [
+            "LOGIN_INFO",
+            "SID",
+            "SAPISID",
+            "__Secure-1PSID",
+            "__Secure-3PSID",
+            "__Secure-1PAPISID",
+            "__Secure-3PAPISID",
+        ];
+        self.text
+            .lines()
+            .filter_map(|line| line.split('\t').nth(5))
+            .any(|name| SIGN_IN.contains(&name))
+    }
+
     /// A disposable copy for one helper run, removed when dropped. A crash leaves it behind
     /// for the startup sweep (`stale`), which finds it by its folder and name prefix.
     pub fn temporary_file(&self) -> Result<tempfile::NamedTempFile, String> {

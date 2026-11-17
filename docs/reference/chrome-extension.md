@@ -102,7 +102,8 @@ a cookie file for the manual import. The app:
   sessions are never mixed or silently switched;
 - converts the cookies itself (`session::chrome::cookies`) and passes them through the same
   `SessionCookies::parse_for(…, Source::YouTube)` domain policy as every other import: other
-  domains and lookalikes are dropped; expired and nameless cookies are dropped; more than 2000
+  domains and lookalikes are dropped; expired and nameless cookies are dropped; a list without one of YouTube's account cookies
+  (a signed-out profile, which still has visitor cookies) is refused as no session; more than 2000
   cookies, a field longer than 8 KiB, a control character in any field, or a non-finite
   expiry refuses the whole session. Error messages never contain cookie names or values;
 - keeps the session in memory. Nothing from the extension is written to disk or logged; the
