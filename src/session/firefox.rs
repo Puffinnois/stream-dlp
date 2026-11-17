@@ -355,7 +355,12 @@ mod native {
                 value
             ));
         }
-        SessionCookies::parse_for(&text, crate::engine::Source::YouTube).map_err(|_| "No usable YouTube session was found. Sign in to YouTube in this Firefox profile and retry. For private windows or containers, use a cookies.txt export.".into())
+        // A signed-out profile has YouTube cookies too; they are not a session.
+        const SIGNED_OUT: &str = "No usable YouTube session was found. Sign in to YouTube in this Firefox profile and retry. For private windows or containers, use a cookies.txt export.";
+        SessionCookies::parse_for(&text, crate::engine::Source::YouTube)
+            .ok()
+            .filter(SessionCookies::has_youtube_sign_in)
+            .ok_or_else(|| SIGNED_OUT.into())
     }
 
     #[cfg(test)]
@@ -389,7 +394,7 @@ mod native {
                 execute(
                     &writer,
                     &format!(
-                        "INSERT INTO moz_cookies VALUES ('.youtube.com','GOOD','fake','/',{future},1,1,'')"
+                        "INSERT INTO moz_cookies VALUES ('.youtube.com','LOGIN_INFO','fake','/',{future},1,1,'')"
                     ),
                 );
                 for (host, name, attrs, expiry) in [
@@ -409,7 +414,9 @@ mod native {
                 let session = import(&path, &AtomicBool::new(false)).unwrap();
                 let file = session.temporary_file().unwrap();
                 let text = std::fs::read_to_string(file.path()).unwrap();
-                assert!(text.contains("#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t4102444800\tGOOD"));
+                assert!(
+                    text.contains("#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t4102444800\tLOGIN_INFO")
+                );
                 for forbidden in ["OTHER", "EVIL", "CONTAINER", "EXPIRED"] {
                     assert!(!text.contains(forbidden));
                 }
@@ -432,10 +439,19 @@ mod native {
             assert!(import(&path, &AtomicBool::new(false)).is_err());
             let db = fixture(&path, 17);
             assert!(import(&path, &AtomicBool::new(false)).is_err());
+            // A signed-out profile: YouTube cookies, none of them an account's.
             execute(
                 &db,
-                "INSERT INTO moz_cookies VALUES ('.youtube.com','SECRET','PRIVATE_VALUE','/',4102444800000,1,1,'')",
+                "INSERT INTO moz_cookies VALUES ('.youtube.com','VISITOR_INFO1_LIVE','PRIVATE_VALUE','/',4102444800000,1,1,'')",
             );
+            let error = import(&path, &AtomicBool::new(false)).err().unwrap();
+            assert!(error.contains("Sign in to YouTube"));
+            assert!(!error.contains("PRIVATE_VALUE"));
+            execute(
+                &db,
+                "INSERT INTO moz_cookies VALUES ('.youtube.com','SID','PRIVATE_VALUE','/',4102444800000,1,1,'')",
+            );
+            assert!(import(&path, &AtomicBool::new(false)).is_ok());
             assert!(import(&path, &AtomicBool::new(true)).is_err());
             execute(&db, "PRAGMA user_version=99");
             let error = import(&path, &AtomicBool::new(false)).err().unwrap();

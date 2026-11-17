@@ -250,7 +250,7 @@ mod tests {
     use std::net::TcpStream;
 
     const NOW: u64 = 1_800_000_000;
-    const SESSION: &str = r#"{"type":"session","cookies":[{"domain":".youtube.com","hostOnly":false,"path":"/","secure":true,"httpOnly":true,"expirationDate":4102444800,"name":"TEST","value":"fake"}]}"#;
+    const SESSION: &str = r#"{"type":"session","cookies":[{"domain":".youtube.com","hostOnly":false,"path":"/","secure":true,"httpOnly":true,"expirationDate":4102444800,"name":"LOGIN_INFO","value":"fake"}]}"#;
 
     struct Rig {
         bridge: Bridge,
