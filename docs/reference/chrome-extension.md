@@ -132,7 +132,7 @@ extension's origin. Connect writes them again, so a moved app is picked up. Disc
 the app; while the app is not listening, the host answers `app_unavailable`.
 
 Tests use a fake registry (`registry::Registry`) and temporary folders; they never write the real
-keys. The registry writes are direct `advapi32` calls, the random bytes `BCryptGenRandom`: no new
+keys, except the opt-in `live_browser_extension_session` ([below](#the-apps-side-without-the-window)). The registry writes are direct `advapi32` calls, the random bytes `BCryptGenRandom`: no new
 dependency.
 
 ## Limits and leftovers
@@ -191,3 +191,43 @@ real links, titles, account names and screenshots out of the repository (AGENTS.
     Edge results separately from Chrome.
 
 Only after these pass on a clean Windows machine may A-03's checkboxes be ticked.
+
+### The app's side without the window
+
+`live_browser_extension_session` (ignored; run it by name) does what **Connect Chrome / Edge**
+and **Disconnect extension** do, without the window: it registers the built app with the real
+keys, listens in the real `native-host` folder for the given number of seconds, prints each
+state change (connected, session imported or refused with its message, cleared, refresh
+requested and failed; never cookie data), asks for one refresh 12 seconds after an import, then
+disconnects and removes the registration. Use it for steps 2, 4 and 7–9 while you work in the
+browser:
+
+```powershell
+cargo build --locked --bin stream-dlp
+$env:STREAM_DLP_EXTENSION_LIVE_SECONDS = '120'
+cargo test --locked live_browser_extension_session -- --ignored --nocapture
+Remove-Item Env:STREAM_DLP_EXTENSION_LIVE_SECONDS
+```
+
+Run it from an ordinary terminal, and not while a stream-dlp on the machine is connected to the
+extension. Do not run it from a terminal inside a packaged (MSIX) app, such as the Claude
+desktop app: in the run below, the keys written there were visible to that terminal but not to
+Chrome, which answered "Specified native messaging host not found." (packaged apps get a
+private view of the `Software` key under `HKEY_CURRENT_USER`; not confirmed from outside).
+
+### Partial run in a real Chrome (November 17, 2026)
+
+Chrome 157.0.8103.79 on Windows 11, a throwaway profile (its own `--user-data-dir`, never
+signed in, deleted afterwards), driven through the DevTools protocol by a coding agent:
+
+- Chrome 157 ignores `--load-extension`. The folder loaded through the DevTools command
+  `Extensions.loadUnpacked` (Chrome started with `--remote-debugging-pipe` and
+  `--enable-unsafe-extension-debugging`) and got the ID `edngekgkkjhaoohkfddejaoohfaggiac`;
+  **Load unpacked** on `chrome://extensions` was not used.
+- The popup opened and showed "Not connected."; its service worker started.
+- Without a registration, **Connect** showed "stream-dlp is not registered with this
+  browser…" (step 10's second half). Chrome's own error was "Specified native messaging host
+  not found.", which `bridge.js` maps to that message.
+- Nothing further could be run: the agent's session was inside a packaged app (above), so
+  the registration it wrote never reached Chrome. Steps 2, 4, 5 and 7–11 with a real browser,
+  every signed-in step, and Edge are still open.

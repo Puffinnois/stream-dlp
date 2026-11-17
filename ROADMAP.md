@@ -246,7 +246,10 @@ Deno tests, and the built release executable relaying framed messages directly a
 `cmd /d /c`. Not yet run in a real Chrome or Edge, and no signed-in YouTube inspection,
 download or refresh through it is proven; the
 [manual acceptance checklist](docs/reference/chrome-extension.md#manual-acceptance-checklist)
-is open. Uninstall does not remove the registration (needs an installer change).
+is open. November 17, 2026: in a real Chrome 157 on a throwaway profile the extension loaded
+with its fixed ID and the popup reported a missing registration correctly; the connection
+itself could not be tried from the agent's session
+([record](docs/reference/chrome-extension.md#partial-run-in-a-real-chrome-november-17-2026)). Uninstall does not remove the registration (needs an installer change).
 
 - [ ] If Chrome/Edge extraction is blocked, evaluate an optional extension limited to the needed site and a local authenticated handoff. *Open (2026-11-13): deferred; options are recorded, nothing is selected or built.*
 - [ ] Estimate extension maintenance, distribution, and permission requirements before treating it as a separate release commitment. *Open (2026-11-13): deferred with the extension.*
