@@ -27,6 +27,8 @@ const MIN_HEIGHT: f32 = 160.;
 const STRIP: f32 = 44.;
 const BACKDROP: Color32 = Color32::BLACK;
 const STRIP_FILL: Color32 = Color32::from_rgb(17, 19, 27);
+/// The strip over a fullscreen picture.
+const STRIP_OVER: Color32 = Color32::from_rgba_premultiplied(12, 13, 19, 215);
 const CONTROL: Color32 = Color32::from_rgb(236, 238, 245);
 const CONTROL_OFF: Color32 = Color32::from_rgb(120, 126, 142);
 const TRACK: Color32 = Color32::from_rgb(70, 75, 92);
@@ -43,6 +45,8 @@ const BEHIND: f64 = 0.5;
 const SETTLE: Duration = Duration::from_millis(1500);
 const CATCH_UP: f64 = 0.25;
 const MIN_RATE: f64 = 15.;
+/// Fullscreen controls and the pointer hide this long after the last movement or key press.
+const HIDE_AFTER: Duration = Duration::from_millis(2500);
 
 /// The video's time: a wall clock that sound, while there is some, keeps correcting.
 struct Clock {
@@ -357,12 +361,67 @@ impl Session {
     }
 }
 
+/// The window is fullscreen for the open video.
+struct Fullscreen {
+    /// To leave fullscreen from where no frame is drawn, as when the player is closed.
+    ctx: egui::Context,
+    /// The last pointer movement or key press: the controls hide a while after it.
+    active: Instant,
+}
+
+impl Fullscreen {
+    /// The controls stay while the video is paused or the pointer is on them.
+    fn controls_shown(&self, now: Instant, playing: bool, held: bool) -> bool {
+        !playing || held || now.saturating_duration_since(self.active) < HIDE_AFTER
+    }
+}
+
+/// While a player is fullscreen, the context holds the pass it was last drawn in.
+#[derive(Clone, Copy)]
+struct Drawn(u64);
+
+fn drawn_id() -> egui::Id {
+    egui::Id::new("player-fullscreen-drawn")
+}
+
+fn mark_drawn(ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|data| data.insert_temp(drawn_id(), Drawn(pass)));
+}
+
+/// Leaves fullscreen at the end of a pass that did not draw the fullscreen player: a page that
+/// stops showing it must not leave the window fullscreen with nothing to leave it by.
+fn watch_fullscreen(ctx: &egui::Context) {
+    let watching = egui::Id::new("player-fullscreen-watch");
+    if ctx.data(|data| data.get_temp::<bool>(watching)).is_some() {
+        return;
+    }
+    ctx.data_mut(|data| data.insert_temp(watching, true));
+    ctx.on_end_pass(
+        "player-fullscreen",
+        Arc::new(|ctx| {
+            if ctx.viewport_id() != egui::ViewportId::ROOT {
+                return;
+            }
+            let id = drawn_id();
+            let pass = ctx.cumulative_pass_nr();
+            if let Some(Drawn(drawn)) = ctx.data(|data| data.get_temp(id))
+                && drawn < pass
+            {
+                ctx.data_mut(|data| data.remove::<Drawn>(id));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
+        }),
+    );
+}
+
 pub struct Player {
     session: Option<Session>,
     volume: f32,
     muted: bool,
     /// A failure to open the video in the system player.
     error: Option<String>,
+    fullscreen: Option<Fullscreen>,
 }
 
 impl Default for Player {
@@ -372,6 +431,7 @@ impl Default for Player {
             volume: 1.,
             muted: false,
             error: None,
+            fullscreen: None,
         }
     }
 }
@@ -388,6 +448,7 @@ impl Player {
 
     /// Starts playing `path` from its beginning, in place of whatever was open.
     pub fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.leave_fullscreen();
         self.error = None;
         // The previous video's helpers stop before the new ones start.
         self.session = None;
@@ -395,12 +456,14 @@ impl Player {
     }
 
     pub fn close(&mut self) {
+        self.leave_fullscreen();
         self.session = None;
         self.error = None;
     }
 
     /// The page is not shown: pauses and stops the helpers, keeping the picture and position.
     pub fn suspend(&mut self) {
+        self.leave_fullscreen();
         if let Some(session) = &mut self.session
             && (session.playing || session.decoder.is_some())
         {
@@ -415,6 +478,51 @@ impl Player {
 
     pub fn is_open(&self, path: &Path) -> bool {
         self.current() == Some(path)
+    }
+
+    /// Makes the window fullscreen for the open video, or restores it as it was. The window
+    /// keeps its own placement, so it comes back maximized or at its size.
+    fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
+        if !on {
+            self.leave_fullscreen();
+            return;
+        }
+        if self.fullscreen.is_some() || self.session.is_none() {
+            return;
+        }
+        // The page underneath must not take the keys meant for the player.
+        ctx.memory_mut(|memory| memory.stop_text_input());
+        mark_drawn(ctx);
+        watch_fullscreen(ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        self.fullscreen = Some(Fullscreen {
+            ctx: ctx.clone(),
+            active: Instant::now(),
+        });
+    }
+
+    fn leave_fullscreen(&mut self) {
+        if let Some(fullscreen) = self.fullscreen.take() {
+            let ctx = fullscreen.ctx;
+            ctx.data_mut(|data| data.remove::<Drawn>(drawn_id()));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
+    }
+
+    /// Hands the video to the system's player: this one pauses, so the two do not play at once,
+    /// and the window leaves fullscreen so the other player is not behind it.
+    fn open_externally(
+        &mut self,
+        ctx: &egui::Context,
+        open: impl FnOnce(&Path) -> Result<(), String>,
+    ) {
+        self.leave_fullscreen();
+        let gain = self.gain();
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        session.set_playing(ctx, false, gain);
+        self.error = open(&session.path).err();
     }
 
     /// The player for `path`: its poster until it is clicked, then the video. A video open for
@@ -465,6 +573,33 @@ impl Player {
         let height = ctx.animate_value_with_time(height_id, target, 0.16);
         let (rect, _) =
             ui.allocate_exact_size(Vec2::new(width, height + STRIP), egui::Sense::hover());
+        let id = ui.id().with("player");
+
+        if self.fullscreen.is_some()
+            && ctx
+                .data(|data| data.get_temp::<Drawn>(drawn_id()))
+                .is_none()
+        {
+            // The window already left fullscreen without this player.
+            self.fullscreen = None;
+        }
+        if self.fullscreen.is_some() {
+            mark_drawn(&ctx);
+            // The page keeps the player's place, so it is as it was when fullscreen ends.
+            ui.painter().rect_filled(rect, RADIUS_M, BACKDROP);
+            let screen = ctx.content_rect();
+            egui::Area::new(id.with("fullscreen-layer"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(screen.min)
+                .constrain(false)
+                .show(&ctx, |ui| {
+                    ui.set_clip_rect(screen);
+                    ui.allocate_rect(screen, egui::Sense::hover());
+                    self.surface(ui, previews, id, screen, None);
+                });
+            return;
+        }
+
         // Brought into view when opened, and kept there while the box takes the picture's shape.
         if session.reveal {
             ui.scroll_to_rect(rect, None);
@@ -472,6 +607,26 @@ impl Player {
         }
         let picture = Rect::from_min_size(rect.min, Vec2::new(width, height));
         let strip = Rect::from_min_max(picture.left_bottom(), rect.max);
+        self.surface(ui, previews, id, picture, Some(strip));
+    }
+
+    /// The picture and its controls: on the page with the strip under the picture, or
+    /// fullscreen (`strip` is `None`) with the strip over the bottom of the picture while it is
+    /// not hidden.
+    fn surface(
+        &mut self,
+        ui: &mut egui::Ui,
+        previews: &mut Previews,
+        id: egui::Id,
+        picture: Rect,
+        strip: Option<Rect>,
+    ) {
+        let ctx = ui.ctx().clone();
+        let gain = self.gain();
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let fullscreen = strip.is_none();
         let top = egui::CornerRadius {
             nw: RADIUS_M,
             ne: RADIUS_M,
@@ -484,8 +639,12 @@ impl Player {
             sw: RADIUS_M,
             se: RADIUS_M,
         };
+        let (top, bottom) = if fullscreen {
+            (egui::CornerRadius::ZERO, egui::CornerRadius::ZERO)
+        } else {
+            (top, bottom)
+        };
         ui.painter().rect_filled(picture, top, BACKDROP);
-        ui.painter().rect_filled(strip, bottom, STRIP_FILL);
 
         // The picture, or the poster until the first frame is there.
         let (image, aspect) = match (&session.texture, session.aspect) {
@@ -504,11 +663,35 @@ impl Player {
                 .paint_at(ui, fitted);
         }
 
-        let id = ui.id().with("player");
-        let surface = ui
-            .interact(picture, id.with("picture"), egui::Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        // Fullscreen, the strip lies over the bottom of the picture and hides with the pointer
+        // a while after the last movement or key press.
+        let over = Rect::from_min_max(
+            Pos2::new(picture.left(), picture.bottom() - STRIP),
+            picture.max,
+        );
+        let mut shown = true;
+        if let Some(state) = &mut self.fullscreen {
+            let now = Instant::now();
+            if ctx.input(stirred) {
+                state.active = now;
+            }
+            let held = session.drag.is_some() || ui.rect_contains_pointer(over);
+            shown = state.controls_shown(now, session.playing, held);
+            if shown && session.playing && !held {
+                let left = HIDE_AFTER.saturating_sub(now.saturating_duration_since(state.active));
+                ctx.request_repaint_after(left + Duration::from_millis(20));
+            }
+        }
+
+        let surface = ui.interact(picture, id.with("picture"), egui::Sense::click());
+        let surface = if fullscreen {
+            surface
+        } else {
+            surface.on_hover_cursor(egui::CursorIcon::PointingHand)
+        };
         let mut toggle = surface.clicked();
+        // Both clicks of a double click toggle playing, so it plays on as it was.
+        let mut toggle_fullscreen = surface.double_clicked();
         if let Some(error) = &session.error {
             let text = ui.painter().layout(
                 error.clone(),
@@ -532,129 +715,152 @@ impl Player {
             play_badge(ui, picture.center(), 64., surface.hovered());
         }
 
-        // The strip, from both ends towards the position bar in the middle.
-        let middle = strip.center().y;
-        let button = |x: f32| Rect::from_center_size(Pos2::new(x, middle), Vec2::splat(32.));
-        let mut left = strip.left() + SPACE_S;
-        let mut right = strip.right() - SPACE_S;
-
-        let play = control(ui, id.with("play"), button(left + 16.));
-        let play = play.on_hover_text(if session.playing { "Pause" } else { "Play" });
-        if session.playing {
-            paint_pause(ui, play.rect.center(), CONTROL);
-        } else {
-            paint_play(ui, play.rect.center(), 7., CONTROL);
-        }
-        toggle |= play.clicked();
-        left += 32. + SPACE_S;
-
-        let font = egui::FontId::proportional(TEXT_CAPTION + 1.);
-        let position = session.position();
-        let time = match session.duration() {
-            Some(end) => format!("{} / {}", clock_text(position), clock_text(end)),
-            None => clock_text(position),
-        };
-        // As wide as it gets, so the bar does not move while the time counts.
-        let widest: String = time
-            .chars()
-            .map(|c| if c.is_ascii_digit() { '0' } else { c })
-            .collect();
-        let reserved = ui
-            .painter()
-            .layout_no_wrap(widest, font.clone(), CONTROL)
-            .size()
-            .x;
-        ui.painter().text(
-            Pos2::new(left, middle),
-            egui::Align2::LEFT_CENTER,
-            time,
-            font,
-            CONTROL,
-        );
-        left += reserved + SPACE_M;
-
-        let external = control(ui, id.with("external"), button(right - 16.))
-            .on_hover_text("Open in your video player");
-        paint_external(ui, external.rect.center(), CONTROL);
-        right -= 32. + SPACE_XS;
-
-        // Sound: a level to drag and a speaker to mute with, where there is sound to control.
         let silent_file = session.info.is_some_and(|info| !info.audio);
         let sound = audio::AVAILABLE && !silent_file;
-        let level = Rect::from_min_max(
-            Pos2::new(right - 56., middle - 12.),
-            Pos2::new(right, middle + 12.),
-        );
-        if sound {
-            let response = ui
-                .interact(level, id.with("volume"), egui::Sense::click_and_drag())
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if let Some(pointer) = response.interact_pointer_pos() {
-                self.volume = ((pointer.x - level.left()) / level.width()).clamp(0., 1.);
-                self.muted = false;
-            }
-            let shown = if self.muted { 0. } else { self.volume };
-            paint_bar(ui, level, shown, response.hovered() || response.dragged());
-            right -= level.width() + SPACE_XS;
-        }
-        let speaker = control(ui, id.with("mute"), button(right - 16.));
-        let speaker = speaker.on_hover_text(if silent_file {
-            "This video has no sound"
-        } else if !audio::AVAILABLE {
-            "Sound does not play in the app on this system yet. Open the video in your player to hear it."
-        } else if self.muted {
-            "Unmute"
-        } else {
-            "Mute"
-        });
-        let quiet = self.muted || self.volume == 0.;
-        paint_speaker(
-            ui,
-            speaker.rect.center(),
-            if sound { CONTROL } else { CONTROL_OFF },
-            !sound || quiet,
-        );
-        if sound && speaker.clicked() {
-            self.muted = !quiet;
-            if quiet && self.volume == 0. {
-                self.volume = 0.5;
-            }
-        }
-        right -= 32. + SPACE_M;
+        let mut external = false;
+        if let Some(strip) = strip.or(shown.then_some(over)) {
+            ui.painter().rect_filled(
+                strip,
+                bottom,
+                if fullscreen { STRIP_OVER } else { STRIP_FILL },
+            );
+            // The strip, from both ends towards the position bar in the middle.
+            let middle = strip.center().y;
+            let button = |x: f32| Rect::from_center_size(Pos2::new(x, middle), Vec2::splat(32.));
+            let mut left = strip.left() + SPACE_S;
+            let mut right = strip.right() - SPACE_S;
 
-        let bar = Rect::from_min_max(
-            Pos2::new(left, middle - 12.),
-            Pos2::new(right.max(left + 1.), middle + 12.),
-        );
-        let fraction = session.duration().map_or(0., |end| (position / end) as f32);
-        if let Some(end) = session.duration() {
-            let response = ui
-                .interact(bar, id.with("seek"), egui::Sense::click_and_drag())
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            let at = |x: f32| f64::from(((x - bar.left()) / bar.width()).clamp(0., 1.)) * end;
-            let pointer = response.interact_pointer_pos().map(|pointer| at(pointer.x));
-            if response.clicked() || response.drag_stopped() {
-                if let Some(seconds) = pointer.or(session.drag) {
-                    session.scrub(&ctx, seconds, true, gain);
+            let play = control(ui, id.with("play"), button(left + 16.));
+            let play = play.on_hover_text(if session.playing { "Pause" } else { "Play" });
+            if session.playing {
+                paint_pause(ui, play.rect.center(), CONTROL);
+            } else {
+                paint_play(ui, play.rect.center(), 7., CONTROL);
+            }
+            toggle |= play.clicked();
+            left += 32. + SPACE_S;
+
+            let font = egui::FontId::proportional(TEXT_CAPTION + 1.);
+            let position = session.position();
+            let time = match session.duration() {
+                Some(end) => format!("{} / {}", clock_text(position), clock_text(end)),
+                None => clock_text(position),
+            };
+            // As wide as it gets, so the bar does not move while the time counts.
+            let widest: String = time
+                .chars()
+                .map(|c| if c.is_ascii_digit() { '0' } else { c })
+                .collect();
+            let reserved = ui
+                .painter()
+                .layout_no_wrap(widest, font.clone(), CONTROL)
+                .size()
+                .x;
+            ui.painter().text(
+                Pos2::new(left, middle),
+                egui::Align2::LEFT_CENTER,
+                time,
+                font,
+                CONTROL,
+            );
+            left += reserved + SPACE_M;
+
+            let full = control(ui, id.with("fullscreen"), button(right - 16.)).on_hover_text(
+                if fullscreen {
+                    "Exit fullscreen"
+                } else {
+                    "Fullscreen"
+                },
+            );
+            paint_fullscreen(ui, full.rect.center(), CONTROL, fullscreen);
+            toggle_fullscreen |= full.clicked();
+            right -= 32. + SPACE_XS;
+
+            let open = control(ui, id.with("external"), button(right - 16.))
+                .on_hover_text("Open in your video player");
+            paint_external(ui, open.rect.center(), CONTROL);
+            external = open.clicked();
+            right -= 32. + SPACE_XS;
+
+            // Sound: a level to drag and a speaker to mute with, where there is sound to control.
+            let level = Rect::from_min_max(
+                Pos2::new(right - 56., middle - 12.),
+                Pos2::new(right, middle + 12.),
+            );
+            if sound {
+                let response = ui
+                    .interact(level, id.with("volume"), egui::Sense::click_and_drag())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                if let Some(pointer) = response.interact_pointer_pos() {
+                    self.volume = ((pointer.x - level.left()) / level.width()).clamp(0., 1.);
+                    self.muted = false;
                 }
-            } else if response.dragged()
-                && let Some(seconds) = pointer
-            {
-                session.scrub(&ctx, seconds, false, gain);
-                ctx.request_repaint_after(SCRUB_EVERY);
+                let shown = if self.muted { 0. } else { self.volume };
+                paint_bar(ui, level, shown, response.hovered() || response.dragged());
+                right -= level.width() + SPACE_XS;
             }
-            let lit = response.hovered() || response.dragged();
-            if let Some(hover) = response.hover_pos().filter(|_| lit) {
-                response.on_hover_text_at_pointer(clock_text(at(hover.x)));
+            let speaker = control(ui, id.with("mute"), button(right - 16.));
+            let speaker = speaker.on_hover_text(if silent_file {
+                "This video has no sound"
+            } else if !audio::AVAILABLE {
+                "Sound does not play in the app on this system yet. Open the video in your player to hear it."
+            } else if self.muted {
+                "Unmute"
+            } else {
+                "Mute"
+            });
+            let quiet = self.muted || self.volume == 0.;
+            paint_speaker(
+                ui,
+                speaker.rect.center(),
+                if sound { CONTROL } else { CONTROL_OFF },
+                !sound || quiet,
+            );
+            if sound && speaker.clicked() {
+                self.muted = !quiet;
+                if quiet && self.volume == 0. {
+                    self.volume = 0.5;
+                }
             }
-            paint_bar(ui, bar, fraction, lit);
-        } else {
-            paint_bar(ui, bar, fraction, false);
+            right -= 32. + SPACE_M;
+
+            let bar = Rect::from_min_max(
+                Pos2::new(left, middle - 12.),
+                Pos2::new(right.max(left + 1.), middle + 12.),
+            );
+            let fraction = session.duration().map_or(0., |end| (position / end) as f32);
+            if let Some(end) = session.duration() {
+                let response = ui
+                    .interact(bar, id.with("seek"), egui::Sense::click_and_drag())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                let at = |x: f32| f64::from(((x - bar.left()) / bar.width()).clamp(0., 1.)) * end;
+                let pointer = response.interact_pointer_pos().map(|pointer| at(pointer.x));
+                if response.clicked() || response.drag_stopped() {
+                    if let Some(seconds) = pointer.or(session.drag) {
+                        session.scrub(&ctx, seconds, true, gain);
+                    }
+                } else if response.dragged()
+                    && let Some(seconds) = pointer
+                {
+                    session.scrub(&ctx, seconds, false, gain);
+                    ctx.request_repaint_after(SCRUB_EVERY);
+                }
+                let lit = response.hovered() || response.dragged();
+                if let Some(hover) = response.hover_pos().filter(|_| lit) {
+                    response.on_hover_text_at_pointer(clock_text(at(hover.x)));
+                }
+                paint_bar(ui, bar, fraction, lit);
+            } else {
+                paint_bar(ui, bar, fraction, false);
+            }
         }
 
-        // The keyboard, while the pointer is over the player and nothing is being typed.
+        // The keyboard: fullscreen always, on the page while the pointer is over the player and
+        // nothing is being typed.
+        let area = strip.map_or(picture, |strip| picture.union(strip));
         let mut jump = 0.;
-        if ui.rect_contains_pointer(rect) && !ctx.wants_keyboard_input() {
+        let mut leave = false;
+        if fullscreen || (ui.rect_contains_pointer(area) && !ctx.wants_keyboard_input()) {
             ui.input_mut(|input| {
                 let mut pressed = |key: egui::Key| input.consume_key(egui::Modifiers::NONE, key);
                 toggle |= pressed(egui::Key::Space) | pressed(egui::Key::K);
@@ -667,7 +873,13 @@ impl Player {
                 if sound && pressed(egui::Key::M) {
                     self.muted = !self.muted;
                 }
+                toggle_fullscreen |= pressed(egui::Key::F);
+                // Escape only leaves fullscreen; nothing else on the page sees it.
+                leave = fullscreen && pressed(egui::Key::Escape);
             });
+        }
+        if fullscreen && !shown {
+            ctx.set_cursor_icon(egui::CursorIcon::None);
         }
         if toggle {
             session.set_playing(&ctx, !session.playing, gain);
@@ -675,11 +887,25 @@ impl Player {
         if jump != 0. && session.error.is_none() {
             session.seek(&ctx, session.position() + jump, true, gain);
         }
-        if external.clicked() {
-            session.set_playing(&ctx, false, gain);
-            self.error = crate::platform::open_target(session.path.as_os_str()).err();
+        if external {
+            self.open_externally(&ctx, crate::platform::open_file);
+        } else if leave {
+            self.leave_fullscreen();
+        } else if toggle_fullscreen {
+            self.set_fullscreen(&ctx, !fullscreen);
         }
     }
+}
+
+/// A pointer movement, a click, a scroll or a key press: shows the hidden fullscreen controls.
+fn stirred(input: &egui::InputState) -> bool {
+    input.pointer.delta() != Vec2::ZERO
+        || input.pointer.any_pressed()
+        || input.raw_scroll_delta != Vec2::ZERO
+        || input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))
 }
 
 /// A video's poster with a play mark, for lists and for the player before it starts.
@@ -821,6 +1047,27 @@ fn paint_external(ui: &egui::Ui, center: Pos2, color: Color32) {
     );
     painter.line_segment([at(0., 0.), at(7., -7.)], stroke);
     painter.line(vec![at(2., -7.), at(7., -7.), at(7., -2.)], stroke);
+}
+
+/// Four corners pointing out, or pointing in to leave fullscreen.
+fn paint_fullscreen(ui: &egui::Ui, center: Pos2, color: Color32, leave: bool) {
+    let stroke = egui::Stroke::new(1.5, color);
+    for (x, y) in [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)] {
+        let (elbow, arm) = if leave {
+            (Vec2::new(2.5 * x, 2. * y), 4.)
+        } else {
+            (Vec2::new(7. * x, 6. * y), -4.)
+        };
+        let elbow = center + elbow;
+        ui.painter().line(
+            vec![
+                elbow + Vec2::new(arm * x, 0.),
+                elbow,
+                elbow + Vec2::new(0., arm * y),
+            ],
+            stroke,
+        );
+    }
 }
 
 /// A thin track filled up to `fraction`, with a handle while the pointer is on it.
@@ -1126,6 +1373,228 @@ mod tests {
                     .is_some_and(|a| a.position().is_some()),
             );
         }
+    }
+
+    /// The fullscreen changes a pass asked the window for.
+    fn fullscreen_commands(output: &egui::FullOutput) -> Vec<bool> {
+        output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|viewport| {
+                viewport
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        egui::ViewportCommand::Fullscreen(on) => Some(*on),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn with_video(path: &str) -> Player {
+        Player {
+            session: Some(parked(path)),
+            ..Default::default()
+        }
+    }
+
+    fn key(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// One pass that draws `player` for `path` when given one, with `events` as its input.
+    /// Returns the fullscreen changes asked for and whether Escape was left for the rest of
+    /// the app.
+    fn pass(
+        ctx: &egui::Context,
+        player: &mut Player,
+        path: Option<&str>,
+        events: Vec<egui::Event>,
+    ) -> (Vec<bool>, bool) {
+        let mut previews = Previews::default();
+        let mut escape_left = false;
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if let Some(path) = path {
+                    player.show(ui, &mut previews, Path::new(path));
+                }
+            });
+            escape_left = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+        });
+        (fullscreen_commands(&output), escape_left)
+    }
+
+    #[test]
+    fn fullscreen_turns_on_and_off_and_needs_a_video() {
+        let ctx = egui::Context::default();
+        let mut player = Player::default();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            player.set_fullscreen(ctx, true);
+        });
+        assert!(player.fullscreen.is_none(), "Nothing open");
+        assert!(fullscreen_commands(&output).is_empty());
+
+        player.session = Some(parked("clip.mp4"));
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            player.set_fullscreen(ctx, true);
+            player.set_fullscreen(ctx, true);
+        });
+        assert!(player.fullscreen.is_some());
+        assert_eq!(fullscreen_commands(&output), [true], "Asked once");
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            player.set_fullscreen(ctx, false);
+            player.set_fullscreen(ctx, false);
+        });
+        assert!(player.fullscreen.is_none());
+        assert_eq!(fullscreen_commands(&output), [false]);
+        assert!(
+            player.is_open(Path::new("clip.mp4")),
+            "The video stays open"
+        );
+    }
+
+    #[test]
+    fn keys_toggle_fullscreen_and_escape_only_leaves_it() {
+        let ctx = egui::Context::default();
+        let mut player = Player::default();
+        let mut session = parked("clip.mp4");
+        session.playing = true;
+        player.session = Some(session);
+        let path = Some("clip.mp4");
+        // On the page, the keys need the pointer over the player; fullscreen they do not.
+        player.set_fullscreen(&ctx, true);
+        let _ = pass(&ctx, &mut player, path, Vec::new());
+
+        let (commands, escape_left) = pass(&ctx, &mut player, path, vec![key(egui::Key::Escape)]);
+        assert_eq!(commands, [false]);
+        assert!(!escape_left, "Escape did nothing else");
+        assert!(player.fullscreen.is_none());
+        assert!(
+            player.session.as_ref().unwrap().playing,
+            "Leaving fullscreen does not pause"
+        );
+
+        let (_, escape_left) = pass(&ctx, &mut player, path, vec![key(egui::Key::Escape)]);
+        assert!(
+            escape_left,
+            "Not fullscreen: Escape is the rest of the app's"
+        );
+
+        player.set_fullscreen(&ctx, true);
+        let _ = pass(&ctx, &mut player, path, Vec::new());
+        let (commands, _) = pass(&ctx, &mut player, path, vec![key(egui::Key::F)]);
+        assert_eq!(commands, [false], "F leaves fullscreen too");
+        assert!(player.fullscreen.is_none());
+    }
+
+    #[test]
+    fn a_fullscreen_player_that_is_not_drawn_restores_the_window() {
+        let ctx = egui::Context::default();
+        let mut player = with_video("clip.mp4");
+        player.set_fullscreen(&ctx, true);
+        let (commands, _) = pass(&ctx, &mut player, Some("clip.mp4"), Vec::new());
+        assert_eq!(commands, [true], "Drawn: stays fullscreen");
+        let (commands, _) = pass(&ctx, &mut player, None, Vec::new());
+        assert_eq!(commands, [false], "Not drawn: the window is restored");
+        let (commands, _) = pass(&ctx, &mut player, Some("clip.mp4"), Vec::new());
+        assert!(commands.is_empty());
+        assert!(player.fullscreen.is_none(), "Back on the page");
+    }
+
+    #[test]
+    fn closing_suspending_or_another_video_leave_fullscreen() {
+        let ctx = egui::Context::default();
+        for leave in [Player::close, Player::suspend] {
+            let mut player = with_video("clip.mp4");
+            player.set_fullscreen(&ctx, true);
+            leave(&mut player);
+            assert!(player.fullscreen.is_none());
+            assert!(
+                ctx.data(|data| data.get_temp::<Drawn>(drawn_id()))
+                    .is_none()
+            );
+        }
+        let mut player = with_video("clip.mp4");
+        player.set_fullscreen(&ctx, true);
+        let _ = pass(&ctx, &mut player, Some("clip.mp4"), Vec::new());
+        let (commands, _) = pass(&ctx, &mut player, Some("other.mp4"), Vec::new());
+        assert_eq!(commands, [false]);
+        assert!(player.fullscreen.is_none() && player.current().is_none());
+    }
+
+    #[test]
+    fn fullscreen_controls_hide_after_a_while_unless_paused_or_held() {
+        let start = Instant::now();
+        let state = Fullscreen {
+            ctx: egui::Context::default(),
+            active: start,
+        };
+        let later = |millis| start + Duration::from_millis(millis);
+        assert!(state.controls_shown(later(2400), true, false));
+        assert!(!state.controls_shown(later(2500), true, false));
+        assert!(state.controls_shown(later(9000), false, false), "Paused");
+        assert!(state.controls_shown(later(9000), true, true), "Held");
+        assert!(state.controls_shown(start, true, false));
+    }
+
+    #[test]
+    fn movement_clicks_and_keys_wake_the_controls() {
+        let ctx = egui::Context::default();
+        let stirred_by = |events: Vec<egui::Event>| {
+            let mut stirred_now = false;
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| stirred_now = ctx.input(stirred),
+            );
+            stirred_now
+        };
+        let _ = stirred_by(vec![egui::Event::PointerMoved(Pos2::new(10., 10.))]);
+        assert!(!stirred_by(Vec::new()), "Nothing happened");
+        assert!(stirred_by(vec![egui::Event::PointerMoved(Pos2::new(
+            40., 10.
+        ))]));
+        assert!(
+            !stirred_by(vec![egui::Event::PointerMoved(Pos2::new(40., 10.))]),
+            "Same place"
+        );
+        assert!(stirred_by(vec![key(egui::Key::A)]));
+    }
+
+    #[test]
+    fn the_system_player_pauses_this_one_and_leaves_fullscreen() {
+        let ctx = egui::Context::default();
+        let mut player = Player::default();
+        let mut session = parked("clip.mp4");
+        session.playing = true;
+        player.session = Some(session);
+        player.set_fullscreen(&ctx, true);
+        let mut opened = None;
+        player.open_externally(&ctx, |path| {
+            opened = Some(path.to_owned());
+            Ok(())
+        });
+        assert_eq!(opened.as_deref(), Some(Path::new("clip.mp4")));
+        assert!(!player.session.as_ref().unwrap().playing);
+        assert!(player.fullscreen.is_none());
+        assert_eq!(player.error, None);
+
+        player.open_externally(&ctx, |_| Err("Moved".into()));
+        assert_eq!(player.error.as_deref(), Some("Moved"));
     }
 
     #[test]

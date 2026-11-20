@@ -197,7 +197,7 @@ impl Converter {
                     self.preview_time
                 )));
                 if ui.button("Play source video").clicked() {
-                    self.error = crate::platform::open_target(path.as_os_str()).err();
+                    self.error = crate::platform::open_file(path).err();
                 }
                 ui.label(semibold(
                     path.file_name().unwrap_or_default().to_string_lossy(),
@@ -329,7 +329,7 @@ impl Converter {
             }
             if let Some((path, size)) = &self.saved {
                 if ui.button("Preview GIF").clicked()
-                    && let Err(error) = crate::platform::open_target(path.as_os_str())
+                    && let Err(error) = crate::platform::open_file(path)
                 {
                     self.error = Some(error);
                 }
