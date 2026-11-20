@@ -38,6 +38,25 @@ pub fn folder() -> Option<PathBuf> {
     crate::dev::data_dir().map(|dir| dir.join("native-host"))
 }
 
+/// `--unregister-extension`, run by the Windows uninstaller before it deletes the app: removes
+/// this executable's registration (`registry::unregister_copy`) and returns the exit code. Opens
+/// no window and writes no log; nothing registered is success.
+pub fn unregister_this_copy() -> i32 {
+    let result = folder()
+        .ok_or_else(|| "The app data folder is unknown.".to_owned())
+        .and_then(|folder| {
+            let exe = std::env::current_exe().map_err(|_| "The app's location is unknown.")?;
+            registry::unregister_copy(&mut registry::UserRegistry, &folder, &exe)
+        });
+    match result {
+        Ok(_) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
