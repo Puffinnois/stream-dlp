@@ -348,7 +348,7 @@ impl Library {
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Open in player").clicked() {
                         self.player.suspend();
-                        self.error = crate::platform::open_target(video.path.as_os_str()).err();
+                        self.error = crate::platform::open_file(&video.path).err();
                     }
                     if ui.button("Show file").clicked() {
                         self.error = crate::platform::reveal(&video.path).err();
