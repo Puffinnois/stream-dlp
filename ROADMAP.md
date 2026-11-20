@@ -393,7 +393,7 @@ Depends on S-01. Requested November 17, 2026: the downloaded video is visible in
 - [x] Sound on Windows through the system's wave output, declared by hand; the picture follows the sound's clock.
 - [x] Download page: the saved video plays under **Download complete**; each video a download-all saved has a thumbnail that plays it.
 - [x] My videos: a thumbnail per video that plays it at once, thumbnails loaded three at a time in the background.
-- [ ] Sound on macOS. *Open (2026-11-17): the Mac build plays the picture only. It needs an output written for macOS (or an audio crate, which is a dependency to decide on) and the PCM encoder in the Mac FFmpeg build.*
+- [ ] Sound on macOS. *Open (2026-11-20): implemented, compiled by CI, not yet heard on a Mac. A hand-declared Audio Queue output (no audio crate) behind the same interface as the Windows one, with the picture on its clock, and the `pcm_s16le` encoder in the Mac FFmpeg build. Closes after the sound checks in [the Mac checklist](docs/macos.md#checks-to-try) pass on a real Mac.*
 - [ ] Watch and listen on real downloads on Windows and on a Mac. *Open (2026-11-17): on Windows, generated H.264, VP9 and AV1 clips with AAC and Opus sound were played in the app's window on My videos, with the app's sound level measured ([results](docs/reference/in-app-playback.md#in-the-window-november-17-2026-windows-11-debug-build)). No person has listened, no real download was played, the Download page's player was not shown live, and the Mac build was only compiled and checked by CI.*
 
 ### S-02 — Browser-assisted Streamable workflow

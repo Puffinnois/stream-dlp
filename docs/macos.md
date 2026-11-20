@@ -48,9 +48,10 @@ them off.
 The bundled FFmpeg is built for local stream copying and merging, the GIF
 converter, and video previews. It has no external codec libraries; besides the
 system zlib, its only encoders are the built-in PNG, GIF, and raw video ones those
-features need, plus MPEG-4/AAC for the local test. Other video/audio conversion is
-outside this release's scope. Videos play in the app without sound on a Mac for now
-(the picture only; [reference](reference/in-app-playback.md#sound)), and AV1 videos
+features need, 16-bit PCM for the in-app player's sound, plus MPEG-4/AAC for the local
+test. Other video/audio conversion is outside this release's scope. The in-app player's
+sound plays through an Audio Queue ([reference](reference/in-app-playback.md#sound));
+it is compiled and checked by CI but has not yet been heard on a real Mac. AV1 videos
 do not play or preview in the app; open them in your system player. Downloaded codecs are not guaranteed to play in
 QuickTime. The local test uses the built-in MPEG-4/AAC encoders to avoid requiring
 Homebrew or hardware encoding.
@@ -123,6 +124,16 @@ on your Mac. You can use the same form if the app never opened.
 - [ ] Cancel a download and close during a download; confirm helper processes stop.
 - [ ] Import a user-supplied YouTube cookie export and test an authorized download.
 - [ ] Replace the app with another package; check launch and existing saved files.
+- [ ] Play a downloaded video with sound on My videos: the sound is heard from the first
+  picture, stays in step with lips or claps for at least a minute, and stops with the picture.
+- [ ] In the same video: pause and play, seek with the bar and with the arrow keys, drag
+  the bar (silent while dragging, sound again on release), mute, unmute and lower the
+  volume; each is heard at once and the picture stays in step.
+- [ ] Let a video play to its end, then play it again; switch to another video while one
+  plays; only one is heard at a time.
+- [ ] Unplug headphones or change the output in Control Center while a video plays, and
+  play a video with no output device selected or with the sound muted in macOS: the
+  picture keeps playing either way.
 
 Repeat manual checks when changing packaging, permissions, browser integration,
 updates, or substantial UI behavior. Routine shared-engine changes use automated
