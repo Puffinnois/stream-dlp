@@ -27,9 +27,11 @@ FFMPEG_FLAGS = [
     "--disable-doc", "--disable-ffplay", "--disable-debug", "--disable-x86asm",
     # Downloads are performed by yt-dlp; FFmpeg remuxes local media and makes GIFs and previews.
     # mpeg4/aac: the synthetic audio/video integration test. png (the GIF palette) and gif:
-    # the GIF converter. rawvideo: video previews. The PNG codec needs the system zlib.
+    # the GIF converter. rawvideo: video previews. pcm_s16le: the in-app player's sound (the
+    # s16le muxer it writes through is enabled, as all muxers are). The PNG codec needs the
+    # system zlib.
     "--enable-zlib",
-    "--disable-encoders", "--enable-encoder=mpeg4,aac,png,gif,rawvideo",
+    "--disable-encoders", "--enable-encoder=mpeg4,aac,png,gif,rawvideo,pcm_s16le",
 ]
 
 

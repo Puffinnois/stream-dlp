@@ -174,8 +174,9 @@ video plays at a time, and it pauses when you switch to another page.
 Playing happens on your computer with the bundled FFmpeg; nothing is uploaded and
 the file is never changed. The picture is shown at up to 960 pixels on its longer
 side, whatever the file's resolution, so full screen enlarges it and a sharp video
-looks softer there than in your system player. On a Mac the player has no sound yet: use the
-system-player button to hear a video in your system player. A very large video
+looks softer there than in your system player. Sound in the app on a Mac is new and
+has not yet been tried on a real Mac: if a video plays there without sound, use the
+system-player button to hear it in your system player. A very large video
 (4K at a high frame rate) may skip frames on a slow computer; its sound keeps playing.
 
 ### Recent downloads (optional)
