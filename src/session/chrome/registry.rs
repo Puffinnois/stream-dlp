@@ -3,9 +3,10 @@
 //!
 //! Chrome reads `HKCU\Software\Google\Chrome\NativeMessagingHosts\<name>`; Edge reads its own
 //! key first and falls back to Chrome's. Both point at one manifest in the per-user folder
-//! (`super::folder`) that allows exactly our extension's origin. The uninstaller does not know
-//! about either (an installer change); see `docs/reference/chrome-extension.md`.
-use super::{HOST_NAME, origin};
+//! (`super::folder`) that allows exactly our extension's origin. The Windows uninstaller runs
+//! `stream-dlp.exe --unregister-extension` (`unregister_copy`) to remove both; see
+//! `docs/reference/chrome-extension.md`.
+use super::{HOST_NAME, channel::CHANNEL_FILE, origin};
 use std::{
     io,
     path::{Path, PathBuf},
@@ -91,6 +92,53 @@ pub fn unregister(registry: &mut dyn Registry, folder: &Path) -> Result<(), Stri
         Err("Could not remove the browser registration completely. Try Disconnect again.".into())
     } else {
         Ok(())
+    }
+}
+
+/// What `unregister_copy` did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Cleanup {
+    /// Nothing of ours is registered any more (it may never have been).
+    Removed,
+    /// The manifest names another copy of the app, such as a portable one; left as it was.
+    KeptOther,
+}
+
+/// The uninstaller's cleanup (`--unregister-extension`): the same removal as Disconnect, plus
+/// a leftover channel file and the folder if it is then empty, unless the manifest names a
+/// different executable than `exe`. That registration belongs to another copy of the app, which
+/// keeps working after this one is gone. Safe to repeat and with nothing registered.
+pub fn unregister_copy(
+    registry: &mut dyn Registry,
+    folder: &Path,
+    exe: &Path,
+) -> Result<Cleanup, String> {
+    let named = std::fs::read(manifest_path(folder))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|manifest| manifest["path"].as_str().map(PathBuf::from));
+    if named.is_some_and(|named| !same_path(&named, exe)) {
+        return Ok(Cleanup::KeptOther);
+    }
+    unregister(registry, folder)?;
+    match std::fs::remove_file(folder.join(CHANNEL_FILE)) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            return Err("Could not remove the extension's channel file.".into());
+        }
+        _ => {}
+    }
+    // Only when empty: the folder may hold files this version does not know about.
+    let _ = std::fs::remove_dir(folder);
+    Ok(Cleanup::Removed)
+}
+
+/// Windows paths ignore case; the manifest holds what `current_exe` returned at Connect.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) {
+        a.to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy())
+    } else {
+        a == b
     }
 }
 
@@ -353,6 +401,74 @@ pub(crate) mod tests {
         let mut registry = FakeRegistry::default();
         assert!(register(&mut registry, folder.path(), Path::new("stream-dlp.exe")).is_err());
         assert!(registry.values.is_empty());
+    }
+
+    #[test]
+    fn the_uninstall_cleanup_removes_this_copys_registration_channel_and_empty_folder() {
+        let parent = tempfile::tempdir().unwrap();
+        let folder = parent.path().join("native-host");
+        let mut registry = FakeRegistry::default();
+        register(&mut registry, &folder, &exe()).unwrap();
+        std::fs::write(folder.join(CHANNEL_FILE), "{}").unwrap();
+        let other = r"Software\Google\Chrome\NativeMessagingHosts\com.example.other";
+        registry
+            .values
+            .insert(other.into(), r"C:\other\host.json".into());
+        // The uninstaller may spell the same path in another case.
+        let this = if cfg!(windows) {
+            PathBuf::from(exe().to_string_lossy().to_uppercase())
+        } else {
+            exe()
+        };
+        assert_eq!(
+            unregister_copy(&mut registry, &folder, &this),
+            Ok(Cleanup::Removed)
+        );
+        assert_eq!(registry.values.keys().collect::<Vec<_>>(), [other]);
+        assert!(!folder.exists());
+        // Again, with nothing registered and no folder: still fine.
+        assert_eq!(
+            unregister_copy(&mut registry, &folder, &this),
+            Ok(Cleanup::Removed)
+        );
+    }
+
+    #[test]
+    fn the_uninstall_cleanup_keeps_another_copys_registration() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut registry = FakeRegistry::default();
+        register(&mut registry, folder.path(), &exe()).unwrap();
+        std::fs::write(folder.path().join(CHANNEL_FILE), "{}").unwrap();
+        let elsewhere = exe()
+            .parent()
+            .unwrap()
+            .join("portable")
+            .join("stream-dlp.exe");
+        assert_eq!(
+            unregister_copy(&mut registry, folder.path(), &elsewhere),
+            Ok(Cleanup::KeptOther)
+        );
+        assert!(folder.path().join(CHANNEL_FILE).is_file());
+        assert_eq!(
+            registered(&registry, folder.path()),
+            [Browser::Chrome, Browser::Edge]
+        );
+    }
+
+    #[test]
+    fn the_uninstall_cleanup_removes_keys_left_without_a_readable_manifest() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut registry = FakeRegistry::default();
+        register(&mut registry, folder.path(), &exe()).unwrap();
+        std::fs::write(manifest_path(folder.path()), "not json").unwrap();
+        std::fs::write(folder.path().join("unknown.txt"), "keep").unwrap();
+        assert_eq!(
+            unregister_copy(&mut registry, folder.path(), &exe()),
+            Ok(Cleanup::Removed)
+        );
+        assert!(registry.values.is_empty());
+        assert!(!manifest_path(folder.path()).exists());
+        assert!(folder.path().join("unknown.txt").is_file());
     }
 
     #[test]

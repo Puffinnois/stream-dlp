@@ -22,6 +22,13 @@ fn main() -> eframe::Result {
     if session::chrome::host::invoked(&args) {
         std::process::exit(session::chrome::host::run(&args));
     }
+    // Run by the Windows uninstaller: remove this copy's extension registration, no window.
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "--unregister-extension")
+    {
+        std::process::exit(session::chrome::unregister_this_copy());
+    }
     if std::env::args().skip(1).any(|arg| arg == "--check-tools") {
         if let Err(error) = tools::check() {
             eprintln!("{error}");

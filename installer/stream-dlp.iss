@@ -79,6 +79,12 @@ Filename: "{app}\stream-dlp.exe"; Description: "Open stream-dlp"; Flags: nowait 
 ; The app's silent update passes /RELAUNCH=1 to reopen it; other silent installs (CI) do not.
 Filename: "{app}\stream-dlp.exe"; Flags: nowait skipifnotsilent; Check: Relaunch
 
+[UninstallRun]
+; Before the files go: the app removes its own Chrome/Edge extension registration (the same code
+; as Disconnect; a portable copy's registration is kept). No window; nothing registered and a
+; failure both let the uninstall continue. Updates never run this.
+Filename: "{app}\stream-dlp.exe"; Parameters: "--unregister-extension"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterExtension"
+
 [Code]
 function Relaunch: Boolean;
 begin
