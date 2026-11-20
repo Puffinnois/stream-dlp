@@ -136,11 +136,72 @@ Tests use a fake registry (`registry::Registry`) and temporary folders; they nev
 keys, except the opt-in `live_browser_extension_session` ([below](#the-apps-side-without-the-window)). The registry writes are direct `advapi32` calls, the random bytes `BCryptGenRandom`: no new
 dependency.
 
+### What Connect creates
+
+Everything is per user; nothing goes under `HKEY_LOCAL_MACHINE` or into the app folder:
+
+| What | Where | Removed by |
+| --- | --- | --- |
+| Chrome key, default value = manifest path | `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.stream_dlp.youtube_session` | Disconnect, Remove registration, uninstall |
+| Edge key, the same value | `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.stream_dlp.youtube_session` | the same |
+| Host manifest | `%LOCALAPPDATA%\stream-dlp\native-host\com.stream_dlp.youtube_session.json` | the same |
+| Channel file (port and secret), only while listening | `%LOCALAPPDATA%\stream-dlp\native-host\channel.json` | the app when it stops listening; uninstall if one was left |
+| The `native-host` folder | `%LOCALAPPDATA%\stream-dlp\native-host\` | uninstall, only when empty |
+
+No setting is stored: the extension has no `storage` permission and the app keeps the session in
+memory. The rest of `%LOCALAPPDATA%\stream-dlp` (settings, logs) is not the extension's and the
+uninstaller leaves it, as before.
+
+### Removal
+
+- **Windows installation.** The uninstaller's first step (`[UninstallRun]` in
+  `installer/stream-dlp.iss`, before any file is deleted) runs
+  `stream-dlp.exe --unregister-extension`, hidden and waited for. `main` handles it right after the
+  host-mode check, before any window, settings, error log or startup sweep, and calls
+  `registry::unregister_copy`: the same `unregister` as Disconnect (both keys by our host name,
+  then the manifest), then a leftover `channel.json` and the folder if it is empty. One function
+  decides what is removed, for the app and the uninstaller alike. Nothing registered is success
+  (exit 0). A failure exits 1, which Inno Setup ignores, so the uninstall never fails because of
+  it. Only keys named `com.stream_dlp.youtube_session` are deleted; other programs' hosts are not
+  touched.
+- **A registration of another copy is kept.** If the manifest's `path` names a different
+  executable (compared without case on Windows), for example a portable copy that pressed Connect
+  later, the cleanup changes nothing: that copy still exists and its registration still works.
+  A manifest that cannot be read counts as ours and is removed.
+- **Updates keep it.** `[UninstallRun]` runs only on uninstall, never for the setup run over an
+  existing installation or the update installer, and an update keeps the executable's path, so
+  the registration stays valid. The update installer is built from the same script, so its
+  uninstall log carries the same entry; `RunOnceId` keeps it from running twice. Installations
+  set up by 0.10.0 or earlier get the entry with their next update to a version that has it.
+- **Portable ZIP.** There is no uninstaller. Press **Disconnect extension** (or **Remove
+  registration**) in Dev mode before deleting the folder. If the folder is already gone, the
+  keys point at a manifest naming a missing executable (Chrome then fails to start the host);
+  delete them by hand:
+
+  ```powershell
+  reg delete "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.stream_dlp.youtube_session" /f
+  reg delete "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.stream_dlp.youtube_session" /f
+  Remove-Item -Recurse "$env:LOCALAPPDATA\stream-dlp\native-host"
+  ```
+
+- **macOS.** The flow does not exist there: the panel is hidden and `registry::UserRegistry`
+  refuses every call off Windows, so Connect is never offered and nothing is registered. Chrome
+  on a Mac would read a manifest file instead of a registry key, per user in
+  `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
+  ([Chrome docs](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging));
+  if the Mac build ever gains the flow, it must write and remove that file, and dragging the app to
+  the Trash would not remove it.
+
+`registry.rs` tests the cleanup with the fake registry: this copy's registration, channel file
+and empty folder go while another host's key stays; a manifest naming another executable is left
+alone; an unreadable manifest is removed but unknown files in the folder are kept; repeating with
+nothing registered succeeds. The uninstaller itself can only be exercised by CI's Package check
+(AGENTS.md forbids running installers on the development machine).
+
 ## Limits and leftovers
 
-- Uninstalling stream-dlp does not remove the registration or the manifest (that needs an
-  installer change, not made). Press Disconnect before uninstalling, or delete the two keys and
-  the `native-host` folder by hand.
+- Uninstalling removes the registration ([Removal](#removal)); deleting a portable folder does
+  not, so press Disconnect first.
 - Windows only. The code builds and its tests run on macOS; the panel is hidden there.
 - Release packages do not ship `extension/`; the panel points to the folder in the source
   checkout the build came from.
@@ -152,6 +213,119 @@ dependency.
   Credentials may also limit reuse outside the browser.
 - Edge reads its own key first and falls back to Chrome's. Edge support must be accepted on its
   own; do not infer it from Chrome.
+
+## Distribution and maintenance estimate (November 20, 2026)
+
+A written estimate for A-03's second checkbox. Store requirements were read from the stores' own
+pages on this date (sources at the end); no account, listing or key was created. Effort figures
+are rough ranges for one developer who knows this code, and exclude waiting for reviews.
+
+### Option A: ship `extension/` in the release packages (load unpacked)
+
+What it takes:
+
+- Copy `extension/` into the portable folder and ZIP (`build.ps1`) and the installer
+  (`installer/stream-dlp.iss` `[Files]`, both of which need the user's approval under AGENTS.md),
+  and point the panel's "select this folder" path at the copy next to the executable instead of
+  the source checkout (`extension_panel::extension_folder`). Add a package-check assertion that
+  the folder is present. About half a day.
+- The ID stays `edngekgkkjhaoohkfddejaoohfaggiac` (the committed public `key`), so the host
+  manifest and the host's origin check do not change.
+
+What it costs the person: Developer mode must be on in the browser profile, and Chrome and Edge
+warn about developer-mode extensions. An unpacked extension never updates itself: after an app
+update that changed `extension/`, the person must press Reload on `chrome://extensions`; if the
+message protocol changed, the app refuses the old extension's `hello` until then. A managed browser can forbid Developer mode by policy.
+Chrome 157 ignores `--load-extension` ([partial run](#partial-run-in-a-real-chrome-november-17-2026)),
+so the app cannot load it for the person.
+
+Ongoing: a release note line when `extension/` changes, and keeping `PROTOCOL` in
+`messages.rs` and `bridge.js` in step (a test already checks they match).
+
+### Option B: Chrome Web Store and Edge Add-ons listings
+
+What it takes, per store:
+
+- **Accounts.** Chrome Web Store: a one-time registration fee whose amount the registration page
+  does not state (it was US$5 when introduced; Chromium blog, 2020), and 2-Step Verification on
+  the account before publishing. Edge Add-ons: a Partner Center account, no registration fee;
+  an individual account is verified quickly, a company account in days to weeks.
+- **Listing and privacy tab.** Both stores require a narrow single-purpose description, a
+  justification for each permission (`cookies`, `nativeMessaging`, `*://*.youtube.com/*`), a
+  remote-code declaration (none: MV3 forbids it and the extension has none), data-use
+  disclosures with a Limited Use certification, and a privacy policy. The Chrome Web Store
+  requires a policy whenever an item handles user data, and it treats authentication data
+  (YouTube's account cookies are exactly that) as data to keep secure. Edge requires a policy in
+  general and asks that a dependency on other software (here the stream-dlp app) be disclosed in
+  the description. The project has no hosted privacy policy today; it would need one at a stable
+  URL that says the cookies go only to the local app, stay in memory and are never sent
+  elsewhere, plus the Limited Use statement the Chrome Web Store asks for on a website. Store
+  graphics, descriptions (Edge: 250 to 10,000 characters) and a listing per store.
+- **Review.** Chrome Web Store: "within a few days, but it can take up to a few weeks"; a new
+  developer, a new item, and `cookies` combined with host permissions are named as reasons for
+  closer review. Edge: certification up to seven business days. Every update is reviewed again.
+- **Policy risk, the largest unknown.** Both stores forbid extensions that enable unauthorized
+  downloading of copyrighted media and access that gets around login restrictions, and the
+  Chrome Web Store lists video downloaders among items it may keep out of featuring. The
+  extension does not download anything itself, but its single purpose is to hand a signed-in
+  YouTube session to a downloader. A rejection is plausible and could not be fixed by changing
+  code; repeated violations can end the developer account.
+- **The ID changes.** A listing has its own item ID, and each store assigns a different one. The
+  Chrome docs keep one ID across development and the store by uploading the package unpublished,
+  copying the store's public key into the manifest's `key`; the private key behind the current
+  `key` was not kept, so the store ID can never be `edngekgkkjhaoohkfddejaoohfaggiac`. Either
+  switch the committed `key` to the Chrome Web Store's (the unpacked ID then matches the Chrome
+  listing) or keep both. Edge's listing gets a third ID in any case. `allowed_origins` takes no
+  wildcards, so the manifest must list every ID, and `host::caller_allowed`, `origin()` and the
+  ID test must accept a fixed list instead of one origin. About a day of code and tests, plus a
+  migration note for anyone with the old unpacked ID.
+
+First listing effort, both stores: two to four days of work (privacy policy page, listings and
+graphics, the ID change, store packaging in `build.ps1` or a release step, a CI check that the
+packaged manifest's ID is in `allowed_origins`), then one to three weeks of review, more if a
+rejection must be answered.
+
+### Ongoing maintenance (either option, more for B)
+
+- **Chromium and MV3 changes.** The design rests on the service worker staying alive while a
+  native port is open (Chrome 105+), on `cookies.getAll` returning unpartitioned cookies, and on
+  native messaging starting the host through `cmd.exe`. Cookie partitioning, Device Bound Session
+  Credentials and YouTube's rotation may change what the extension can read or what yt-dlp can
+  use. Check each change against the manual checklist; budget a few hours per Chrome major
+  version that touches extensions or cookies, plus the same for Edge.
+- **Store policy reviews (B).** Each update goes through review; policy updates can require new
+  disclosures or remove the listing. Answering a takedown or warning is unplanned work with a
+  7- to 30-day deadline in the Chrome Web Store. Keep 2-Step Verification and the account owner's
+  access current.
+- **IDs and allowed origins.** Any new listing or key change must be added to
+  `allowed_origins`, the host's origin list and its tests in the same release; an app older than
+  the extension rejects it as an unknown origin. A test should compare the list with every
+  shipped manifest.
+- **Privacy policy (B).** Update it whenever what the extension reads or sends changes.
+
+### Recommendation
+
+Keep A-03 a Dev mode prototype and do not make it a release commitment until a person has run the
+[manual acceptance checklist](#manual-acceptance-checklist) in Chrome and Edge on a clean
+machine. Nothing yet shows that yt-dlp keeps working with cookies read from a live profile, and
+that is the whole value of the feature. If the checklist passes, take option A first (half a day,
+no store accounts, no policy review, the ID unchanged) for Dev mode users only. Consider option B
+only after option A has shown the flow keeps working across several YouTube cookie rotations and
+browser versions, and only with a decision on the policy risk above. It adds two to four days
+up front, recurring store reviews, a public privacy policy and the ID migration, and may be
+rejected for reasons code cannot fix.
+
+Sources (read November 20, 2026):
+[Chrome Web Store registration](https://developer.chrome.com/docs/webstore/register),
+[Chrome Web Store program policies](https://developer.chrome.com/docs/webstore/program-policies/policies),
+[Chrome Web Store review process](https://developer.chrome.com/docs/webstore/review-process),
+[Chrome Web Store privacy fields](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy),
+[manifest `key`](https://developer.chrome.com/docs/extensions/reference/manifest/key),
+[native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
+[Chromium blog, March 2020](https://blog.chromium.org/2020/03/new-developer-dashboard-and.html),
+[Edge developer account](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/create-dev-account),
+[Edge publishing](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension),
+[Edge Add-ons developer policies](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies).
 
 ## Manual acceptance checklist
 
@@ -191,7 +365,8 @@ real links, titles, account names and screenshots out of the repository (AGENTS.
 12. **Edge separately.** Repeat 1–11 in a dedicated Edge profile (`edge://extensions`). Record
     Edge results separately from Chrome.
 
-Only after these pass on a clean Windows machine may A-03's checkboxes be ticked.
+Only after these pass on a clean Windows machine may A-03's first checkbox (the evaluation) be
+ticked. The second, the estimate, is done ([above](#distribution-and-maintenance-estimate-november-20-2026)).
 
 ### The app's side without the window
 
