@@ -10,9 +10,44 @@ Playing a local video inside the app (S-06): on the Download page after a downlo
 - **Download all**: each saved video has a thumbnail; clicking it puts the player under that entry.
 - **My videos**: clicking a thumbnail plays the video at once in the **Selected video** card, which the page scrolls to, while the file's check (FFprobe, as before) runs beside it; clicking the name only selects. **Open in player** and the button at the right of the strip hand the file to the system player and pause the app's.
 
-The strip under the picture has play/pause, the time, the position bar, the speaker and level, and the system-player button. With the pointer over the player and no text field active: Space or K play and pause, ← and → move 5 seconds, M mutes.
+The strip under the picture has play/pause, the time, the position bar, the speaker and level, the system-player button and the fullscreen button. With the pointer over the player and no text field active: Space or K play and pause, ← and → move 5 seconds, M mutes, F goes fullscreen. A double click on the picture also goes fullscreen; both of its clicks toggle playing, so it plays on as it was.
 
 One `Player` belongs to the Download page (`App::player`) and one to My videos (`Library::player`). Each holds at most one open video: asking it to show another file closes the open one. A page that is not shown has its player suspended, so only one video plays.
+
+## Fullscreen
+
+`Player::set_fullscreen` sends `ViewportCommand::Fullscreen(true)`: winit makes the window borderless fullscreen on its monitor and, on Windows, saves its placement (`GetWindowPlacement`), which `Fullscreen(false)` restores, so the window comes back maximized or at its size and place. The session is not touched, so playback goes on without a restart; entering also ends any text input on the page so the player gets the keys.
+
+The page still lays out underneath: `video` allocates the player's box as usual (painted black) and draws the picture and strip in an `egui::Area` of `Order::Foreground` that covers `ctx.content_rect()`. The rest of the page, the sidebar and the Dev mode button are under it, and the page keeps its layout and scroll position, so leaving shows the same page where it was. The picture keeps its shape on black (`fit`) and the strip lies over its bottom.
+
+- Keys work anywhere while fullscreen (not only with the pointer over the player). Escape is consumed by the player, so it only leaves fullscreen and the Dev mode and feedback panels underneath never see it.
+- `Fullscreen::controls_shown`: the strip shows while the video is paused, while the pointer is on it or the bar is dragged, and for 2.5 s after the last pointer movement, click, scroll or key press (`stirred`). Hidden, the strip takes no clicks and the cursor is `CursorIcon::None`.
+- Leaving: the button, F, Escape or a double click; and `open` (another video), `close`, `suspend` (the page is not shown, a tools update, closing the app) and the system-player button. The `Fullscreen` state keeps a clone of the `egui::Context` so these can restore the window without a frame. At the end of the video the window stays fullscreen on the last picture, as the page does.
+- A safety net for a page that stops calling `show` without closing the player: the player writes the pass it was drawn in to the context's temporary data, and an `on_end_pass` callback (registered once per context) restores the window at the end of a pass that did not draw it. The player then finds the mark gone and draws itself on the page again.
+- The picture is decoded at most 960 pixels on its longer side (see Frames), so fullscreen enlarges it.
+- No platform-specific code: macOS takes the same viewport command (winit's borderless fullscreen there).
+
+## The system player
+
+The button at the right of the strip (and **Open in player** on My videos, **Play source video** and **Preview GIF** on the GIF page) calls `platform::open_file`, not `open_target`, which stays for links. It first checks that the file exists ("This file was moved or deleted. Choose it again." otherwise). On Windows it then calls `ShellExecuteExW` with no verb, the default action a double click in Explorer runs, with `SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI`, so the call returns once the app was started and reports a failure as an error code instead of a dialog: missing file or folder, no app associated with the type (`ERROR_NO_ASSOCIATION`, which asks the person to choose one in Open with), access denied, or anything else. The structure and function are declared by hand in `src/platform.rs`, like the wave output; no new dependency. On macOS it is `/usr/bin/open` through `open_target`, as before. The player pauses its own video and leaves fullscreen first, so the two never play at once and the other player is not behind the app's window.
+
+Before, the button called `open_target`, which runs `rundll32.exe url.dll,FileProtocolHandler <path>`. That treats its argument as a URL, takes the command line in the system's ANSI code page, and only reports whether rundll32 started. Tested on November 20, 2026 (Windows 11, default player Media Player), with generated clips each showing its own case number, through the same calls as the app:
+
+| File name | rundll32 (before) | `ShellExecuteExW` (now) |
+| --- | --- | --- |
+| `plain.mp4` | opened | opened |
+| `with spaces.mp4` | opened | opened |
+| letters outside the code page (`café ñ 日本.mp4`) | **nothing opened**, rundll32 exited with 0 | opened |
+| `a%20b.mp4` | opened the right file | opened |
+| `100% done.mp4` | opened | opened |
+| `part #2.mp4` | opened | opened |
+| `tom & jerry.mp4` | opened | opened |
+| `one, two.mp4` | opened | opened |
+| `semi;colon (1) [x].mp4` | opened | opened |
+| a path of 332 characters | opened | opened |
+| a missing file | nothing, exit code 0 | error 2, shown as the moved-file message |
+
+The call took 140 to 320 ms on the UI thread (it waits for the start to be handed over), once per click. A type with no associated app was not tried on this machine.
 
 ## Frames
 
@@ -55,7 +90,7 @@ Each UI frame, `Session::advance` takes the decoded frames whose moment has come
 
 ## Stopping
 
-- Opening another file, closing, leaving the page, starting a tools update and closing the app all drop the `Decoder` and `Audio`, which stops both helpers and the sound at once.
+- Opening another file, closing, leaving the page, starting a tools update and closing the app all drop the `Decoder` and `Audio`, which stops both helpers and the sound at once, and leave fullscreen.
 - A video paused for 30 seconds, or on a page that is no longer shown, is parked: its helpers stop and its picture and position stay. Playing again starts new ones at that position.
 - The player never writes, moves or changes a file, and nothing about what is played is recorded, sent or added to recent downloads, usage reports, feedback or dev notes.
 
@@ -65,7 +100,7 @@ Each UI frame, `Session::advance` takes the decoded frames whose moment has come
 
 ## Tests
 
-In `cargo xtask check`: the stream header and color conversion, PCM and gain, the clock, the picture's fit, the position while dragging, frames waiting for their moment, the end and failure states, and the poster and player drawing headless.
+In `cargo xtask check`: the stream header and color conversion, PCM and gain, the clock, the picture's fit, the position while dragging, frames waiting for their moment, the end and failure states, and the poster and player drawing headless. Fullscreen, headless with the viewport commands each pass asks for: on and off once each and only with a video open; Escape leaving it without reaching the rest of the app, and Escape left alone when not fullscreen; F; a pass that does not draw the player restoring the window; close, suspend and another video leaving it; the controls' hide timing; what counts as movement; the system player pausing and leaving fullscreen. In `platform.rs`: a missing file (also with an awkward name) and a folder give the moved-file message without starting anything, the error codes' messages, and the size of the hand-declared `SHELLEXECUTEINFOW` (112 bytes on 64-bit).
 
 In `cargo xtask pipeline` (ignored tests, on clips FFmpeg generates):
 
@@ -98,3 +133,16 @@ The same generated clips on My videos, driven by hand in the app's window, with 
 - Found and fixed there: a portrait video made the player taller than a small window and pushed the strip out of view. Its height is now limited to the visible part of the page, and the page keeps the player in view while it takes the picture's shape.
 
 Not verified: no person has listened to it (the level proves a signal of the right size and duration, not how it sounds), the Download page's and download-all's players were not shown with a real download, real downloads were not played, and nothing was run on a Mac (its build passes CI).
+
+### Fullscreen and the system player in the window, November 20, 2026 (Windows 11, debug build)
+
+On My videos, with a generated 1280×720 clip with a tone (its name has an accented letter) and a 540×960 one, the window once at a normal size and once maximized:
+
+- The fullscreen button (hover text **Fullscreen**), F and a double click each made the window fill the screen with the picture on black, the taskbar hidden and the strip over the bottom; the portrait clip was centred between black bars. Playing went on through each change (the time kept counting, and a double click left it playing).
+- Without movement the strip went away after about 2.5 s and `GetCursorInfo` reported no cursor; a mouse movement brought both back. Paused, the strip stayed.
+- Fullscreen: the play/pause button, Space, →, a click and a drag on the position bar, mute and unmute all worked. At the end the last picture stayed fullscreen with the play mark; Space played it again.
+- Escape, F and the exit button (inward corners, hover text **Exit fullscreen**) restored the window at its size and place, or maximized when it had been, with the page at the same scroll position.
+- The system-player button, fullscreen and playing: Media Player opened that clip, and the app had left fullscreen and paused. From the page it opened again. After the file was renamed, the button showed the moved-file message under the player.
+- Found and fixed there: the fullscreen layer's `Area` had the same id as the fullscreen button, so the strip's buttons took no clicks in fullscreen (a click went to the picture).
+
+Not verified: the Download page's and download-all's players in fullscreen (no download was run; they call the same `Player::show`, and the headless tests cover the shared code), a second monitor, a person watching for stutter beyond the time counting on, and anything on a Mac (no local Mac build; CI checks it).

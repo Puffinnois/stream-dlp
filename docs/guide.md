@@ -157,16 +157,25 @@ A finished download shows its picture on the **Download** page, and every video 
   while you drag. The **←** and **→** keys move 5 seconds.
 - Drag the level next to the speaker for the volume, or click the speaker (or press
   **M**) to mute. The keys work while the pointer is over the player.
-- The button on the right opens the video in your system player, for full screen
-  or anything else the app's player does not do.
+- The button at the far right, or **F**, or a double click on the picture, plays the
+  video full screen: the window fills the screen with the picture on black. The
+  controls lie over the bottom of the picture and hide, with the pointer, after a few
+  seconds without movement; move the mouse to bring them back. They stay while the
+  video is paused. All the buttons and keys keep working. **Esc**, **F**, a double
+  click or the same button leave full screen, and the window and the page come back
+  as they were. At the end of the video the last picture stays on screen.
+- The button next to it opens the video in the app your computer plays videos with,
+  for anything the app's player does not do. The app's player pauses and leaves full
+  screen. A video that was moved or deleted says so instead.
 
 After **Download all**, each saved video has its own thumbnail to play it. Only one
 video plays at a time, and it pauses when you switch to another page.
 
 Playing happens on your computer with the bundled FFmpeg; nothing is uploaded and
 the file is never changed. The picture is shown at up to 960 pixels on its longer
-side, whatever the file's resolution. On a Mac the player has no sound yet: use the
-button on the right to hear a video in your system player. A very large video
+side, whatever the file's resolution, so full screen enlarges it and a sharp video
+looks softer there than in your system player. On a Mac the player has no sound yet: use the
+system-player button to hear a video in your system player. A very large video
 (4K at a high frame rate) may skip frames on a slow computer; its sound keeps playing.
 
 ### Recent downloads (optional)
