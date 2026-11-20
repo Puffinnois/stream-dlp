@@ -1,6 +1,6 @@
 # stream-dlp feature roadmap
 
-Prepared October 21, 2026, against stream-dlp 0.3.3; reconciled with the code on November 13, 2026 (after v0.7.0: other sites, recent downloads, the pasted Streamable link, silent sources).
+Prepared October 21, 2026, against stream-dlp 0.3.3; reconciled with the code on November 20, 2026 (after v0.10.0: in-app playback; then fullscreen, the system-player button, macOS sound and the extension's removal on uninstall).
 
 Task checkboxes track implementation. Firefox automatic session import is now implemented experimentally; see R-01 and A-01/A-02 for its validation limits. Remaining research findings are based on source inspection and upstream documentation unless a live test is explicitly recorded.
 
@@ -36,11 +36,13 @@ Module by module in the [Source layout](docs/reference/development.md#source-lay
 
 - Downloads (`src/engine/`): YouTube, and experimental TikTok, X/Twitter, Facebook and Instagram (P-01 to P-04) and other sites (U-01): link routing, format list, audio/video merging with silent sources saved as video only and lost audio reported as a failure (F-02), multi-video choice with an explicit download-all (F-04), progress, cancellation, no-overwrite.
 - Sessions (`src/session/`): isolated manual cookie imports for YouTube, TikTok, X, Facebook and Instagram, plus experimental Firefox import for YouTube (F-03). The Download page's session link names the platform of the pasted address. Other sites never take a session.
-- In-app playback of a finished download and of any video on My videos, with sound on Windows (S-06).
+- In-app playback of a finished download and of any video on My videos, with fullscreen, and with sound on Windows and (not yet heard on a real Mac) on macOS (S-06).
 - My videos and previews, with an optional recent-download list whose file checks run in the background (S-01), the GIF converter, and browser-assisted Streamable sharing with the pasted link kept for the file, plus experimental automatic uploads (S-02, S-02A).
 - Background app updates and download-tool updates (`src/update/`, `src/tools/`); Dev mode and dev notes (`src/dev/`).
 
-Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03; a Dev mode prototype exists, live acceptance open); signed-in Streamable and platform session cases. Other sites, recent downloads, the pasted Streamable link and silent sources shipped in v0.8.0; download-all (F-04), the destination guard and the Dev mode extension prototype in v0.9.0.
+Still missing: direct Streamable uploads (blocked, S-03/S-04); clean-machine acceptance of the Firefox import and the live browser matrix (R-01, A-01/A-02); automatic Chrome/Edge import (A-03; a Dev mode prototype exists, live acceptance open); signed-in Streamable and platform session cases. Other sites, recent downloads, the pasted Streamable link and silent sources shipped in v0.8.0; download-all (F-04), the destination guard and the Dev mode extension prototype in v0.9.0. In-app playback shipped in v0.10.0.
+
+What is left needs a person or equipment an agent does not have (November 20, 2026): listening to the Mac sound on a real Mac and watching real downloads play (S-06); signed-in sessions, a clean Windows machine, Windows 10, Chrome and Edge for the session import (R-01, A-01/A-02); the extension's manual acceptance checklist (A-03); live multi-video posts on Instagram and Facebook (F-04); signed-in Streamable and large or rejected uploads (R-02, S-02A); a clean machine, redirected Downloads and disabled long paths (release checks). S-03 to S-05 stay blocked on Streamable's API.
 
 ## Feasibility findings
 
